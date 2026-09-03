@@ -6,6 +6,7 @@ import { ChatHeader } from "@/components/chat/chat-header";
 import { ChatComposer } from "@/components/chat/chat-composer";
 import { EmptyState } from "@/components/chat/empty-state";
 import { MessageList } from "@/components/chat/message-list";
+import { LeadDebugPanel } from "@/components/chat/lead-debug-panel";
 
 export function ChatWindow() {
   const {
@@ -13,6 +14,7 @@ export function ChatWindow() {
     status,
     isResponding,
     error,
+    lead,
     sendMessage,
     setConversation,
     reset,
@@ -38,6 +40,8 @@ export function ChatWindow() {
 
         <ChatComposer onSend={sendMessage} disabled={isResponding} />
       </div>
+
+      <LeadDebugPanel lead={lead} />
     </div>
   );
 }

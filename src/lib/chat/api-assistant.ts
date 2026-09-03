@@ -1,7 +1,10 @@
-import type {
-  AssistantClient,
-  ChatMessage,
-  SendOptions,
+import {
+  EMPTY_LEAD,
+  LEAD_DELIMITER,
+  type AssistantClient,
+  type ChatMessage,
+  type LeadData,
+  type SendOptions,
 } from "@/types/chat";
 
 const ENDPOINT = "/api/chat";
@@ -24,18 +27,33 @@ async function readError(response: Response): Promise<string> {
   return GENERIC_ERROR;
 }
 
+function parseLead(raw: string): LeadData | null {
+  try {
+    const data = JSON.parse(raw) as { lead?: unknown };
+    if (data && typeof data.lead === "object" && data.lead !== null) {
+      return { ...EMPTY_LEAD, ...(data.lead as Partial<LeadData>) };
+    }
+  } catch {
+    // ignore malformed trailer — the chat reply is unaffected
+  }
+  return null;
+}
+
 /**
- * Assistant client backed by the `/api/chat` route, which streams a Claude
- * response back as plain-text chunks.
+ * Assistant client backed by the `/api/chat` route.
  *
- * Only ever surfaces short, user-facing strings — the route never sends stack
- * traces or secrets, and any transport failure is mapped to a generic message.
- * A stalled request is aborted after {@link REQUEST_TIMEOUT_MS}.
+ * The response body is the streamed reply text, optionally followed by
+ * `LEAD_DELIMITER` and a `{"lead": {...}}` JSON trailer. Reply text is forwarded
+ * to `onToken` as it arrives; the trailer is parsed and handed to `onLead`.
+ *
+ * Only ever surfaces short, user-facing error strings — the route never sends
+ * stack traces or secrets. A stalled request is aborted after
+ * {@link REQUEST_TIMEOUT_MS}.
  */
 export const apiAssistant: AssistantClient = {
   async send(
     messages: ChatMessage[],
-    { signal, onToken }: SendOptions = {},
+    { signal, onToken, onLead }: SendOptions = {},
   ): Promise<string> {
     const controller = new AbortController();
     const onExternalAbort = () => controller.abort();
@@ -67,24 +85,47 @@ export const apiAssistant: AssistantClient = {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let full = "";
+      let reply = "";
+      let leadTrailer = "";
+      let sawDelimiter = false;
 
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           const chunk = decoder.decode(value, { stream: true });
-          if (chunk) {
-            full += chunk;
+          if (!chunk) continue;
+
+          if (sawDelimiter) {
+            leadTrailer += chunk;
+            continue;
+          }
+
+          const delimiterIndex = chunk.indexOf(LEAD_DELIMITER);
+          if (delimiterIndex === -1) {
+            reply += chunk;
             onToken?.(chunk);
+          } else {
+            sawDelimiter = true;
+            const replyPart = chunk.slice(0, delimiterIndex);
+            if (replyPart) {
+              reply += replyPart;
+              onToken?.(replyPart);
+            }
+            leadTrailer += chunk.slice(delimiterIndex + LEAD_DELIMITER.length);
           }
         }
       } catch {
         if (timedOut) throw new Error(TIMEOUT_ERROR);
-        throw new Error(full ? INTERRUPTED_ERROR : GENERIC_ERROR);
+        throw new Error(reply ? INTERRUPTED_ERROR : GENERIC_ERROR);
       }
 
-      return full;
+      if (sawDelimiter) {
+        const lead = parseLead(leadTrailer);
+        if (lead) onLead?.(lead);
+      }
+
+      return reply;
     } finally {
       clearTimeout(timeout);
       signal?.removeEventListener("abort", onExternalAbort);

@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AssistantClient, ChatMessage } from "@/types/chat";
+import {
+  EMPTY_LEAD,
+  type AssistantClient,
+  type ChatMessage,
+  type LeadData,
+} from "@/types/chat";
 import { apiAssistant } from "@/lib/chat/api-assistant";
 import { GREETING_MESSAGE } from "@/lib/chat/mock-data";
 
@@ -33,6 +38,8 @@ export interface UseChatResult {
   status: ChatStatus;
   isResponding: boolean;
   error: string | null;
+  /** Structured lead data extracted from the conversation so far. */
+  lead: LeadData;
   sendMessage: (content: string) => Promise<void>;
   setConversation: (messages: ChatMessage[]) => void;
   reset: () => void;
@@ -45,6 +52,7 @@ export function useChat({
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [status, setStatus] = useState<ChatStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [lead, setLead] = useState<LeadData>(EMPTY_LEAD);
 
   // Mirror state into refs (updated after commit) so the async `sendMessage`
   // callback can read the latest values without being re-created every render.
@@ -83,7 +91,10 @@ export function useChat({
       };
 
       try {
-        const reply = await client.send(thread, { onToken: appendChunk });
+        const reply = await client.send(thread, {
+          onToken: appendChunk,
+          onLead: setLead,
+        });
         // Ensure the final content is exact even if no chunks arrived.
         setMessages((prev) =>
           prev.map((message) =>
@@ -114,6 +125,7 @@ export function useChat({
     statusRef.current = "idle";
     setError(null);
     setStatus("idle");
+    setLead(EMPTY_LEAD);
     setMessages(next);
   }, []);
 
@@ -126,6 +138,7 @@ export function useChat({
     status,
     isResponding: status !== "idle",
     error,
+    lead,
     sendMessage,
     setConversation,
     reset,

@@ -6,7 +6,8 @@ import {
   getAnthropicClient,
 } from "@/lib/chat/anthropic";
 import { SYSTEM_PROMPT } from "@/lib/chat/system-prompt";
-import type { ChatTurn } from "@/types/chat";
+import { extractLead } from "@/lib/chat/lead-extraction";
+import { EMPTY_LEAD, LEAD_DELIMITER, type ChatTurn } from "@/types/chat";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -152,36 +153,54 @@ export async function POST(request: NextRequest) {
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
+      let replyText = "";
       try {
         if (firstChunk === null) {
           const final = await stream.finalMessage();
-          controller.enqueue(
-            encoder.encode(
-              final.stop_reason === "refusal"
-                ? FALLBACK_REPLIES.refusal
-                : FALLBACK_REPLIES.empty,
-            ),
-          );
-          controller.close();
-          return;
-        }
-
-        controller.enqueue(encoder.encode(firstChunk));
-        while (true) {
-          const { value: event, done } = await events.next();
-          if (done) break;
-          if (
-            event.type === "content_block_delta" &&
-            event.delta.type === "text_delta"
-          ) {
-            controller.enqueue(encoder.encode(event.delta.text));
+          replyText =
+            final.stop_reason === "refusal"
+              ? FALLBACK_REPLIES.refusal
+              : FALLBACK_REPLIES.empty;
+          controller.enqueue(encoder.encode(replyText));
+        } else {
+          replyText = firstChunk;
+          controller.enqueue(encoder.encode(firstChunk));
+          while (true) {
+            const { value: event, done } = await events.next();
+            if (done) break;
+            if (
+              event.type === "content_block_delta" &&
+              event.delta.type === "text_delta"
+            ) {
+              replyText += event.delta.text;
+              controller.enqueue(encoder.encode(event.delta.text));
+            }
           }
         }
-        controller.close();
       } catch (error) {
         console.error("chat stream error", error);
         controller.error(error);
+        return;
       }
+
+      // Second pass: extract structured lead data from the full conversation
+      // (history + the reply we just produced), then append it after the
+      // delimiter. Extraction failure never breaks the chat — it yields an
+      // empty lead and the client keeps its last-known value.
+      let lead = EMPTY_LEAD;
+      try {
+        lead = await extractLead(client, [
+          ...messages,
+          { role: "assistant", content: replyText },
+        ]);
+      } catch (error) {
+        console.error("lead extraction error", error);
+      }
+
+      controller.enqueue(
+        encoder.encode(LEAD_DELIMITER + JSON.stringify({ lead })),
+      );
+      controller.close();
     },
     cancel() {
       stream.abort();
