@@ -116,11 +116,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Thinking disabled: a lead-qualification chat is a low-complexity task and
+  // real-time responsiveness matters more than deliberation.
   const stream = client.messages.stream({
     model: CHAT_MODEL,
     max_tokens: MAX_TOKENS,
     system: SYSTEM_PROMPT,
-    output_config: { effort: "low" },
+    thinking: { type: "disabled" },
     messages,
   });
 
