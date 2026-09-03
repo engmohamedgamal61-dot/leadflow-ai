@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AssistantClient, ChatMessage } from "@/types/chat";
-import { mockAssistant } from "@/lib/chat/mock-assistant";
+import { apiAssistant } from "@/lib/chat/api-assistant";
 import { GREETING_MESSAGE } from "@/lib/chat/mock-data";
+
+export type ChatStatus = "idle" | "thinking" | "streaming";
 
 function createMessage(
   role: ChatMessage["role"],
@@ -22,12 +24,13 @@ function createMessage(
 
 interface UseChatOptions {
   initialMessages?: ChatMessage[];
-  /** Defaults to the mock assistant; pass a real client in a later phase. */
+  /** Defaults to the API-backed assistant; inject a mock for tests. */
   client?: AssistantClient;
 }
 
 export interface UseChatResult {
   messages: ChatMessage[];
+  status: ChatStatus;
   isResponding: boolean;
   error: string | null;
   sendMessage: (content: string) => Promise<void>;
@@ -37,42 +40,70 @@ export interface UseChatResult {
 
 export function useChat({
   initialMessages = [GREETING_MESSAGE],
-  client = mockAssistant,
+  client = apiAssistant,
 }: UseChatOptions = {}): UseChatResult {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
-  const [isResponding, setIsResponding] = useState(false);
+  const [status, setStatus] = useState<ChatStatus>("idle");
   const [error, setError] = useState<string | null>(null);
 
   // Mirror state into refs (updated after commit) so the async `sendMessage`
-  // callback can read the latest thread without being re-created every render.
+  // callback can read the latest values without being re-created every render.
   const messagesRef = useRef(messages);
-  const isRespondingRef = useRef(isResponding);
+  const statusRef = useRef(status);
   useEffect(() => {
     messagesRef.current = messages;
-    isRespondingRef.current = isResponding;
-  }, [messages, isResponding]);
+    statusRef.current = status;
+  }, [messages, status]);
 
   const sendMessage = useCallback(
     async (content: string) => {
       const trimmed = content.trim();
-      if (!trimmed || isRespondingRef.current) return;
+      if (!trimmed || statusRef.current !== "idle") return;
 
       setError(null);
       const userMessage = createMessage("user", trimmed);
-      const nextThread = [...messagesRef.current, userMessage];
-      messagesRef.current = nextThread;
-      isRespondingRef.current = true;
-      setMessages(nextThread);
-      setIsResponding(true);
+      const assistantMessage = createMessage("assistant", "");
+      const thread = [...messagesRef.current, userMessage];
+
+      messagesRef.current = [...thread, assistantMessage];
+      statusRef.current = "thinking";
+      setMessages(messagesRef.current);
+      setStatus("thinking");
+
+      const appendChunk = (chunk: string) => {
+        statusRef.current = "streaming";
+        setStatus("streaming");
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === assistantMessage.id
+              ? { ...message, content: message.content + chunk }
+              : message,
+          ),
+        );
+      };
 
       try {
-        const reply = await client.send(nextThread);
-        setMessages((prev) => [...prev, createMessage("assistant", reply)]);
-      } catch {
-        setError("Something went wrong. Please try sending that again.");
+        const reply = await client.send(thread, { onToken: appendChunk });
+        // Ensure the final content is exact even if no chunks arrived.
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === assistantMessage.id
+              ? { ...message, content: reply }
+              : message,
+          ),
+        );
+      } catch (err) {
+        setError(
+          err instanceof Error && err.message
+            ? err.message
+            : "Something went wrong. Please try sending that again.",
+        );
+        setMessages((prev) =>
+          prev.filter((message) => message.id !== assistantMessage.id),
+        );
       } finally {
-        isRespondingRef.current = false;
-        setIsResponding(false);
+        statusRef.current = "idle";
+        setStatus("idle");
       }
     },
     [client],
@@ -80,9 +111,9 @@ export function useChat({
 
   const setConversation = useCallback((next: ChatMessage[]) => {
     messagesRef.current = next;
-    isRespondingRef.current = false;
+    statusRef.current = "idle";
     setError(null);
-    setIsResponding(false);
+    setStatus("idle");
     setMessages(next);
   }, []);
 
@@ -92,7 +123,8 @@ export function useChat({
 
   return {
     messages,
-    isResponding,
+    status,
+    isResponding: status !== "idle",
     error,
     sendMessage,
     setConversation,

@@ -10,6 +10,7 @@ import { MessageList } from "@/components/chat/message-list";
 export function ChatWindow() {
   const {
     messages,
+    status,
     isResponding,
     error,
     sendMessage,
@@ -26,11 +27,7 @@ export function ChatWindow() {
 
         <div className="flex-1 overflow-y-auto">
           {hasUserMessages ? (
-            <MessageList
-              messages={messages}
-              isResponding={isResponding}
-              error={error}
-            />
+            <MessageList messages={messages} status={status} error={error} />
           ) : (
             <EmptyState
               onSuggestionSelect={sendMessage}

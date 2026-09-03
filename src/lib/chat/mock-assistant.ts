@@ -1,34 +1,44 @@
-import type { AssistantClient, ChatMessage } from "@/types/chat";
+import type {
+  AssistantClient,
+  ChatMessage,
+  SendOptions,
+} from "@/types/chat";
 import { LEAD_FIELDS } from "@/lib/chat/lead-qualification";
 
-const MIN_DELAY = 700;
-const MAX_DELAY = 1400;
+const THINK_DELAY = 500;
+const CHUNK_DELAY = 28;
 
-function randomDelay() {
-  return MIN_DELAY + Math.random() * (MAX_DELAY - MIN_DELAY);
-}
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Placeholder assistant.
- *
- * It walks the prospect through the lead-qualification questions in order,
- * one per user turn, so the interface can be exercised end to end without a
- * backend. Swap this for a real client that calls an AI API — the rest of the
- * app only depends on the {@link AssistantClient} interface.
+ * Dependency-free stand-in for {@link apiAssistant}, kept for local development
+ * and tests. It walks the prospect through the lead-qualification questions in
+ * order — one per user turn — and streams the reply word by word so the UI
+ * behaves the same as it does against the real API.
  */
 export const mockAssistant: AssistantClient = {
-  async send(messages: ChatMessage[]): Promise<string> {
-    await new Promise((resolve) => setTimeout(resolve, randomDelay()));
+  async send(
+    messages: ChatMessage[],
+    { onToken }: SendOptions = {},
+  ): Promise<string> {
+    await wait(THINK_DELAY);
 
-    const answeredCount = messages.filter((m) => m.role === "user").length;
-    // The greeting already covers the first field, so the next question is
-    // offset by one.
-    const nextField = LEAD_FIELDS[answeredCount + 1];
+    const answered = messages.filter((m) => m.role === "user").length;
+    const nextField = LEAD_FIELDS[answered + 1];
+    const reply = nextField
+      ? nextField.question
+      : "Thanks — that's everything I need for now. One of our property specialists will reach out shortly with matching options.";
 
-    if (nextField) {
-      return nextField.question;
+    if (!onToken) return reply;
+
+    const words = reply.split(" ");
+    let streamed = "";
+    for (let i = 0; i < words.length; i += 1) {
+      const chunk = i === 0 ? words[i] : ` ${words[i]}`;
+      streamed += chunk;
+      onToken(chunk);
+      await wait(CHUNK_DELAY);
     }
-
-    return "Thanks — that's everything I need for now. One of our property specialists will reach out shortly with matching options.";
+    return streamed;
   },
 };
