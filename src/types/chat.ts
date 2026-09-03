@@ -96,10 +96,17 @@ export interface SendOptions {
   /** Called once with the structured lead data after the reply completes. */
   onLead?: (lead: LeadData) => void;
   /**
+   * Called once with the persisted conversation id (or `null` if persistence
+   * is disabled). Pass it back as `conversationId` on the next turn.
+   */
+  onConversation?: (conversationId: string | null) => void;
+  /**
    * Industry template slug for this conversation (e.g. "real-estate",
    * "clinic"). Omit to use the server default.
    */
   industry?: string;
+  /** Persisted conversation id from a previous turn, to continue the chat. */
+  conversationId?: string;
 }
 
 /**

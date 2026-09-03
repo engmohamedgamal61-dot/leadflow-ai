@@ -107,6 +107,74 @@ test("leadWriteToInsert maps camelCase back to snake_case columns", () => {
   });
 });
 
+test("real-estate customData round-trips through custom_data only", () => {
+  const insert = leadWriteToInsert({
+    organizationId: "org_re",
+    lead: {
+      name: "محمد",
+      phone: null,
+      email: null,
+      intent: "buy",
+      customData: {
+        location: "Riyadh",
+        budget: 1_000_000,
+        property_type: "apartment",
+        bedrooms: 4,
+        financing: true,
+        timeline: "1 week",
+      },
+    },
+    score: 100,
+    temperature: "HOT",
+  });
+  // industry fields land in custom_data, never as columns
+  assert.deepEqual(insert.custom_data, {
+    location: "Riyadh",
+    budget: 1_000_000,
+    property_type: "apartment",
+    bedrooms: 4,
+    financing: true,
+    timeline: "1 week",
+  });
+  for (const k of ["budget", "property_type", "bedrooms", "financing", "location", "timeline"]) {
+    assert.equal(k in insert, false);
+  }
+});
+
+test("clinic customData round-trips through custom_data only", () => {
+  const insert = leadWriteToInsert({
+    organizationId: "org_clinic",
+    lead: {
+      name: "Ahmed",
+      phone: "+966555555555",
+      email: null,
+      intent: null,
+      customData: {
+        service: "Dental Cleaning",
+        doctor: "Dr. Ahmed",
+        appointment_date: "2026-09-10",
+        insurance: true,
+        urgency: "high",
+      },
+    },
+    score: 100,
+    temperature: "HOT",
+  });
+  assert.equal(insert.name, "Ahmed");
+  assert.equal(insert.phone, "+966555555555");
+  assert.equal(insert.intent, null);
+  assert.deepEqual(insert.custom_data, {
+    service: "Dental Cleaning",
+    doctor: "Dr. Ahmed",
+    appointment_date: "2026-09-10",
+    insurance: true,
+    urgency: "high",
+  });
+  for (const k of ["service", "doctor", "appointment_date", "insurance", "urgency"]) {
+    assert.equal(k in insert, false);
+  }
+});
+
 test("leadWriteToInsert omits optional fields when not provided", () => {
   const insert = leadWriteToInsert({
     organizationId: "org_9",

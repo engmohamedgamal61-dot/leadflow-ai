@@ -6,6 +6,11 @@ import {
   type SendOptions,
 } from "@/types/chat";
 
+interface LeadTrailer {
+  lead?: unknown;
+  conversationId?: unknown;
+}
+
 const ENDPOINT = "/api/chat";
 
 /** Abort a request that never makes progress so the UI can't lock up. */
@@ -30,34 +35,45 @@ function asText(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-function parseLead(raw: string): LeadData | null {
+function toLeadData(value: unknown): LeadData | null {
+  if (!value || typeof value !== "object") return null;
+  const l = value as Partial<LeadData>;
+  return {
+    name: asText(l.name),
+    phone: asText(l.phone),
+    email: asText(l.email),
+    intent: asText(l.intent),
+    customData:
+      l.customData && typeof l.customData === "object"
+        ? (l.customData as Record<string, unknown>)
+        : {},
+  };
+}
+
+function parseTrailer(raw: string): {
+  lead: LeadData | null;
+  conversationId: string | null;
+} {
   try {
-    const data = JSON.parse(raw) as { lead?: unknown };
-    if (data && typeof data.lead === "object" && data.lead !== null) {
-      const lead = data.lead as Partial<LeadData>;
-      return {
-        name: asText(lead.name),
-        phone: asText(lead.phone),
-        email: asText(lead.email),
-        intent: asText(lead.intent),
-        customData:
-          lead.customData && typeof lead.customData === "object"
-            ? (lead.customData as Record<string, unknown>)
-            : {},
-      };
-    }
+    const data = JSON.parse(raw) as LeadTrailer;
+    return {
+      lead: toLeadData(data?.lead),
+      conversationId:
+        typeof data?.conversationId === "string" ? data.conversationId : null,
+    };
   } catch {
     // ignore malformed trailer — the chat reply is unaffected
+    return { lead: null, conversationId: null };
   }
-  return null;
 }
 
 /**
  * Assistant client backed by the `/api/chat` route.
  *
  * The response body is the streamed reply text, optionally followed by
- * `LEAD_DELIMITER` and a `{"lead": {...}}` JSON trailer. Reply text is forwarded
- * to `onToken` as it arrives; the trailer is parsed and handed to `onLead`.
+ * `LEAD_DELIMITER` and a `{"lead": {...}, "conversationId": "..."}` JSON
+ * trailer. Reply text is forwarded to `onToken` as it arrives; the trailer is
+ * parsed and handed to `onLead` / `onConversation`.
  *
  * Only ever surfaces short, user-facing error strings — the route never sends
  * stack traces or secrets. A stalled request is aborted after
@@ -66,7 +82,14 @@ function parseLead(raw: string): LeadData | null {
 export const apiAssistant: AssistantClient = {
   async send(
     messages: ChatMessage[],
-    { signal, onToken, onLead, industry }: SendOptions = {},
+    {
+      signal,
+      onToken,
+      onLead,
+      onConversation,
+      industry,
+      conversationId,
+    }: SendOptions = {},
   ): Promise<string> {
     const controller = new AbortController();
     const onExternalAbort = () => controller.abort();
@@ -86,6 +109,7 @@ export const apiAssistant: AssistantClient = {
           body: JSON.stringify({
             messages: messages.map(({ role, content }) => ({ role, content })),
             ...(industry ? { industry } : {}),
+            ...(conversationId ? { conversationId } : {}),
           }),
           signal: controller.signal,
         });
@@ -135,8 +159,10 @@ export const apiAssistant: AssistantClient = {
       }
 
       if (sawDelimiter) {
-        const lead = parseLead(leadTrailer);
+        const { lead, conversationId: newConversationId } =
+          parseTrailer(leadTrailer);
         if (lead) onLead?.(lead);
+        onConversation?.(newConversationId);
       }
 
       return reply;

@@ -8,6 +8,9 @@ import {
 import { buildSystemPrompt } from "@/lib/chat/system-prompt";
 import { extractLead } from "@/lib/chat/lead-extraction";
 import { getEffectiveConfig, hasIndustryTemplate } from "@/lib/config";
+import { calculateLeadScore } from "@/lib/lead-scoring";
+import { resolveDevOrganization } from "@/lib/org/resolve";
+import { persistCompletedTurn } from "@/lib/persistence/chat";
 import { EMPTY_LEAD, LEAD_DELIMITER, type ChatTurn } from "@/types/chat";
 
 export const runtime = "nodejs";
@@ -22,15 +25,21 @@ const FALLBACK_REPLIES = {
   empty: "Sorry, I didn't quite catch that. Could you rephrase?",
 } as const;
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 interface ChatRequestBody {
   messages: ChatTurn[];
   industry?: string;
+  conversationId?: string;
 }
 
 interface ParsedRequest {
   turns: ChatTurn[];
   /** Industry template slug, if the client requested a specific one. */
   industry: string | null;
+  /** Conversation id from a previous turn, if continuing a chat. */
+  conversationId: string | null;
 }
 
 function parseBody(body: unknown): ParsedRequest | null {
@@ -66,7 +75,13 @@ function parseBody(body: unknown): ParsedRequest | null {
       ? industryRaw
       : null;
 
-  return { turns, industry };
+  const conversationIdRaw = (body as ChatRequestBody).conversationId;
+  const conversationId =
+    typeof conversationIdRaw === "string" && UUID_RE.test(conversationIdRaw)
+      ? conversationIdRaw
+      : null;
+
+  return { turns, industry, conversationId };
 }
 
 /** The Messages API requires the conversation to start with a user turn. */
@@ -132,13 +147,24 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // The AI engine runs on the effective configuration (industry template +
-  // any organization overrides). No organization persistence yet — the client
-  // may name an industry template, otherwise the server default is used.
+  // Resolve the organization this chat belongs to. Dev/demo only for now — a
+  // `?industry=` hint selects a pre-seeded demo org; production will resolve it
+  // from the authenticated user's membership. `null` when Supabase isn't
+  // configured, in which case the chat runs config-only with no persistence.
+  const organization = await resolveDevOrganization(parsed.industry);
+
+  // The AI engine runs on the effective configuration. The organization's
+  // `industry_template_id` is the source of truth when we have one; otherwise
+  // fall back to the client's industry hint (dev without a database).
   const config = getEffectiveConfig(
-    parsed.industry
-      ? { organizationId: "request", industryTemplateId: parsed.industry }
-      : null,
+    organization
+      ? {
+          organizationId: organization.organizationId,
+          industryTemplateId: organization.industryTemplateId,
+        }
+      : parsed.industry
+        ? { organizationId: "request", industryTemplateId: parsed.industry }
+        : null,
   );
 
   // Thinking disabled: a lead-qualification chat is a low-complexity task and
@@ -208,9 +234,8 @@ export async function POST(request: NextRequest) {
       }
 
       // Second pass: extract structured lead data from the full conversation
-      // (history + the reply we just produced), then append it after the
-      // delimiter. Extraction failure never breaks the chat — it yields an
-      // empty lead and the client keeps its last-known value.
+      // (history + the reply we just produced). Extraction failure never breaks
+      // the chat — it yields an empty lead and the client keeps its last value.
       let lead = EMPTY_LEAD;
       try {
         lead = await extractLead(
@@ -222,8 +247,33 @@ export async function POST(request: NextRequest) {
         console.error("lead extraction error", error);
       }
 
+      // Persist the completed turn (lead + conversation + messages + events)
+      // when we have an organization. `persistCompletedTurn` never throws — a
+      // database failure is logged server-side and the AI response continues.
+      let conversationId = parsed.conversationId;
+      if (organization) {
+        const lastUserMessage =
+          [...parsed.turns].reverse().find((turn) => turn.role === "user")
+            ?.content ?? "";
+        const { score, temperature } = calculateLeadScore(lead, config.scoring);
+        const persisted = await persistCompletedTurn({
+          organizationId: organization.organizationId,
+          conversationId: parsed.conversationId,
+          channel: "web",
+          source: "chat",
+          userMessage: lastUserMessage,
+          assistantMessage: replyText,
+          lead,
+          score,
+          temperature,
+        });
+        if (persisted) conversationId = persisted.conversationId;
+      }
+
       controller.enqueue(
-        encoder.encode(LEAD_DELIMITER + JSON.stringify({ lead })),
+        encoder.encode(
+          LEAD_DELIMITER + JSON.stringify({ lead, conversationId }),
+        ),
       );
       controller.close();
     },

@@ -70,6 +70,11 @@ export function useChat({
     [industry],
   );
 
+  // The persisted conversation id, returned by the server after the first
+  // turn and echoed back on subsequent turns so the chat continues one
+  // conversation. Kept in a ref — it is not rendered.
+  const conversationIdRef = useRef<string | null>(null);
+
   // Mirror state into refs (updated after commit) so the async `sendMessage`
   // callback can read the latest values without being re-created every render.
   const messagesRef = useRef(messages);
@@ -110,7 +115,11 @@ export function useChat({
         const reply = await client.send(thread, {
           onToken: appendChunk,
           onLead: setLead,
+          onConversation: (id) => {
+            conversationIdRef.current = id;
+          },
           industry,
+          conversationId: conversationIdRef.current ?? undefined,
         });
         // Ensure the final content is exact even if no chunks arrived.
         setMessages((prev) =>
@@ -140,6 +149,7 @@ export function useChat({
   const setConversation = useCallback((next: ChatMessage[]) => {
     messagesRef.current = next;
     statusRef.current = "idle";
+    conversationIdRef.current = null;
     setError(null);
     setStatus("idle");
     setLead(EMPTY_LEAD);
