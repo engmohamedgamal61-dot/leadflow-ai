@@ -10,6 +10,7 @@ import {
   validateIndustryTemplate,
 } from "./index.ts";
 import { realEstateTemplate } from "./templates/real-estate.ts";
+import { clinicTemplate } from "./templates/clinic.ts";
 import type { IndustryTemplate, OrganizationConfig } from "./types.ts";
 
 const EXPECTED_REAL_ESTATE_FIELDS = [
@@ -21,6 +22,32 @@ const EXPECTED_REAL_ESTATE_FIELDS = [
   "bedrooms",
   "financing",
   "timeline",
+];
+
+const EXPECTED_CLINIC_FIELDS = [
+  "name",
+  "phone",
+  "service",
+  "doctor",
+  "appointment_date",
+  "insurance",
+  "urgency",
+];
+
+const REAL_ESTATE_ONLY = [
+  "budget",
+  "bedrooms",
+  "property_type",
+  "financing",
+  "location",
+  "timeline",
+];
+const CLINIC_ONLY = [
+  "service",
+  "doctor",
+  "appointment_date",
+  "insurance",
+  "urgency",
 ];
 
 test("real estate template exists and is the default", () => {
@@ -210,7 +237,94 @@ test("resolveEffectiveConfig tolerates a null / empty override", () => {
 test("getEffectiveConfig falls back to default for an unknown template id", () => {
   const effective = getEffectiveConfig({
     organizationId: "org_y",
-    industryTemplateId: "clinic-does-not-exist-yet",
+    industryTemplateId: "totally-unknown-industry",
   });
   assert.equal(effective.templateSlug, "real-estate");
+});
+
+// ── Clinic ────────────────────────────────────────────────────────────────
+
+test("clinic template is registered and resolvable via the same API", () => {
+  assert.ok(getIndustryTemplate("clinic"));
+  assert.equal(getIndustryTemplate("clinic")?.name, "Clinic");
+  assert.ok(listIndustryTemplates().some((t) => t.slug === "clinic"));
+
+  const effective = getEffectiveConfig({
+    organizationId: "org_clinic",
+    industryTemplateId: "clinic",
+  });
+  assert.equal(effective.templateSlug, "clinic");
+});
+
+test("clinic template contains exactly the expected fields and passes validation", () => {
+  const keys = clinicTemplate.leadFields.map((f) => f.key);
+  assert.deepEqual([...keys].sort(), [...EXPECTED_CLINIC_FIELDS].sort());
+  assert.equal(validateIndustryTemplate(clinicTemplate).valid, true,
+    validateIndustryTemplate(clinicTemplate).errors.join("; "));
+});
+
+test("clinic qualification flow references only clinic field keys, in order", () => {
+  const fieldKeys = new Set(clinicTemplate.leadFields.map((f) => f.key));
+  const orders = clinicTemplate.qualificationFlow.map((s) => s.order);
+  for (const step of clinicTemplate.qualificationFlow) {
+    assert.ok(fieldKeys.has(step.fieldKey));
+  }
+  assert.deepEqual(orders, [...orders].sort((a, b) => a - b));
+});
+
+test("clinic scoring config is valid and sums to 100", () => {
+  const fieldKeys = new Set(clinicTemplate.leadFields.map((f) => f.key));
+  let max = 0;
+  for (const rule of clinicTemplate.scoring.rules) {
+    assert.ok(fieldKeys.has(rule.fieldKey));
+    assert.ok(rule.maxPoints > 0);
+    max += rule.maxPoints;
+  }
+  assert.equal(max, 100);
+  const effective = getEffectiveConfig({
+    organizationId: "o",
+    industryTemplateId: "clinic",
+  });
+  assert.equal(validateEffectiveConfig(effective).valid, true);
+});
+
+test("clinic AI behaviour is intake-only (no diagnosis)", () => {
+  const rules = clinicTemplate.aiBehavior.rules.join(" ").toLowerCase();
+  assert.ok(rules.includes("never diagnose"));
+  assert.ok(rules.includes("never give medical advice"));
+  assert.ok(rules.includes("emergency"));
+});
+
+// ── Cross-industry isolation ──────────────────────────────────────────────
+
+test("clinic config does not contain real-estate fields unless configured", () => {
+  const clinicKeys = new Set(clinicTemplate.leadFields.map((f) => f.key));
+  for (const key of REAL_ESTATE_ONLY) {
+    assert.ok(!clinicKeys.has(key), `clinic unexpectedly has "${key}"`);
+  }
+  const scoringKeys = clinicTemplate.scoring.rules.map((r) => r.fieldKey);
+  for (const key of REAL_ESTATE_ONLY) {
+    assert.ok(!scoringKeys.includes(key));
+  }
+});
+
+test("real estate config does not contain clinic fields unless configured", () => {
+  const reKeys = new Set(realEstateTemplate.leadFields.map((f) => f.key));
+  for (const key of CLINIC_ONLY) {
+    assert.ok(!reKeys.has(key), `real estate unexpectedly has "${key}"`);
+  }
+  const scoringKeys = realEstateTemplate.scoring.rules.map((r) => r.fieldKey);
+  for (const key of CLINIC_ONLY) {
+    assert.ok(!scoringKeys.includes(key));
+  }
+});
+
+test("the two templates share no industry-specific field keys", () => {
+  const reCustom = realEstateTemplate.leadFields
+    .map((f) => f.key)
+    .filter((k) => !["name", "phone", "email", "intent"].includes(k));
+  const clinicCustom = clinicTemplate.leadFields
+    .map((f) => f.key)
+    .filter((k) => !["name", "phone", "email", "intent"].includes(k));
+  assert.ok(reCustom.every((k) => !clinicCustom.includes(k)));
 });

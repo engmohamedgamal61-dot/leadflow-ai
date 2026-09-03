@@ -7,7 +7,7 @@ import {
 } from "@/lib/chat/anthropic";
 import { buildSystemPrompt } from "@/lib/chat/system-prompt";
 import { extractLead } from "@/lib/chat/lead-extraction";
-import { getEffectiveConfig } from "@/lib/config";
+import { getEffectiveConfig, hasIndustryTemplate } from "@/lib/config";
 import { EMPTY_LEAD, LEAD_DELIMITER, type ChatTurn } from "@/types/chat";
 
 export const runtime = "nodejs";
@@ -24,9 +24,16 @@ const FALLBACK_REPLIES = {
 
 interface ChatRequestBody {
   messages: ChatTurn[];
+  industry?: string;
 }
 
-function parseBody(body: unknown): ChatTurn[] | null {
+interface ParsedRequest {
+  turns: ChatTurn[];
+  /** Industry template slug, if the client requested a specific one. */
+  industry: string | null;
+}
+
+function parseBody(body: unknown): ParsedRequest | null {
   if (
     typeof body !== "object" ||
     body === null ||
@@ -52,7 +59,14 @@ function parseBody(body: unknown): ChatTurn[] | null {
     }
     turns.push({ role: turn.role, content: turn.content });
   }
-  return turns;
+
+  const industryRaw = (body as ChatRequestBody).industry;
+  const industry =
+    typeof industryRaw === "string" && hasIndustryTemplate(industryRaw)
+      ? industryRaw
+      : null;
+
+  return { turns, industry };
 }
 
 /** The Messages API requires the conversation to start with a user turn. */
@@ -95,12 +109,12 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const turns = parseBody(json);
-  if (!turns) {
+  const parsed = parseBody(json);
+  if (!parsed) {
     return Response.json({ error: "Invalid request payload." }, { status: 400 });
   }
 
-  const messages = toAnthropicMessages(turns);
+  const messages = toAnthropicMessages(parsed.turns);
   if (messages.length === 0) {
     return Response.json(
       { error: "Conversation must include a user message." },
@@ -119,9 +133,13 @@ export async function POST(request: NextRequest) {
   }
 
   // The AI engine runs on the effective configuration (industry template +
-  // any organization overrides). No organization persistence yet, so this is
-  // the default industry template.
-  const config = getEffectiveConfig();
+  // any organization overrides). No organization persistence yet — the client
+  // may name an industry template, otherwise the server default is used.
+  const config = getEffectiveConfig(
+    parsed.industry
+      ? { organizationId: "request", industryTemplateId: parsed.industry }
+      : null,
+  );
 
   // Thinking disabled: a lead-qualification chat is a low-complexity task and
   // real-time responsiveness matters more than deliberation.

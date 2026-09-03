@@ -14,56 +14,77 @@ export interface ChatTurn {
 }
 
 /**
- * Structured lead data extracted from the conversation so far.
+ * Generic, industry-agnostic lead.
  *
- * Every field is `null` until the prospect has actually provided it — values
- * are never invented. Shapes are canonical so a downstream store (Supabase,
- * a later phase) can consume this object directly:
- * - `intent`        — `"buy"` | `"rent"`
- * - `location`      — city / district, in English (e.g. "Riyadh")
- * - `budget`        — integer amount in SAR (e.g. 1000000)
- * - `property_type` — lowercase English (e.g. "apartment", "villa")
- * - `bedrooms`      — integer
- * - `financing`     — `true` if the prospect needs financing, `false` if cash
- * - `timeline`      — short English phrase (e.g. "1 week", "3 months", "ASAP")
+ * The **core** is a small set of fields that mean the same thing in every
+ * industry ({@link CORE_LEAD_FIELD_KEYS}). Everything an industry defines
+ * beyond that — a real-estate `budget`, a clinic `appointment_date` — lives
+ * in `customData`, keyed by the field's `LeadFieldDefinition.key`.
+ *
+ * A value is `null` (or absent from `customData`) until the prospect has
+ * actually provided it — values are never invented.
+ *
+ * Example (real estate):
+ * ```json
+ * { "name": "محمد", "phone": null, "email": null, "intent": "buy",
+ *   "customData": { "location": "Riyadh", "budget": 1000000,
+ *     "property_type": "apartment", "bedrooms": 4, "financing": true,
+ *     "timeline": "1 week" } }
+ * ```
  */
 export interface LeadData {
   name: string | null;
-  intent: "buy" | "rent" | null;
-  location: string | null;
-  budget: number | null;
-  property_type: string | null;
-  bedrooms: number | null;
-  financing: boolean | null;
-  timeline: string | null;
+  phone: string | null;
+  email: string | null;
+  /** What the prospect wants (e.g. "buy" / "rent"); industry-defined vocab. */
+  intent: string | null;
+  /** Industry-specific fields, keyed by `LeadFieldDefinition.key`. */
+  customData: Record<string, unknown>;
 }
 
-export const LEAD_FIELD_KEYS = [
+/** Field keys that map to top-level {@link LeadData} properties. */
+export const CORE_LEAD_FIELD_KEYS = [
   "name",
+  "phone",
+  "email",
   "intent",
-  "location",
-  "budget",
-  "property_type",
-  "bedrooms",
-  "financing",
-  "timeline",
 ] as const;
+
+export type CoreLeadFieldKey = (typeof CORE_LEAD_FIELD_KEYS)[number];
 
 export const EMPTY_LEAD: LeadData = {
   name: null,
+  phone: null,
+  email: null,
   intent: null,
-  location: null,
-  budget: null,
-  property_type: null,
-  bedrooms: null,
-  financing: null,
-  timeline: null,
+  customData: {},
 };
+
+export function isCoreLeadField(key: string): key is CoreLeadFieldKey {
+  return (CORE_LEAD_FIELD_KEYS as readonly string[]).includes(key);
+}
+
+/**
+ * Read a field's value from a lead whether it is a core field or lives in
+ * `customData`. Returns `null` for anything missing or malformed — never
+ * throws. This is how the scoring engine resolves `rule.fieldKey` without
+ * caring which industry (or where on the object) the value lives.
+ */
+export function getLeadFieldValue(lead: LeadData, fieldKey: string): unknown {
+  if (!lead || typeof lead !== "object") return null;
+  if (isCoreLeadField(fieldKey)) {
+    return lead[fieldKey] ?? null;
+  }
+  const custom = lead.customData;
+  if (!custom || typeof custom !== "object") return null;
+  const value = (custom as Record<string, unknown>)[fieldKey];
+  return value ?? null;
+}
 
 /**
  * Byte that separates the streamed reply text from the trailing lead JSON in
- * the `/api/chat` response body. ASCII "record separator" — never present in
- * natural language output.
+ * the `/api/chat` response body. ASCII "record separator" (U+001E) — never
+ * present in natural language output.
  */
 export const LEAD_DELIMITER = String.fromCharCode(0x1e);
 
@@ -74,6 +95,11 @@ export interface SendOptions {
   onToken?: (chunk: string) => void;
   /** Called once with the structured lead data after the reply completes. */
   onLead?: (lead: LeadData) => void;
+  /**
+   * Industry template slug for this conversation (e.g. "real-estate",
+   * "clinic"). Omit to use the server default.
+   */
+  industry?: string;
 }
 
 /**

@@ -39,27 +39,30 @@ src/
   app/
     page.tsx                Renders the chat
     api/chat/route.ts       POST endpoint — streams a reply, then a lead JSON
-  components/chat/           Reusable chat UI components
+  components/chat/           Reusable chat UI components (industry-agnostic)
   hooks/use-chat.ts          Conversation state, streaming, error handling
   lib/
-    lead-scoring.ts          Deterministic 0–100 score engine (config-driven, pure)
-    lead-scoring.test.ts     node:test suite for the scoring engine
-    config/                  Configuration-driven industry model
+    lead-normalization.ts    assembleLead(raw, config) — generic, type-driven
+    lead-schema.ts           buildLeadSchema(fields) — extraction schema from config
+    lead-scoring.ts           Deterministic 0–100 score engine (config-driven, pure)
+    *.test.ts                 node:test suites (normalization / schema / scoring)
+    config/                   Configuration-driven industry model
       types.ts               IndustryTemplate, LeadFieldDefinition, ScoringRule, …
       registry.ts            getIndustryTemplate(slug) / listIndustryTemplates()
       effective-config.ts    resolveEffectiveConfig(template, orgConfig?)
       validate.ts            Template / effective-config validation (never throws)
       index.ts               getEffectiveConfig() — what the engine runs on
-      templates/real-estate.ts   The first industry template
+      templates/real-estate.ts   First industry template
+      templates/clinic.ts        Second industry template (proof of architecture)
       config.test.ts         node:test suite for the config layer
     chat/
       anthropic.ts           Anthropic client factory + model config
       system-prompt.ts       buildSystemPrompt(config) — persona/rules from config
-      lead-extraction.ts     Structured LeadData extraction, schema from config
+      lead-extraction.ts     Claude call → assembleLead (industry-blind)
       api-assistant.ts       AssistantClient backed by /api/chat (default)
       mock-assistant.ts      Dependency-free AssistantClient for dev/tests
       mock-data.ts           Greeting, suggested prompts, example conversation
-  types/chat.ts              Shared types (ChatMessage, LeadData) + contracts
+  types/chat.ts              LeadData (generic), getLeadFieldValue, contracts
 ```
 
 ## Configuration-driven architecture
@@ -74,17 +77,48 @@ IndustryTemplate  →  + OrganizationConfig overrides  →  EffectiveConfig
 
 - **`IndustryTemplate`** (`src/lib/config/templates/`) bundles an industry's
   `leadFields`, `qualificationFlow`, `scoring` rules and `aiBehavior`. Real
-  Estate is the only one so far; clinics / automotive / education slot in as
-  more template objects with zero engine changes.
+  Estate and Clinic ship today; automotive / education / legal slot in as more
+  template objects plus one registry line — zero engine changes.
 - **`OrganizationConfig`** describes how one org customizes a template —
   field overrides, flow overrides, scoring overrides, AI-behaviour overrides.
   No persistence yet; this is just the shape a DB row will take.
-- **`getEffectiveConfig(org?)`** merges the two. The chat route, the extraction
-  schema, the system prompt and the scoring engine all consume this object —
-  none of them mention "real estate".
+- **`getEffectiveConfig(org?)`** merges the two. The system prompt, the
+  extraction schema, the normalizer and the scoring engine all consume this
+  object — none of them mention "real estate" or "clinic".
 
-`getIndustryTemplate("real-estate")` is the access point; templates move to a
-database later by changing only `registry.ts`.
+`getIndustryTemplate(slug)` is the access point; templates move to a database
+later by changing only `registry.ts`.
+
+### The lead pipeline is generic
+
+```
+conversation → Claude → extraction (schema from config.leadFields)
+            → assembleLead(raw, config)  →  generic LeadData
+            → calculateLeadScore(lead, config.scoring)  →  score + temperature
+```
+
+**`LeadData`** has a small universal **core** — `name`, `phone`, `email`,
+`intent` — and everything industry-specific in `customData`:
+
+```json
+{ "name": "محمد", "phone": null, "email": null, "intent": "buy",
+  "customData": { "location": "Riyadh", "budget": 1000000,
+    "property_type": "apartment", "bedrooms": 4, "financing": true,
+    "timeline": "1 week" } }
+```
+
+- **Extraction** — `buildLeadSchema()` turns `config.leadFields` into the
+  structured-output JSON schema. The extraction engine never names a field.
+- **Normalization** — `assembleLead()` normalizes each value by its
+  `LeadFieldDefinition.type` (`number` parses "1 million" / "١٠٠٠٠٠٠"; `boolean`
+  parses "yes" / "نعم"; `select` matches option values / labels / `aliases`).
+  No `if (fieldKey === "budget")` anywhere.
+- **Scoring** — `calculateLeadScore()` resolves each rule's `fieldKey` with
+  `getLeadFieldValue(lead, key)`, which reads a core field or a `customData`
+  field transparently.
+
+Run the chat on another industry with `?industry=clinic` (local dev
+convenience — no persistence).
 
 ## Lead scoring
 
@@ -96,14 +130,15 @@ lead:
 {
   score: number,            // 0–100
   temperature: "HOT" | "WARM" | "COLD",
-  breakdown: { intent, budget, location, property_type, bedrooms, financing, timeline },
+  breakdown: Record<fieldKey, number>,   // points per scoring rule
 }
 ```
 
 The engine is generic — it evaluates the `ScoringRule`s from the effective
-config (`match` / `presence` / `boolean` / `numericThreshold` / `bucket`) and
-sums the points. The Real Estate model lives in
-`templates/real-estate.ts` → `scoring`:
+config (`match` / `presence` / `boolean` / `numericThreshold` / `bucket`),
+resolving each rule's value through `getLeadFieldValue`, and sums the points.
+Each industry template carries its own `scoring` block and temperature
+thresholds. The Real Estate model (`templates/real-estate.ts` → `scoring`):
 
 | Field         | Max | Rule |
 | ------------- | --- | ---- |
@@ -115,8 +150,18 @@ sums the points. The Real Estate model lives in
 | financing     | 15  | true = 15 · false = 10 · null = 0 |
 | timeline      | 20  | ≤1 week = 20 · ≤1 month = 15 · ≤3 months = 10 · >3 months = 5 · null/unrecognised = 0 |
 
-Temperature: **80–100 HOT · 50–79 WARM · 0–49 COLD** (also from the config's
-`thresholds`).
+And the Clinic model (`templates/clinic.ts` → `scoring`):
+
+| Field            | Max | Rule |
+| ---------------- | --- | ---- |
+| service          | 20  | known = 20 · null = 0 |
+| doctor           | 15  | known = 15 · null = 0 |
+| appointment_date | 25  | known = 25 · null = 0 |
+| insurance        | 15  | true = 15 · false = 5 · null = 0 |
+| urgency          | 25  | high = 25 · medium = 15 · low = 5 · null = 0 |
+
+Temperature: **80–100 HOT · 50–79 WARM · 0–49 COLD** — from each template's
+`scoring.thresholds`.
 
 `timeline` is free text, so `classifyTimeline()` maps it to a bucket
 deterministically (parses `N week/month/day/year`, plus a fixed keyword set for

@@ -1,5 +1,6 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import { useChat } from "@/hooks/use-chat";
 import { EXAMPLE_CONVERSATION } from "@/lib/chat/mock-data";
 import { ChatHeader } from "@/components/chat/chat-header";
@@ -8,17 +9,36 @@ import { EmptyState } from "@/components/chat/empty-state";
 import { MessageList } from "@/components/chat/message-list";
 import { LeadDebugPanel } from "@/components/chat/lead-debug-panel";
 
+const NO_SUBSCRIBE = () => () => {};
+const readIndustryFromUrl = (): string | undefined =>
+  new URLSearchParams(window.location.search).get("industry") ?? undefined;
+
+/**
+ * Read an optional `?industry=<slug>` from the URL. A simple local way to run
+ * the chat on a non-default industry template while proving the multi-industry
+ * architecture; there is no persistence yet. SSR-safe (server sees no param).
+ */
+function useIndustryFromUrl(): string | undefined {
+  return useSyncExternalStore(
+    NO_SUBSCRIBE,
+    readIndustryFromUrl,
+    () => undefined,
+  );
+}
+
 export function ChatWindow() {
+  const industry = useIndustryFromUrl();
   const {
     messages,
     status,
     isResponding,
     error,
+    config,
     lead,
     sendMessage,
     setConversation,
     reset,
-  } = useChat();
+  } = useChat({ industry });
 
   const hasUserMessages = messages.some((message) => message.role === "user");
 
@@ -41,7 +61,7 @@ export function ChatWindow() {
         <ChatComposer onSend={sendMessage} disabled={isResponding} />
       </div>
 
-      <LeadDebugPanel lead={lead} />
+      <LeadDebugPanel lead={lead} config={config} />
     </div>
   );
 }

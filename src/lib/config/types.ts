@@ -21,8 +21,14 @@ export type LeadFieldType =
   | "date";
 
 export interface LeadFieldOption {
+  /** Canonical stored value. */
   value: string;
   label: string;
+  /**
+   * Alternative spellings/synonyms that normalize to this option's `value`
+   * (e.g. "purchase" → "buy"). Matched case-insensitively.
+   */
+  aliases?: string[];
 }
 
 /**

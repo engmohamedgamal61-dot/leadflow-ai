@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { LEAD_FIELD_KEYS, type LeadData } from "@/types/chat";
-import { getEffectiveConfig } from "@/lib/config";
+import { getLeadFieldValue, type LeadData } from "@/types/chat";
+import type { EffectiveConfig } from "@/lib/config";
 import {
   calculateLeadScore,
   maxScore,
@@ -12,6 +12,7 @@ import {
 
 interface LeadDebugPanelProps {
   lead: LeadData;
+  config: EffectiveConfig;
 }
 
 const TEMPERATURE_STYLES: Record<
@@ -36,14 +37,13 @@ const TEMPERATURE_STYLES: Record<
 };
 
 /**
- * Development-only inspector for the structured lead data and its deterministic
- * score. Hidden entirely in production builds. Temporary aid — will be removed
- * or redesigned in a later phase.
+ * Development-only inspector for the structured lead and its deterministic
+ * score. Iterates the configured fields, so it works for any industry
+ * template. Hidden entirely in production builds.
  */
-export function LeadDebugPanel({ lead }: LeadDebugPanelProps) {
+export function LeadDebugPanel({ lead, config }: LeadDebugPanelProps) {
   const [open, setOpen] = useState(false);
 
-  const config = useMemo(() => getEffectiveConfig(), []);
   const weights = useMemo(() => scoreWeights(config.scoring), [config]);
   const total = useMemo(() => maxScore(config.scoring), [config]);
   const { score, temperature, breakdown } = useMemo(
@@ -53,8 +53,9 @@ export function LeadDebugPanel({ lead }: LeadDebugPanelProps) {
 
   if (process.env.NODE_ENV === "production") return null;
 
-  const filledCount = LEAD_FIELD_KEYS.filter(
-    (key) => lead[key] !== null && lead[key] !== undefined,
+  const fields = config.leadFields.filter((field) => field.enabled);
+  const filledCount = fields.filter(
+    (field) => getLeadFieldValue(lead, field.key) !== null,
   ).length;
   const temp = TEMPERATURE_STYLES[temperature];
   const scorePercent = total > 0 ? (score / total) * 100 : 0;
@@ -135,17 +136,17 @@ export function LeadDebugPanel({ lead }: LeadDebugPanelProps) {
             })}
           </dl>
 
-          {/* Extracted values */}
+          {/* Extracted values — driven by the configured fields */}
           <dl className="divide-y divide-border/60 border-t border-border text-[11px]">
-            {LEAD_FIELD_KEYS.map((key) => {
-              const value = lead[key];
-              const isEmpty = value === null || value === undefined;
+            {fields.map((field) => {
+              const value = getLeadFieldValue(lead, field.key);
+              const isEmpty = value === null;
               return (
                 <div
-                  key={key}
+                  key={field.key}
                   className="flex items-start justify-between gap-3 px-3 py-1.5"
                 >
-                  <dt className="text-muted">{key}</dt>
+                  <dt className="text-muted">{field.label}</dt>
                   <dd
                     className={
                       isEmpty
@@ -175,7 +176,7 @@ export function LeadDebugPanel({ lead }: LeadDebugPanelProps) {
           <span className="text-muted">{temperature}</span>
           <span className="text-muted/50">·</span>
           <span className="text-muted">
-            {filledCount}/{LEAD_FIELD_KEYS.length}
+            {filledCount}/{fields.length}
           </span>
         </button>
       )}

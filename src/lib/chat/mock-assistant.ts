@@ -19,11 +19,15 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export const mockAssistant: AssistantClient = {
   async send(
     messages: ChatMessage[],
-    { onToken }: SendOptions = {},
+    { onToken, industry }: SendOptions = {},
   ): Promise<string> {
     await wait(THINK_DELAY);
 
-    const flow = getEffectiveConfig().qualificationFlow;
+    const flow = getEffectiveConfig(
+      industry
+        ? { organizationId: "mock", industryTemplateId: industry }
+        : null,
+    ).qualificationFlow;
     const answered = messages.filter((m) => m.role === "user").length;
     const nextStep = flow[answered];
     const reply = nextStep

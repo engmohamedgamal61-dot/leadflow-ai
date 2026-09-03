@@ -1,15 +1,18 @@
 import type { IndustryTemplate } from "./types.ts";
 import { realEstateTemplate } from "./templates/real-estate.ts";
+import { clinicTemplate } from "./templates/clinic.ts";
 
 /**
  * Industry template registry.
  *
  * Templates are local TypeScript objects for now. This module is the single
  * place that changes when they move to a database — every caller already goes
- * through {@link getIndustryTemplate}.
+ * through {@link getIndustryTemplate}. Adding an industry = adding a template
+ * object and one line here; no engine code changes.
  */
 const TEMPLATES: Record<string, IndustryTemplate> = {
   [realEstateTemplate.slug]: realEstateTemplate,
+  [clinicTemplate.slug]: clinicTemplate,
 };
 
 export const DEFAULT_INDUSTRY_SLUG = realEstateTemplate.slug;

@@ -1,4 +1,7 @@
-import type { LeadData } from "@/types/chat";
+// `getLeadFieldValue` is imported by relative path so this module (and its
+// test) run under `node --test`, which does not resolve the `@/` alias for
+// value imports. Type-only imports below are erased and can use the alias.
+import { getLeadFieldValue, type LeadData } from "../types/chat.ts";
 import type {
   ScoringConfig,
   ScoringRule,
@@ -203,17 +206,15 @@ export function calculateLeadScore(
   lead: LeadData,
   scoring: ScoringConfig,
 ): LeadScore {
-  const source = (
-    lead && typeof lead === "object" ? lead : {}
-  ) as Record<string, unknown>;
-
   const rules = Array.isArray(scoring?.rules) ? scoring.rules : [];
   const breakdown: LeadScoreBreakdown = {};
   let score = 0;
 
   for (const rule of rules) {
     if (!rule || typeof rule.fieldKey !== "string") continue;
-    const points = evaluateRule(rule, source[rule.fieldKey]);
+    // The value is resolved from the lead whether the field is a core field
+    // or lives in customData — the engine does not care.
+    const points = evaluateRule(rule, getLeadFieldValue(lead, rule.fieldKey));
     breakdown[rule.fieldKey] = points;
     score += points;
   }

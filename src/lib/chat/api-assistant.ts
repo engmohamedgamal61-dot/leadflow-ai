@@ -1,5 +1,4 @@
 import {
-  EMPTY_LEAD,
   LEAD_DELIMITER,
   type AssistantClient,
   type ChatMessage,
@@ -27,11 +26,25 @@ async function readError(response: Response): Promise<string> {
   return GENERIC_ERROR;
 }
 
+function asText(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
 function parseLead(raw: string): LeadData | null {
   try {
     const data = JSON.parse(raw) as { lead?: unknown };
     if (data && typeof data.lead === "object" && data.lead !== null) {
-      return { ...EMPTY_LEAD, ...(data.lead as Partial<LeadData>) };
+      const lead = data.lead as Partial<LeadData>;
+      return {
+        name: asText(lead.name),
+        phone: asText(lead.phone),
+        email: asText(lead.email),
+        intent: asText(lead.intent),
+        customData:
+          lead.customData && typeof lead.customData === "object"
+            ? (lead.customData as Record<string, unknown>)
+            : {},
+      };
     }
   } catch {
     // ignore malformed trailer — the chat reply is unaffected
@@ -53,7 +66,7 @@ function parseLead(raw: string): LeadData | null {
 export const apiAssistant: AssistantClient = {
   async send(
     messages: ChatMessage[],
-    { signal, onToken, onLead }: SendOptions = {},
+    { signal, onToken, onLead, industry }: SendOptions = {},
   ): Promise<string> {
     const controller = new AbortController();
     const onExternalAbort = () => controller.abort();
@@ -72,6 +85,7 @@ export const apiAssistant: AssistantClient = {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             messages: messages.map(({ role, content }) => ({ role, content })),
+            ...(industry ? { industry } : {}),
           }),
           signal: controller.signal,
         });
