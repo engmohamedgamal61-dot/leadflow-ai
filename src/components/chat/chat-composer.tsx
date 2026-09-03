@@ -36,6 +36,10 @@ export function ChatComposer({ onSend, disabled = false }: ChatComposerProps) {
     >
       <div className="flex items-end gap-2 rounded-2xl border border-border bg-surface px-3 py-2 transition-colors focus-within:border-accent/60">
         <textarea
+          // Browser extensions (Grammarly, etc.) inject attributes into
+          // textareas before hydration; suppress the resulting mismatch so
+          // React still attaches the handlers.
+          suppressHydrationWarning
           value={value}
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={handleKeyDown}
@@ -68,7 +72,7 @@ export function ChatComposer({ onSend, disabled = false }: ChatComposerProps) {
         </button>
       </div>
       <p className="mt-2 px-1 text-[11px] text-muted">
-        LeadFlow AI is a demo assistant — responses are simulated.
+        LeadFlow AI is an automated assistant and can make mistakes.
       </p>
     </form>
   );
