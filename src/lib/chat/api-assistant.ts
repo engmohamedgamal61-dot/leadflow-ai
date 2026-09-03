@@ -85,6 +85,7 @@ export const apiAssistant: AssistantClient = {
     {
       signal,
       onToken,
+      onReplyEnd,
       onLead,
       onConversation,
       industry,
@@ -92,6 +93,28 @@ export const apiAssistant: AssistantClient = {
       requestId,
     }: SendOptions = {},
   ): Promise<string> {
+    // The route streams the reply text and then — only after the lead
+    // extraction + persistence work — a LEAD_DELIMITER + JSON trailer. There is
+    // no in-band "reply text finished" marker and the trailer arrives ~2s
+    // later, so a lull in text chunks is taken as the visible reply being
+    // complete. This is what lets the UI re-enable input without waiting for
+    // the trailer; the stream, the trailer, and its parsing are untouched.
+    // Inter-chunk gaps during generation are well under this window.
+    const REPLY_IDLE_MS = 1000;
+    let replyEnded = false;
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    const endReply = () => {
+      if (replyEnded) return;
+      replyEnded = true;
+      if (idleTimer) clearTimeout(idleTimer);
+      onReplyEnd?.();
+    };
+    const bumpReplyIdle = () => {
+      if (replyEnded) return;
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(endReply, REPLY_IDLE_MS);
+    };
+
     const controller = new AbortController();
     const onExternalAbort = () => controller.abort();
     signal?.addEventListener("abort", onExternalAbort);
@@ -145,6 +168,7 @@ export const apiAssistant: AssistantClient = {
           if (delimiterIndex === -1) {
             reply += chunk;
             onToken?.(chunk);
+            bumpReplyIdle();
           } else {
             sawDelimiter = true;
             const replyPart = chunk.slice(0, delimiterIndex);
@@ -153,12 +177,17 @@ export const apiAssistant: AssistantClient = {
               onToken?.(replyPart);
             }
             leadTrailer += chunk.slice(delimiterIndex + LEAD_DELIMITER.length);
+            endReply();
           }
         }
       } catch {
         if (timedOut) throw new Error(TIMEOUT_ERROR);
         throw new Error(reply ? INTERRUPTED_ERROR : GENERIC_ERROR);
       }
+
+      // Visible reply fully received (a stream that closes with no trailer
+      // lands here). The lead trailer, if any, is still read below.
+      endReply();
 
       if (sawDelimiter) {
         const { lead, conversationId: newConversationId } =
@@ -170,6 +199,7 @@ export const apiAssistant: AssistantClient = {
       return reply;
     } finally {
       clearTimeout(timeout);
+      if (idleTimer) clearTimeout(idleTimer);
       signal?.removeEventListener("abort", onExternalAbort);
     }
   },

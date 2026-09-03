@@ -73,6 +73,13 @@ export function useChat({
   // conversation. Kept in a ref — it is not rendered.
   const conversationIdRef = useRef<string | null>(null);
 
+  // True from the moment a turn's visible reply finishes until that turn's
+  // trailing conversationId arrives. The composer is re-enabled as soon as the
+  // reply is done (see `onReplyEnd`), so this ref blocks a second send during
+  // that short window — without it a fast follow-up could start before the
+  // conversation is threaded and create a duplicate conversation server-side.
+  const awaitingConversationRef = useRef(false);
+
   // Mirror state into refs (updated after commit) so the async `sendMessage`
   // callback can read the latest values without being re-created every render.
   const messagesRef = useRef(messages);
@@ -85,7 +92,13 @@ export function useChat({
   const sendMessage = useCallback(
     async (content: string) => {
       const trimmed = content.trim();
-      if (!trimmed || statusRef.current !== "idle") return;
+      if (
+        !trimmed ||
+        statusRef.current !== "idle" ||
+        awaitingConversationRef.current
+      ) {
+        return;
+      }
 
       setError(null);
       // One idempotency key per turn: a transport-level replay of this exact
@@ -115,9 +128,18 @@ export function useChat({
       try {
         const reply = await client.send(thread, {
           onToken: appendChunk,
+          onReplyEnd: () => {
+            // The visible reply is complete. Re-enable the composer now instead
+            // of waiting for the post-reply lead extraction + persistence, and
+            // hold the next turn until this turn's conversationId lands.
+            awaitingConversationRef.current = true;
+            statusRef.current = "idle";
+            setStatus("idle");
+          },
           onLead: setLead,
           onConversation: (id) => {
             conversationIdRef.current = id;
+            awaitingConversationRef.current = false;
           },
           industry,
           conversationId: conversationIdRef.current ?? undefined,
@@ -141,6 +163,9 @@ export function useChat({
           prev.filter((message) => message.id !== assistantMessage.id),
         );
       } finally {
+        // Never leave the next turn permanently blocked — e.g. if the stream
+        // dropped before the trailing conversationId arrived.
+        awaitingConversationRef.current = false;
         statusRef.current = "idle";
         setStatus("idle");
       }

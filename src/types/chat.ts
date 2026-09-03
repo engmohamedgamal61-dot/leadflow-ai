@@ -93,6 +93,12 @@ export interface SendOptions {
   signal?: AbortSignal;
   /** Called with each streamed text chunk as it arrives. */
   onToken?: (chunk: string) => void;
+  /**
+   * Called once when the visible assistant reply has finished streaming, just
+   * before the trailing lead JSON is read. Lets the UI re-enable input right
+   * away instead of waiting for the post-reply lead extraction + persistence.
+   */
+  onReplyEnd?: () => void;
   /** Called once with the structured lead data after the reply completes. */
   onLead?: (lead: LeadData) => void;
   /**
