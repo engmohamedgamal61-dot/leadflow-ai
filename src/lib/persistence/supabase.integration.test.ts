@@ -180,3 +180,95 @@ test("a clinic lead persists through the same code path", { skip }, async () => 
     await db.from("organizations").delete().eq("id", clinic.data.id);
   }
 });
+
+test("concurrent identical requests do not duplicate anything (real Postgres)", { skip }, async () => {
+  const org = await db
+    .from("organizations")
+    .insert({ name: "IT Concurrency", slug: `${SLUG}-x`, industry_template_id: "real-estate" })
+    .select("id")
+    .single();
+  const cOrgId = org.data.id;
+  try {
+    const turn = {
+      organizationId: cOrgId,
+      conversationId: null,
+      requestId: crypto.randomUUID(),
+      channel: "web",
+      source: "chat",
+      userMessage: "concurrency: 3 bed villa in Riyadh",
+      assistantMessage: "Noted — what's your budget?",
+      lead: {
+        name: "Sara",
+        phone: null,
+        email: null,
+        intent: "buy",
+        customData: { location: "Riyadh", property_type: "villa", bedrooms: 3 },
+      } as LeadData,
+      score: 55,
+      temperature: "WARM" as const,
+    };
+
+    // ── first turn: fire the same request 5× at once ──
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => persistChatTurn(db, turn)),
+    );
+    const convIds = new Set(results.map((r) => r.conversationId));
+    const leadIds = new Set(results.map((r) => r.leadId));
+    assert.equal(convIds.size, 1, "one conversation id");
+    assert.equal(leadIds.size, 1, "one lead id");
+    const convId = [...convIds][0];
+    const leadId = [...leadIds][0];
+
+    const leads = await db.from("leads").select("id").eq("organization_id", cOrgId);
+    assert.equal(leads.data.length, 1, "exactly one lead row");
+    const convs = await db.from("conversations").select("id").eq("organization_id", cOrgId);
+    assert.equal(convs.data.length, 1, "exactly one conversation row");
+    const msgs = await db.from("messages").select("role").eq("conversation_id", convId);
+    assert.equal(msgs.data.length, 2, "exactly one user + one assistant message");
+    const events = await db.from("lead_events").select("event_type").eq("lead_id", leadId);
+    assert.deepEqual(
+      events.data.map((e: { event_type: string }) => e.event_type).sort(),
+      ["lead_created", "message_received"],
+      "no duplicated events",
+    );
+    assert.equal(
+      results.reduce((n, r) => n + r.messagesInserted, 0),
+      2,
+      "exactly one request did the message inserts",
+    );
+
+    // ── continuing turn: fire the same request 5× at once ──
+    const turn2 = {
+      ...turn,
+      conversationId: convId,
+      requestId: crypto.randomUUID(),
+      userMessage: "budget 2 million, financing, next week",
+      assistantMessage: "All set.",
+      score: 100,
+      temperature: "HOT" as const,
+      lead: {
+        ...turn.lead,
+        customData: { ...turn.lead.customData, budget: 2_000_000, financing: true, timeline: "1 week" },
+      },
+    };
+    await Promise.all(Array.from({ length: 5 }, () => persistChatTurn(db, turn2)));
+
+    const leads2 = await db.from("leads").select("id, score").eq("organization_id", cOrgId);
+    assert.equal(leads2.data.length, 1);
+    assert.equal(leads2.data[0].score, 100);
+    const msgs2 = await db.from("messages").select("id").eq("conversation_id", convId);
+    assert.equal(msgs2.data.length, 4, "2 + 2, no duplicates from the concurrent burst");
+    const events2 = await db
+      .from("lead_events")
+      .select("event_type")
+      .eq("lead_id", leadId)
+      .eq("request_id", turn2.requestId);
+    assert.deepEqual(
+      events2.data.map((e: { event_type: string }) => e.event_type).sort(),
+      ["message_received", "score_changed", "temperature_changed"],
+      "exactly one of each change event for the turn",
+    );
+  } finally {
+    await db.from("organizations").delete().eq("id", cOrgId);
+  }
+});

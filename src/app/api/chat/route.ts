@@ -32,6 +32,7 @@ interface ChatRequestBody {
   messages: ChatTurn[];
   industry?: string;
   conversationId?: string;
+  requestId?: string;
 }
 
 interface ParsedRequest {
@@ -40,6 +41,8 @@ interface ParsedRequest {
   industry: string | null;
   /** Conversation id from a previous turn, if continuing a chat. */
   conversationId: string | null;
+  /** Per-turn idempotency key from the client. */
+  requestId: string | null;
 }
 
 function parseBody(body: unknown): ParsedRequest | null {
@@ -81,7 +84,13 @@ function parseBody(body: unknown): ParsedRequest | null {
       ? conversationIdRaw
       : null;
 
-  return { turns, industry, conversationId };
+  const requestIdRaw = (body as ChatRequestBody).requestId;
+  const requestId =
+    typeof requestIdRaw === "string" && UUID_RE.test(requestIdRaw)
+      ? requestIdRaw
+      : null;
+
+  return { turns, industry, conversationId, requestId };
 }
 
 /** The Messages API requires the conversation to start with a user turn. */
@@ -259,6 +268,7 @@ export async function POST(request: NextRequest) {
         const persisted = await persistCompletedTurn({
           organizationId: organization.organizationId,
           conversationId: parsed.conversationId,
+          requestId: parsed.requestId,
           channel: "web",
           source: "chat",
           userMessage: lastUserMessage,

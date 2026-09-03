@@ -13,19 +13,17 @@ import { GREETING_MESSAGE } from "@/lib/chat/mock-data";
 
 export type ChatStatus = "idle" | "thinking" | "streaming";
 
+function newId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function createMessage(
   role: ChatMessage["role"],
   content: string,
 ): ChatMessage {
-  return {
-    id:
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `msg-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    role,
-    content,
-    createdAt: Date.now(),
-  };
+  return { id: newId(), role, content, createdAt: Date.now() };
 }
 
 interface UseChatOptions {
@@ -90,6 +88,9 @@ export function useChat({
       if (!trimmed || statusRef.current !== "idle") return;
 
       setError(null);
+      // One idempotency key per turn: a transport-level replay of this exact
+      // request reuses it so the server persists the turn only once.
+      const requestId = newId();
       const userMessage = createMessage("user", trimmed);
       const assistantMessage = createMessage("assistant", "");
       const thread = [...messagesRef.current, userMessage];
@@ -120,6 +121,7 @@ export function useChat({
           },
           industry,
           conversationId: conversationIdRef.current ?? undefined,
+          requestId,
         });
         // Ensure the final content is exact even if no chunks arrived.
         setMessages((prev) =>

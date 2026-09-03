@@ -17,6 +17,14 @@ export interface PersistChatTurnInput {
   organizationId: string;
   /** Conversation id from a previous turn, if any. */
   conversationId: string | null;
+  /**
+   * Per-turn idempotency key from the client. Two truly identical requests
+   * carry the same value, and the unique indexes added in
+   * `20260904130000_chat_idempotency.sql` collapse their writes into one.
+   * Absent / `null` for a client that doesn't send it — persistence still
+   * works, just without the concurrency guarantee.
+   */
+  requestId?: string | null;
   /** Conversation channel for a newly created conversation. */
   channel: string;
   /** Lead source for a newly created lead. */
@@ -52,7 +60,6 @@ export class PersistenceError extends Error {
 interface RecentMessage {
   role: string;
   content: string;
-  metadata: unknown;
 }
 
 /** A retried request re-sends the same message content for the same role. */
@@ -69,9 +76,15 @@ function alreadyPersisted(
  * conversation, append the completed user + assistant messages, and record
  * lead events for any state changes.
  *
- * Idempotent where practical: an existing conversation's lead is updated in
- * place (no duplicate lead), and a message whose exact content already exists
- * for that role in the recent history is not re-inserted.
+ * **Concurrency-safe.** Every write that could be duplicated by two
+ * simultaneous identical requests is guarded by a database unique index keyed
+ * on the turn's `requestId`:
+ * - lead / conversation creation → `unique (organization_id, creation_request_id)`
+ * - messages → `unique (conversation_id, role, request_id)`
+ * - lead events → `unique (lead_id, request_id, event_type)`
+ *
+ * The loser of a race gets `ON CONFLICT DO NOTHING` and reads back the winner's
+ * row, so the result is identical for both callers and nothing is duplicated.
  *
  * Throws {@link PersistenceError} on any database error — the caller decides
  * whether that should affect the response.
@@ -81,10 +94,13 @@ export async function persistChatTurn(
   input: PersistChatTurnInput,
 ): Promise<PersistChatTurnResult> {
   const nowIso = new Date().toISOString();
+  const requestId = input.requestId ?? null;
 
-  // 1. Reuse the conversation the client already has, if it is ours.
+  // 1. Resolve the conversation: by the id the client already has, or — if a
+  //    concurrent identical request created it first — by (org, request_id).
   let conversationId: string | null = null;
   let leadId: string | null = null;
+
   if (input.conversationId) {
     const { data, error } = await db
       .from("conversations")
@@ -93,6 +109,20 @@ export async function persistChatTurn(
       .maybeSingle();
     if (error) throw new PersistenceError("load conversation", error);
     if (data && data.organization_id === input.organizationId) {
+      conversationId = data.id;
+      leadId = data.lead_id;
+    }
+  }
+
+  if (!conversationId && requestId) {
+    const { data, error } = await db
+      .from("conversations")
+      .select("id, lead_id")
+      .eq("organization_id", input.organizationId)
+      .eq("creation_request_id", requestId)
+      .maybeSingle();
+    if (error) throw new PersistenceError("load conversation by request", error);
+    if (data) {
       conversationId = data.id;
       leadId = data.lead_id;
     }
@@ -131,8 +161,7 @@ export async function persistChatTurn(
   const leadCreated = leadId === null;
 
   if (leadId) {
-    // Update the mutable columns only — never re-write organization_id or the
-    // original source.
+    // Existing lead — update the mutable columns only.
     const leadUpdate: TablesUpdate<"leads"> = {
       name: mapped.name,
       phone: mapped.phone,
@@ -143,19 +172,36 @@ export async function persistChatTurn(
       temperature: mapped.temperature,
       updated_at: nowIso,
     };
-    const { error } = await db
-      .from("leads")
-      .update(leadUpdate)
-      .eq("id", leadId);
+    const { error } = await db.from("leads").update(leadUpdate).eq("id", leadId);
     if (error) throw new PersistenceError("update lead", error);
   } else {
+    // New lead — race-safe on (organization_id, creation_request_id).
     const { data, error } = await db
       .from("leads")
-      .insert(mapped)
-      .select("id")
-      .single();
-    if (error || !data) throw new PersistenceError("insert lead", error);
-    leadId = data.id;
+      .upsert(
+        { ...mapped, creation_request_id: requestId },
+        { onConflict: "organization_id,creation_request_id", ignoreDuplicates: true },
+      )
+      .select("id");
+    if (error) throw new PersistenceError("insert lead", error);
+    if (data && data.length > 0) {
+      leadId = data[0].id;
+    } else if (requestId) {
+      // Lost the race — a concurrent identical request created it first.
+      const existing = await db
+        .from("leads")
+        .select("id")
+        .eq("organization_id", input.organizationId)
+        .eq("creation_request_id", requestId)
+        .maybeSingle();
+      if (existing.error || !existing.data) {
+        throw new PersistenceError("read back lead", existing.error);
+      }
+      leadId = existing.data.id;
+    } else {
+      // No requestId → the insert cannot conflict, so an empty result is a bug.
+      throw new PersistenceError("insert lead", "no row returned");
+    }
   }
 
   // 4. Reuse or create the conversation.
@@ -168,23 +214,42 @@ export async function persistChatTurn(
   } else {
     const { data, error } = await db
       .from("conversations")
-      .insert({
-        organization_id: input.organizationId,
-        lead_id: leadId,
-        channel: input.channel,
-        last_message_at: nowIso,
-      })
-      .select("id")
-      .single();
-    if (error || !data) throw new PersistenceError("insert conversation", error);
-    conversationId = data.id;
+      .upsert(
+        {
+          organization_id: input.organizationId,
+          lead_id: leadId,
+          channel: input.channel,
+          last_message_at: nowIso,
+          creation_request_id: requestId,
+        },
+        { onConflict: "organization_id,creation_request_id", ignoreDuplicates: true },
+      )
+      .select("id");
+    if (error) throw new PersistenceError("insert conversation", error);
+    if (data && data.length > 0) {
+      conversationId = data[0].id;
+    } else if (requestId) {
+      const existing = await db
+        .from("conversations")
+        .select("id")
+        .eq("organization_id", input.organizationId)
+        .eq("creation_request_id", requestId)
+        .maybeSingle();
+      if (existing.error || !existing.data) {
+        throw new PersistenceError("read back conversation", existing.error);
+      }
+      conversationId = existing.data.id;
+    } else {
+      throw new PersistenceError("insert conversation", "no row returned");
+    }
   }
 
-  // 5. Persist the completed user + assistant messages (not streaming chunks),
-  //    skipping any whose content is already the latest for that role.
+  // 5. Persist the completed user + assistant messages (not streaming chunks).
+  //    The content check skips a re-typed turn; the unique index on
+  //    (conversation_id, role, request_id) collapses concurrent identical ones.
   const { data: recent, error: recentError } = await db
     .from("messages")
-    .select("role, content, metadata")
+    .select("role, content")
     .eq("conversation_id", conversationId)
     .order("created_at", { ascending: false })
     .limit(6);
@@ -197,6 +262,7 @@ export async function persistChatTurn(
       conversation_id: conversationId,
       role: "user",
       content: input.userMessage,
+      request_id: requestId,
     });
   }
   if (!alreadyPersisted(recentMessages, "assistant", input.assistantMessage)) {
@@ -204,11 +270,20 @@ export async function persistChatTurn(
       conversation_id: conversationId,
       role: "assistant",
       content: input.assistantMessage,
+      request_id: requestId,
     });
   }
+  let messagesInserted = 0;
   if (messageRows.length > 0) {
-    const { error } = await db.from("messages").insert(messageRows);
+    const { data, error } = await db
+      .from("messages")
+      .upsert(messageRows, {
+        onConflict: "conversation_id,role,request_id",
+        ignoreDuplicates: true,
+      })
+      .select("id");
     if (error) throw new PersistenceError("insert messages", error);
+    messagesInserted = data?.length ?? 0;
   }
 
   // 6. Lead events for anything that actually changed this turn.
@@ -222,6 +297,7 @@ export async function persistChatTurn(
     },
     userMessage: input.userMessage,
   });
+  let eventsInserted = 0;
   if (events.length > 0) {
     const finalLeadId = leadId;
     const eventRows: TablesInsert<"lead_events">[] = events.map((event) => ({
@@ -229,16 +305,24 @@ export async function persistChatTurn(
       lead_id: finalLeadId,
       event_type: event.event_type,
       metadata: event.metadata as TablesInsert<"lead_events">["metadata"],
+      request_id: requestId,
     }));
-    const { error } = await db.from("lead_events").insert(eventRows);
+    const { data, error } = await db
+      .from("lead_events")
+      .upsert(eventRows, {
+        onConflict: "lead_id,request_id,event_type",
+        ignoreDuplicates: true,
+      })
+      .select("id");
     if (error) throw new PersistenceError("insert events", error);
+    eventsInserted = data?.length ?? 0;
   }
 
   return {
     conversationId,
     leadId,
     leadCreated,
-    messagesInserted: messageRows.length,
-    eventsInserted: events.length,
+    messagesInserted,
+    eventsInserted,
   };
 }

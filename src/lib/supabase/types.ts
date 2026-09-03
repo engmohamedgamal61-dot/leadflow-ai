@@ -142,6 +142,7 @@ export interface Database {
           temperature: LeadTemperatureRow;
           status: LeadStatus;
           source: string | null;
+          creation_request_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -157,6 +158,7 @@ export interface Database {
           temperature?: LeadTemperatureRow;
           status?: LeadStatus;
           source?: string | null;
+          creation_request_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -172,6 +174,7 @@ export interface Database {
           temperature?: LeadTemperatureRow;
           status?: LeadStatus;
           source?: string | null;
+          creation_request_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -193,6 +196,7 @@ export interface Database {
           status: ConversationStatus;
           started_at: string;
           last_message_at: string;
+          creation_request_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -204,6 +208,7 @@ export interface Database {
           status?: ConversationStatus;
           started_at?: string;
           last_message_at?: string;
+          creation_request_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -215,6 +220,7 @@ export interface Database {
           status?: ConversationStatus;
           started_at?: string;
           last_message_at?: string;
+          creation_request_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -240,6 +246,7 @@ export interface Database {
           role: MessageRole;
           content: string;
           metadata: Json;
+          request_id: string | null;
           created_at: string;
         };
         Insert: {
@@ -248,6 +255,7 @@ export interface Database {
           role: MessageRole;
           content: string;
           metadata?: Json;
+          request_id?: string | null;
           created_at?: string;
         };
         Update: {
@@ -256,6 +264,7 @@ export interface Database {
           role?: MessageRole;
           content?: string;
           metadata?: Json;
+          request_id?: string | null;
           created_at?: string;
         };
         Relationships: [
@@ -274,6 +283,7 @@ export interface Database {
           lead_id: string;
           event_type: string;
           metadata: Json;
+          request_id: string | null;
           created_at: string;
         };
         Insert: {
@@ -282,6 +292,7 @@ export interface Database {
           lead_id: string;
           event_type: string;
           metadata?: Json;
+          request_id?: string | null;
           created_at?: string;
         };
         Update: {
@@ -290,6 +301,7 @@ export interface Database {
           lead_id?: string;
           event_type?: string;
           metadata?: Json;
+          request_id?: string | null;
           created_at?: string;
         };
         Relationships: [

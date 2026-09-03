@@ -27,6 +27,7 @@ const row = (over: Partial<Tables<"leads">> = {}): Tables<"leads"> => ({
   temperature: "hot",
   status: "qualified",
   source: "chat",
+  creation_request_id: null,
   created_at: "2026-09-04T00:00:00Z",
   updated_at: "2026-09-04T00:00:00Z",
   ...over,

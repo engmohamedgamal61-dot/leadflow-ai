@@ -89,6 +89,7 @@ export const apiAssistant: AssistantClient = {
       onConversation,
       industry,
       conversationId,
+      requestId,
     }: SendOptions = {},
   ): Promise<string> {
     const controller = new AbortController();
@@ -110,6 +111,7 @@ export const apiAssistant: AssistantClient = {
             messages: messages.map(({ role, content }) => ({ role, content })),
             ...(industry ? { industry } : {}),
             ...(conversationId ? { conversationId } : {}),
+            ...(requestId ? { requestId } : {}),
           }),
           signal: controller.signal,
         });

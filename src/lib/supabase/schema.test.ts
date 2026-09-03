@@ -161,3 +161,26 @@ test("no NEXT_PUBLIC_ service role and no hardcoded uuids in migrations", () => 
     /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
   );
 });
+
+test("chat idempotency: per-request unique indexes exist", () => {
+  const migration = sql();
+  assert.match(
+    migration,
+    /create unique index leads_org_creation_request_id_key\s+on public\.leads \(organization_id, creation_request_id\)/,
+  );
+  assert.match(
+    migration,
+    /create unique index conversations_org_creation_request_id_key\s+on public\.conversations \(organization_id, creation_request_id\)/,
+  );
+  assert.match(
+    migration,
+    /create unique index messages_conversation_role_request_id_key\s+on public\.messages \(conversation_id, role, request_id\)/,
+  );
+  assert.match(
+    migration,
+    /create unique index lead_events_lead_request_event_type_key\s+on public\.lead_events \(lead_id, request_id, event_type\)/,
+  );
+  // idempotency columns are nullable (added, not NOT NULL)
+  assert.match(migration, /alter table public\.leads add column creation_request_id uuid;/);
+  assert.match(migration, /alter table public\.messages add column request_id uuid;/);
+});

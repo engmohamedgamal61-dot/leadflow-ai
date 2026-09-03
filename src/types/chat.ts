@@ -107,6 +107,11 @@ export interface SendOptions {
   industry?: string;
   /** Persisted conversation id from a previous turn, to continue the chat. */
   conversationId?: string;
+  /**
+   * Per-turn idempotency key. A retried / replayed identical request carries
+   * the same value so the server persists the turn exactly once.
+   */
+  requestId?: string;
 }
 
 /**

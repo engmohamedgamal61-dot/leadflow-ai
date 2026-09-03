@@ -10,11 +10,13 @@ type Store = Record<string, Row[]>;
 
 class FakeQuery {
   private filters: [string, unknown][] = [];
-  private op: "select" | "insert" | "update" = "select";
+  private op: "select" | "insert" | "update" | "upsert" = "select";
   private values: Row | Row[] = {};
   private orderDesc = false;
   private limitN: number | null = null;
   private singleMode: "maybe" | "one" | null = null;
+  private onConflict: string[] = [];
+  private ignoreDuplicates = false;
   private store: Store;
   private table: string;
 
@@ -43,6 +45,16 @@ class FakeQuery {
     this.values = v;
     return this;
   }
+  upsert(
+    v: Row | Row[],
+    opts?: { onConflict?: string; ignoreDuplicates?: boolean },
+  ) {
+    this.op = "upsert";
+    this.values = v;
+    this.onConflict = (opts?.onConflict ?? "").split(",").filter(Boolean);
+    this.ignoreDuplicates = opts?.ignoreDuplicates ?? false;
+    return this;
+  }
   update(v: Row) {
     this.op = "update";
     this.values = v;
@@ -67,19 +79,43 @@ class FakeQuery {
     );
   }
 
+  private conflicts(row: Row): boolean {
+    if (this.onConflict.length === 0) return false;
+    // NULLs are distinct in a unique index — never conflict.
+    if (this.onConflict.some((c) => row[c] === null || row[c] === undefined)) {
+      return false;
+    }
+    return (this.store[this.table] ?? []).some((existing) =>
+      this.onConflict.every((c) => existing[c] === row[c]),
+    );
+  }
+
+  private insertRows(arr: Row[]): Row[] {
+    const now = new Date().toISOString();
+    const inserted = arr.map((v) => ({
+      id: crypto.randomUUID(),
+      created_at: now,
+      updated_at: now,
+      status: "new",
+      ...v,
+    }));
+    (this.store[this.table] ??= []).push(...inserted);
+    return inserted;
+  }
+
   private run(): { data: unknown; error: unknown } {
     if (this.op === "insert") {
       const arr = Array.isArray(this.values) ? this.values : [this.values];
-      const now = new Date().toISOString();
-      const inserted = arr.map((v) => ({
-        id: crypto.randomUUID(),
-        created_at: now,
-        updated_at: now,
-        status: "new",
-        ...v,
-      }));
-      (this.store[this.table] ??= []).push(...inserted);
+      const inserted = this.insertRows(arr);
       return { data: this.singleMode ? inserted[0] : inserted, error: null };
+    }
+    if (this.op === "upsert") {
+      const arr = Array.isArray(this.values) ? this.values : [this.values];
+      const fresh = arr.filter((v) => !this.conflicts(v));
+      const inserted = fresh.length ? this.insertRows(fresh) : [];
+      // ignoreDuplicates → only newly-inserted rows are returned (like PG's
+      // INSERT ... ON CONFLICT DO NOTHING RETURNING).
+      return { data: this.singleMode ? (inserted[0] ?? null) : inserted, error: null };
     }
     if (this.op === "update") {
       const matched = this.rows();
@@ -274,4 +310,112 @@ test("clinic lead persists through the same function", async () => {
   assert.equal(row.intent, null);
   assert.deepEqual(row.custom_data, clinicLead.customData);
   assert.equal("service" in row, false); // still only custom_data, no column
+});
+
+// ── concurrency / idempotency ───────────────────────────────────────────────
+
+test("two identical first-turn requests → one lead, one conversation, 2 messages, 2 events", async () => {
+  const db = new FakeSupabase();
+  const input = baseInput({ requestId: "11111111-1111-1111-1111-111111111111" });
+
+  const [a, b] = await Promise.all([
+    persistChatTurn(db as unknown as Db, input),
+    persistChatTurn(db as unknown as Db, input),
+  ]);
+
+  assert.equal(db.store.leads.length, 1);
+  assert.equal(db.store.conversations.length, 1);
+  assert.equal(db.store.messages.length, 2);
+  assert.equal(db.store.lead_events.length, 2);
+  // both callers converge on the same ids
+  assert.equal(a.conversationId, b.conversationId);
+  assert.equal(a.leadId, b.leadId);
+  // exactly one caller did the inserting
+  assert.equal(a.messagesInserted + b.messagesInserted, 2);
+  assert.equal(a.eventsInserted + b.eventsInserted, 2);
+});
+
+test("two identical continuing requests → no duplicate messages or events", async () => {
+  const db = new FakeSupabase();
+  const first = await persistChatTurn(
+    db as unknown as Db,
+    baseInput({
+      requestId: "aaaaaaaa-0000-0000-0000-000000000001",
+      score: 35,
+      temperature: "COLD",
+    }),
+  );
+
+  const turn2 = baseInput({
+    conversationId: first.conversationId,
+    requestId: "aaaaaaaa-0000-0000-0000-000000000002",
+    userMessage: "budget is 1 million, financing",
+    assistantMessage: "Noted.",
+    score: 80,
+    temperature: "HOT",
+  });
+
+  const [a, b] = await Promise.all([
+    persistChatTurn(db as unknown as Db, turn2),
+    persistChatTurn(db as unknown as Db, turn2),
+  ]);
+
+  assert.equal(db.store.leads.length, 1);
+  assert.equal(db.store.conversations.length, 1);
+  assert.equal(db.store.messages.length, 4); // 2 (turn 1) + 2 (turn 2)
+  // one score_changed + one temperature_changed + one message_received for turn 2
+  const turn2Events = db.store.lead_events.filter(
+    (e) => e.request_id === "aaaaaaaa-0000-0000-0000-000000000002",
+  );
+  assert.deepEqual(
+    turn2Events.map((e) => e.event_type).sort(),
+    ["message_received", "score_changed", "temperature_changed"],
+  );
+  assert.equal(a.messagesInserted + b.messagesInserted, 2);
+});
+
+test("legitimate separate turns still create separate messages and events", async () => {
+  const db = new FakeSupabase();
+  const t1 = await persistChatTurn(
+    db as unknown as Db,
+    baseInput({
+      requestId: "bbbbbbbb-0000-0000-0000-000000000001",
+      score: 35,
+      temperature: "COLD",
+    }),
+  );
+  await persistChatTurn(
+    db as unknown as Db,
+    baseInput({
+      conversationId: t1.conversationId,
+      requestId: "bbbbbbbb-0000-0000-0000-000000000002",
+      userMessage: "different message",
+      assistantMessage: "different reply",
+      score: 80,
+      temperature: "HOT",
+    }),
+  );
+  assert.equal(db.store.leads.length, 1);
+  assert.equal(db.store.conversations.length, 1);
+  assert.equal(db.store.messages.length, 4);
+  assert.ok(db.store.lead_events.length >= 4); // lead_created + 2×message_received + score/temp changes
+});
+
+test("a re-typed identical turn with a NEW requestId does not duplicate the user message", async () => {
+  const db = new FakeSupabase();
+  const first = await persistChatTurn(
+    db as unknown as Db,
+    baseInput({ requestId: "cccccccc-0000-0000-0000-000000000001" }),
+  );
+  // same content, different request id (user retyped after an error)
+  const retype = await persistChatTurn(
+    db as unknown as Db,
+    baseInput({
+      conversationId: first.conversationId,
+      requestId: "cccccccc-0000-0000-0000-000000000002",
+    }),
+  );
+  const userMessages = db.store.messages.filter((m) => m.role === "user");
+  assert.equal(userMessages.length, 1); // content dedup caught it
+  assert.equal(retype.messagesInserted, 0);
 });
