@@ -2,10 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { LEAD_FIELD_KEYS, type LeadData } from "@/types/chat";
+import { getEffectiveConfig } from "@/lib/config";
 import {
   calculateLeadScore,
-  SCORE_WEIGHTS,
-  type LeadScoreBreakdown,
+  maxScore,
+  scoreWeights,
   type LeadTemperature,
 } from "@/lib/lead-scoring";
 
@@ -34,16 +35,6 @@ const TEMPERATURE_STYLES: Record<
   },
 };
 
-const BREAKDOWN_ROWS: { key: keyof LeadScoreBreakdown; label: string }[] = [
-  { key: "intent", label: "intent" },
-  { key: "budget", label: "budget" },
-  { key: "location", label: "location" },
-  { key: "property_type", label: "property_type" },
-  { key: "bedrooms", label: "bedrooms" },
-  { key: "financing", label: "financing" },
-  { key: "timeline", label: "timeline" },
-];
-
 /**
  * Development-only inspector for the structured lead data and its deterministic
  * score. Hidden entirely in production builds. Temporary aid — will be removed
@@ -52,9 +43,12 @@ const BREAKDOWN_ROWS: { key: keyof LeadScoreBreakdown; label: string }[] = [
 export function LeadDebugPanel({ lead }: LeadDebugPanelProps) {
   const [open, setOpen] = useState(false);
 
+  const config = useMemo(() => getEffectiveConfig(), []);
+  const weights = useMemo(() => scoreWeights(config.scoring), [config]);
+  const total = useMemo(() => maxScore(config.scoring), [config]);
   const { score, temperature, breakdown } = useMemo(
-    () => calculateLeadScore(lead),
-    [lead],
+    () => calculateLeadScore(lead, config.scoring),
+    [lead, config],
   );
 
   if (process.env.NODE_ENV === "production") return null;
@@ -63,6 +57,7 @@ export function LeadDebugPanel({ lead }: LeadDebugPanelProps) {
     (key) => lead[key] !== null && lead[key] !== undefined,
   ).length;
   const temp = TEMPERATURE_STYLES[temperature];
+  const scorePercent = total > 0 ? (score / total) * 100 : 0;
 
   return (
     <div className="fixed bottom-3 right-3 z-50 w-[min(20rem,calc(100vw-1.5rem))] font-mono">
@@ -70,7 +65,7 @@ export function LeadDebugPanel({ lead }: LeadDebugPanelProps) {
         <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-2xl shadow-black/50">
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <span className="text-[11px] font-semibold tracking-wide text-foreground">
-              LEAD · DEBUG
+              LEAD · DEBUG · {config.templateSlug}
             </span>
             <button
               type="button"
@@ -87,7 +82,9 @@ export function LeadDebugPanel({ lead }: LeadDebugPanelProps) {
             <div className="flex items-baseline justify-between">
               <span className={`text-3xl font-semibold ${temp.text}`}>
                 {score}
-                <span className="ml-1 text-xs font-normal text-muted">/ 100</span>
+                <span className="ml-1 text-xs font-normal text-muted">
+                  / {total}
+                </span>
               </span>
               <span
                 className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-widest ${temp.badge}`}
@@ -98,29 +95,30 @@ export function LeadDebugPanel({ lead }: LeadDebugPanelProps) {
             <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-border">
               <div
                 className={`h-full rounded-full transition-all duration-300 ${temp.bar}`}
-                style={{ width: `${score}%` }}
+                style={{ width: `${scorePercent}%` }}
               />
             </div>
           </div>
 
           {/* Score breakdown */}
           <dl className="divide-y divide-border/60 text-[11px]">
-            {BREAKDOWN_ROWS.map(({ key, label }) => {
-              const earned = breakdown[key];
-              const max = SCORE_WEIGHTS[key];
+            {Object.entries(breakdown).map(([key, earned]) => {
+              const max = weights[key] ?? 0;
               return (
                 <div
                   key={key}
                   className="flex items-center justify-between gap-3 px-3 py-1.5"
                 >
-                  <dt className="text-muted">{label}</dt>
+                  <dt className="text-muted">{key}</dt>
                   <dd className="flex items-center gap-2">
                     <span className="h-1 w-16 overflow-hidden rounded-full bg-border">
                       <span
                         className={`block h-full rounded-full ${
                           earned > 0 ? "bg-accent" : ""
                         }`}
-                        style={{ width: `${(earned / max) * 100}%` }}
+                        style={{
+                          width: `${max > 0 ? (earned / max) * 100 : 0}%`,
+                        }}
                       />
                     </span>
                     <span
@@ -172,10 +170,7 @@ export function LeadDebugPanel({ lead }: LeadDebugPanelProps) {
           onClick={() => setOpen(true)}
           className="flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1.5 text-[11px] font-medium shadow-lg shadow-black/40 transition-colors hover:border-border/80"
         >
-          <span
-            aria-hidden
-            className={`h-1.5 w-1.5 rounded-full ${temp.bar}`}
-          />
+          <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${temp.bar}`} />
           <span className={`font-semibold ${temp.text}`}>{score}</span>
           <span className="text-muted">{temperature}</span>
           <span className="text-muted/50">·</span>

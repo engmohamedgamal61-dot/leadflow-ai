@@ -4,8 +4,12 @@ import type { LeadData } from "@/types/chat";
 import {
   calculateLeadScore,
   classifyTimeline,
-  SCORE_WEIGHTS,
+  maxScore,
+  scoreWeights,
 } from "./lead-scoring.ts";
+import { realEstateTemplate } from "./config/templates/real-estate.ts";
+
+const SCORING = realEstateTemplate.scoring;
 
 const EMPTY: LeadData = {
   name: null,
@@ -19,9 +23,10 @@ const EMPTY: LeadData = {
 };
 
 const lead = (over: Partial<LeadData>): LeadData => ({ ...EMPTY, ...over });
+const score = (l: LeadData) => calculateLeadScore(l, SCORING);
 
 test("spec example scores 100 / HOT", () => {
-  const result = calculateLeadScore({
+  const result = score({
     name: "محمد",
     intent: "buy",
     location: "بريدة",
@@ -45,14 +50,14 @@ test("spec example scores 100 / HOT", () => {
 });
 
 test("completely empty lead scores 0 / COLD", () => {
-  const result = calculateLeadScore(EMPTY);
+  const result = score(EMPTY);
   assert.equal(result.score, 0);
   assert.equal(result.temperature, "COLD");
   assert.deepEqual(Object.values(result.breakdown), [0, 0, 0, 0, 0, 0, 0]);
 });
 
 test("partial lead is scored only from known fields", () => {
-  const result = calculateLeadScore({
+  const result = score({
     name: "Ahmed",
     intent: "buy",
     location: "Riyadh",
@@ -69,7 +74,7 @@ test("partial lead is scored only from known fields", () => {
     intent: 15,
     budget: 0,
     location: 10,
-    property_type: 0 + 10,
+    property_type: 10,
     bedrooms: 0,
     financing: 0,
     timeline: 0,
@@ -79,7 +84,7 @@ test("partial lead is scored only from known fields", () => {
 test("realistic WARM lead", () => {
   // rent 10 + budget≥500k 15 + location 10 + property_type 10 + bedrooms 10
   // + financing false 10 + timeline 3 months 10  = 75
-  const result = calculateLeadScore(
+  const result = score(
     lead({
       intent: "rent",
       budget: 600_000,
@@ -96,12 +101,8 @@ test("realistic WARM lead", () => {
 
 test("realistic COLD lead", () => {
   // rent 10 + budget<250k 5 + timeline over 3 months 5 = 20
-  const result = calculateLeadScore(
-    lead({
-      intent: "rent",
-      budget: 120_000,
-      timeline: "end of year",
-    }),
+  const result = score(
+    lead({ intent: "rent", budget: 120_000, timeline: "end of year" }),
   );
   assert.equal(result.score, 20);
   assert.equal(result.temperature, "COLD");
@@ -117,13 +118,12 @@ test("changing one field only moves its own category", () => {
     financing: true,
     timeline: "2 months",
   });
-  const baseResult = calculateLeadScore(base);
-
-  const changed = calculateLeadScore({ ...base, budget: 1_000_000 });
+  const baseResult = score(base);
+  const changed = score({ ...base, budget: 1_000_000 });
 
   assert.equal(changed.breakdown.budget, 20);
   assert.equal(baseResult.breakdown.budget, 15);
-  for (const key of Object.keys(SCORE_WEIGHTS) as (keyof typeof SCORE_WEIGHTS)[]) {
+  for (const key of Object.keys(baseResult.breakdown)) {
     if (key === "budget") continue;
     assert.equal(
       changed.breakdown[key],
@@ -146,16 +146,19 @@ test("invalid / malformed values never throw and score 0", () => {
     timeline: 42,
   } as unknown as LeadData;
 
-  const result = calculateLeadScore(garbage);
+  const result = score(garbage);
   assert.equal(result.score, 0);
   assert.equal(result.temperature, "COLD");
 
-  // null / undefined object
   assert.doesNotThrow(() =>
-    calculateLeadScore(null as unknown as LeadData),
+    calculateLeadScore(null as unknown as LeadData, SCORING),
   );
   assert.doesNotThrow(() =>
-    calculateLeadScore(undefined as unknown as LeadData),
+    calculateLeadScore(undefined as unknown as LeadData, SCORING),
+  );
+  // Malformed scoring config must not throw either.
+  assert.doesNotThrow(() =>
+    calculateLeadScore(EMPTY, {} as typeof SCORING),
   );
 });
 
@@ -170,10 +173,11 @@ test("timeline classification buckets", () => {
   assert.equal(classifyTimeline("flexible"), "over_3_months");
   assert.equal(classifyTimeline(null), "unknown");
   assert.equal(classifyTimeline(""), "unknown");
-  assert.equal(classifyTimeline("سيب"), "unknown"); // unrecognised → 0 points
+  assert.equal(classifyTimeline("سيب"), "unknown");
 });
 
-test("weights sum to 100", () => {
-  const total = Object.values(SCORE_WEIGHTS).reduce((a, b) => a + b, 0);
+test("real estate scoring weights sum to 100", () => {
+  assert.equal(maxScore(SCORING), 100);
+  const total = Object.values(scoreWeights(SCORING)).reduce((a, b) => a + b, 0);
   assert.equal(total, 100);
 });

@@ -3,7 +3,7 @@ import type {
   ChatMessage,
   SendOptions,
 } from "@/types/chat";
-import { LEAD_FIELDS } from "@/lib/chat/lead-qualification";
+import { getEffectiveConfig } from "@/lib/config";
 
 const THINK_DELAY = 500;
 const CHUNK_DELAY = 28;
@@ -12,9 +12,9 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Dependency-free stand-in for {@link apiAssistant}, kept for local development
- * and tests. It walks the prospect through the lead-qualification questions in
- * order — one per user turn — and streams the reply word by word so the UI
- * behaves the same as it does against the real API.
+ * and tests. It walks the prospect through the configured qualification flow —
+ * one field per user turn — asking a plain question from each step's hint, and
+ * streams the reply word by word so the UI behaves the same as against the API.
  */
 export const mockAssistant: AssistantClient = {
   async send(
@@ -23,11 +23,12 @@ export const mockAssistant: AssistantClient = {
   ): Promise<string> {
     await wait(THINK_DELAY);
 
+    const flow = getEffectiveConfig().qualificationFlow;
     const answered = messages.filter((m) => m.role === "user").length;
-    const nextField = LEAD_FIELDS[answered + 1];
-    const reply = nextField
-      ? nextField.question
-      : "Thanks — that's everything I need for now. One of our property specialists will reach out shortly with matching options.";
+    const nextStep = flow[answered];
+    const reply = nextStep
+      ? `Thanks. Could you tell me about ${nextStep.questionHint ?? nextStep.fieldKey}?`
+      : "Thanks — that's everything I need for now. A specialist will reach out shortly.";
 
     if (!onToken) return reply;
 

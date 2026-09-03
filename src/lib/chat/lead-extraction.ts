@@ -1,69 +1,60 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { CHAT_MODEL } from "@/lib/chat/anthropic";
-import { EMPTY_LEAD, LEAD_FIELD_KEYS, type LeadData } from "@/types/chat";
+import type { EffectiveConfig, LeadFieldDefinition } from "@/lib/config";
+import { EMPTY_LEAD, type LeadData } from "@/types/chat";
 
 const EXTRACTION_MAX_TOKENS = 512;
 
-/**
- * JSON schema for the structured lead. Passed to Anthropic structured outputs
- * so the model is constrained to return exactly this shape.
- */
-const LEAD_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: [...LEAD_FIELD_KEYS],
-  properties: {
-    name: {
-      type: ["string", "null"],
-      description: "The prospect's name, as they gave it. Keep the original script.",
-    },
-    intent: {
-      type: ["string", "null"],
-      description:
-        "Exactly \"buy\" or \"rent\" (lowercase), or null. Infer from clear signals: financing/mortgage or a large purchase-sized budget imply \"buy\"; \"rent\"/\"إيجار\"/\"للإيجار\" imply \"rent\". null if genuinely unclear.",
-    },
-    location: {
-      type: ["string", "null"],
-      description:
-        "City or district, normalized to English (e.g. \"Riyadh\", \"North Riyadh\", \"Jeddah\").",
-    },
-    budget: {
-      type: ["number", "null"],
-      description:
-        "Numeric amount in SAR. \"مليون ريال\" -> 1000000, \"800 ألف\" -> 800000, \"1.2m\" -> 1200000.",
-    },
-    property_type: {
-      type: ["string", "null"],
-      description:
-        "Lowercase English: \"apartment\", \"villa\", \"townhouse\", \"office\", \"land\", etc.",
-    },
-    bedrooms: {
-      type: ["integer", "null"],
-      description: "Integer number of bedrooms. Arabic-Indic digits count (٤ -> 4).",
-    },
-    financing: {
-      type: ["boolean", "null"],
-      description:
-        "true if the prospect needs financing / a mortgage, false if paying cash. null if not mentioned.",
-    },
-    timeline: {
-      type: ["string", "null"],
-      description:
-        "Short English phrase for when they want to move/buy: \"1 week\", \"3 months\", \"ASAP\", \"end of year\".",
-    },
-  },
-} as const;
+const SCHEMA_TYPE_BY_FIELD: Record<
+  LeadFieldDefinition["type"],
+  "string" | "number" | "boolean"
+> = {
+  text: "string",
+  select: "string",
+  date: "string",
+  number: "number",
+  boolean: "boolean",
+};
 
-const EXTRACTION_SYSTEM = `You extract structured lead data from a real-estate qualification conversation between a prospect and an assistant.
+/**
+ * Build the structured-output JSON schema from the configured lead fields.
+ *
+ * Every field is nullable — extraction never invents a value. Anthropic
+ * structured outputs rejects `enum` combined with a nullable union, so allowed
+ * values live in the field description instead.
+ */
+export function buildLeadSchema(
+  fields: LeadFieldDefinition[],
+): Record<string, unknown> {
+  const properties: Record<string, unknown> = {};
+
+  for (const field of fields) {
+    properties[field.key] = {
+      type: [SCHEMA_TYPE_BY_FIELD[field.type], "null"],
+      description: field.extractionHint ?? field.description ?? field.label,
+    };
+  }
+
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: fields.map((field) => field.key),
+    properties,
+  };
+}
+
+function buildExtractionSystemPrompt(config: EffectiveConfig): string {
+  return `You extract structured lead data from a lead-qualification conversation between a prospect and an assistant.
 
 Rules:
 - Output ONLY the JSON object matching the schema. No prose.
 - Use information from the ENTIRE conversation, not just the last message.
 - NEVER invent or guess. If a field was not clearly provided, it is null.
 - If the prospect corrected an earlier answer, use the CORRECTED (latest) value.
-- Understand Arabic, English, and Arabizi (Arabic in Latin letters/numbers).
-- Normalize values to the canonical shapes described in the schema (English location/property_type/timeline, numeric budget in SAR, integer bedrooms, boolean financing, "buy"/"rent" intent).
+- Understand ${config.aiBehavior.languages.join(", ")}.
+- Normalize every field exactly as its description in the schema says.
 - Do not ask questions. You only extract.`;
+}
 
 function toNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -92,7 +83,13 @@ function toText(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-/** Coerce a loosely-typed model result into a clean {@link LeadData}. */
+/**
+ * Coerce a loosely-typed model result into a clean {@link LeadData}.
+ *
+ * This is the adapter between raw structured-output JSON and the real-estate
+ * `LeadData` shape. A future non-real-estate lead shape would get its own
+ * normalizer.
+ */
 export function normalizeLead(raw: unknown): LeadData {
   const source = (raw && typeof raw === "object" ? raw : {}) as Record<
     string,
@@ -135,20 +132,25 @@ function firstJsonObject(text: string): unknown {
 
 /**
  * Extract the structured lead from the full conversation using Anthropic
- * structured outputs. Returns {@link EMPTY_LEAD} on failure so the chat flow
- * is never blocked by extraction problems.
+ * structured outputs, driven by the effective configuration's lead fields.
+ * Returns {@link EMPTY_LEAD} on failure so the chat flow is never blocked.
  */
 export async function extractLead(
   client: Anthropic,
   messages: Anthropic.MessageParam[],
+  config: EffectiveConfig,
 ): Promise<LeadData> {
   try {
+    const schema = buildLeadSchema(
+      config.leadFields.filter((field) => field.enabled),
+    );
+
     const response = await client.messages.create({
       model: CHAT_MODEL,
       max_tokens: EXTRACTION_MAX_TOKENS,
       thinking: { type: "disabled" },
-      system: EXTRACTION_SYSTEM,
-      output_config: { format: { type: "json_schema", schema: LEAD_SCHEMA } },
+      system: buildExtractionSystemPrompt(config),
+      output_config: { format: { type: "json_schema", schema } },
       messages: [
         ...messages,
         {

@@ -1,68 +1,42 @@
 import type { LeadData } from "@/types/chat";
+import type {
+  ScoringConfig,
+  ScoringRule,
+  ScoringClassifierId,
+} from "@/lib/config/types";
 
 /**
- * Deterministic lead scoring.
+ * Deterministic lead scoring engine.
  *
  * The score is calculated ENTIRELY in application code from the structured
- * {@link LeadData} object — Claude is never asked to score a lead. The model is
- * transparent, predictable and easy to tune: every category has a fixed weight
- * and a small, readable scoring function.
+ * lead object and a {@link ScoringConfig} — Claude is never asked to score a
+ * lead. The engine is generic: it evaluates the config's {@link ScoringRule}s
+ * against the lead's fields and sums the points. Industry-specific weights,
+ * thresholds and rules live in the industry template (see
+ * `src/lib/config/templates/real-estate.ts`), not here.
  *
- * ┌───────────────┬─────┬────────────────────────────────────────────────────┐
- * │ Category      │ Max │ Rule                                               │
- * ├───────────────┼─────┼────────────────────────────────────────────────────┤
- * │ intent        │  15 │ buy = 15 · rent = 10 · null = 0                     │
- * │ budget (SAR)  │  20 │ ≥1,000,000 = 20 · ≥500,000 = 15 · ≥250,000 = 10 ·   │
- * │               │     │ >0 = 5 · null = 0                                   │
- * │ location      │  10 │ known = 10 · null = 0                               │
- * │ property_type │  10 │ known = 10 · null = 0                               │
- * │ bedrooms      │  10 │ known = 10 · null = 0                               │
- * │ financing     │  15 │ true = 15 · false = 10 · null = 0                   │
- * │ timeline      │  20 │ ≤1 week = 20 · ≤1 month = 15 · ≤3 months = 10 ·     │
- * │               │     │ >3 months = 5 · null = 0                            │
- * └───────────────┴─────┴────────────────────────────────────────────────────┘
- * Total maximum = 100.
+ * Rule kinds:
+ * - `match`            — exact value → points (e.g. intent "buy" → 15)
+ * - `presence`         — field has a usable value → points
+ * - `boolean`          — true / false → points
+ * - `numericThreshold` — highest tier whose `min` ≤ value → points
+ * - `bucket`           — a named classifier maps the value to a bucket → points
  *
- * Temperature: 80–100 HOT · 50–79 WARM · 0–49 COLD.
- *
- * To change the model, edit {@link SCORE_WEIGHTS}, {@link TEMPERATURE_THRESHOLDS},
- * or the individual `score*` helpers below — nothing else depends on the
- * internals.
+ * Temperature bands come from `ScoringConfig.thresholds`.
  */
 
 export type LeadTemperature = "HOT" | "WARM" | "COLD";
 
-export interface LeadScoreBreakdown {
-  intent: number;
-  budget: number;
-  location: number;
-  property_type: number;
-  bedrooms: number;
-  financing: number;
-  timeline: number;
-}
+/** Points awarded per rule, keyed by the rule's `fieldKey`. */
+export type LeadScoreBreakdown = Record<string, number>;
 
 export interface LeadScore {
-  /** 0–100, the sum of every category in {@link LeadScoreBreakdown}. */
+  /** Sum of every rule's points. */
   score: number;
   temperature: LeadTemperature;
-  /** Points awarded per category — lets a dashboard explain *why*. */
+  /** Points per field — lets a dashboard explain *why*. */
   breakdown: LeadScoreBreakdown;
 }
-
-/** Maximum points each category can contribute. Sums to 100. */
-export const SCORE_WEIGHTS: LeadScoreBreakdown = {
-  intent: 15,
-  budget: 20,
-  location: 10,
-  property_type: 10,
-  bedrooms: 10,
-  financing: 15,
-  timeline: 20,
-};
-
-/** Lower bound (inclusive) of each temperature band. */
-export const TEMPERATURE_THRESHOLDS = { HOT: 80, WARM: 50 } as const;
 
 // ── value guards ────────────────────────────────────────────────────────────
 
@@ -74,39 +48,16 @@ function isPositiveNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
-// ── per-category scoring ────────────────────────────────────────────────────
-
-function scoreIntent(intent: unknown): number {
-  if (intent === "buy") return 15;
-  if (intent === "rent") return 10;
-  return 0;
+/** A field "has a value" for `presence` scoring. */
+function isPresent(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number") return Number.isFinite(value) && value > 0;
+  if (typeof value === "boolean") return true;
+  return false;
 }
 
-function scoreBudget(budget: unknown): number {
-  if (!isPositiveNumber(budget)) return 0;
-  if (budget >= 1_000_000) return 20;
-  if (budget >= 500_000) return 15;
-  if (budget >= 250_000) return 10;
-  return 5;
-}
-
-function scoreLocation(location: unknown): number {
-  return isKnownText(location) ? 10 : 0;
-}
-
-function scorePropertyType(propertyType: unknown): number {
-  return isKnownText(propertyType) ? 10 : 0;
-}
-
-function scoreBedrooms(bedrooms: unknown): number {
-  return isPositiveNumber(bedrooms) ? 10 : 0;
-}
-
-function scoreFinancing(financing: unknown): number {
-  if (financing === true) return 15;
-  if (financing === false) return 10;
-  return 0;
-}
+// ── timeline classifier ─────────────────────────────────────────────────────
 
 export type TimelineBucket =
   | "within_1_week"
@@ -115,14 +66,6 @@ export type TimelineBucket =
   | "over_3_months"
   | "unknown";
 
-const TIMELINE_BUCKET_POINTS: Record<TimelineBucket, number> = {
-  within_1_week: 20,
-  within_1_month: 15,
-  within_3_months: 10,
-  over_3_months: 5,
-  unknown: 0,
-};
-
 /**
  * Deterministically map a free-text timeline (e.g. "1 week", "3 months",
  * "ASAP", "end of year") to a bucket.
@@ -130,7 +73,7 @@ const TIMELINE_BUCKET_POINTS: Record<TimelineBucket, number> = {
  * - Recognised `N week/day/month/year` phrases are converted to a duration and
  *   bucketed (≤7d → 1 week, ≤31d → 1 month, ≤92d → 3 months, else → over).
  * - A fixed keyword set covers non-numeric phrases.
- * - `null`, empty, or a value that cannot be recognised → `unknown` (0 points).
+ * - `null`, empty, or a value that cannot be recognised → `unknown`.
  *   In practice extraction always normalises `timeline` to a clean English
  *   phrase, so the unrecognised case is a safety net, not a common path.
  */
@@ -138,12 +81,10 @@ export function classifyTimeline(timeline: unknown): TimelineBucket {
   if (!isKnownText(timeline)) return "unknown";
   const t = timeline.trim().toLowerCase();
 
-  // Urgency phrases → within a week.
   if (/asap|immediat|right away|straight away|urgent|today|tomorrow|this week/.test(t)) {
     return "within_1_week";
   }
 
-  // "<number> <unit>" phrases, most specific unit first.
   const amount = (unit: RegExp): number | null => {
     const match = t.match(new RegExp(`(\\d+(?:\\.\\d+)?)\\s*\\+?\\s*(?:${unit.source})`));
     return match ? Number.parseFloat(match[1]) : null;
@@ -174,7 +115,6 @@ export function classifyTimeline(timeline: unknown): TimelineBucket {
 
   if (amount(/years?/) !== null) return "over_3_months";
 
-  // Non-numeric phrases.
   if (/within a week|in a week|one week|a week/.test(t)) return "within_1_week";
   if (/within a month|in a month|one month|a month|this month|next month|end of month|month or so/.test(t)) {
     return "within_1_month";
@@ -187,51 +127,97 @@ export function classifyTimeline(timeline: unknown): TimelineBucket {
     return "over_3_months";
   }
 
-  // Present but unrecognised — treat as unknown (0 points) rather than
-  // awarding points we cannot justify.
   return "unknown";
 }
 
-function scoreTimeline(timeline: unknown): number {
-  return TIMELINE_BUCKET_POINTS[classifyTimeline(timeline)];
+/** Named deterministic classifiers a `bucket` rule can reference. */
+const CLASSIFIERS: Record<ScoringClassifierId, (value: unknown) => string> = {
+  timeline: classifyTimeline,
+};
+
+// ── rule evaluation ─────────────────────────────────────────────────────────
+
+function evaluateRule(rule: ScoringRule, value: unknown): number {
+  switch (rule.kind) {
+    case "match": {
+      if (value === null || value === undefined) return rule.whenMissing;
+      const points = rule.cases[String(value)];
+      return typeof points === "number" ? points : rule.whenMissing;
+    }
+    case "presence":
+      return isPresent(value) ? rule.points : rule.whenMissing;
+    case "boolean":
+      if (value === true) return rule.whenTrue;
+      if (value === false) return rule.whenFalse;
+      return rule.whenMissing;
+    case "numericThreshold": {
+      if (!isPositiveNumber(value)) return rule.whenMissing;
+      const tier = [...rule.tiers]
+        .sort((a, b) => b.min - a.min)
+        .find((t) => value >= t.min);
+      return tier ? tier.points : rule.whenMissing;
+    }
+    case "bucket": {
+      const classifier = CLASSIFIERS[rule.classifier];
+      if (!classifier) return rule.whenMissing;
+      const points = rule.buckets[classifier(value)];
+      return typeof points === "number" ? points : rule.whenMissing;
+    }
+    default: {
+      // Unknown rule kind (malformed config) — award nothing.
+      return 0;
+    }
+  }
+}
+
+function classifyTemperature(
+  score: number,
+  { hot, warm }: ScoringConfig["thresholds"],
+): LeadTemperature {
+  if (score >= hot) return "HOT";
+  if (score >= warm) return "WARM";
+  return "COLD";
 }
 
 // ── public API ─────────────────────────────────────────────────────────────
 
-function classifyTemperature(score: number): LeadTemperature {
-  if (score >= TEMPERATURE_THRESHOLDS.HOT) return "HOT";
-  if (score >= TEMPERATURE_THRESHOLDS.WARM) return "WARM";
-  return "COLD";
+/** Maximum points each field can contribute, keyed by field key. */
+export function scoreWeights(scoring: ScoringConfig): LeadScoreBreakdown {
+  const weights: LeadScoreBreakdown = {};
+  for (const rule of scoring.rules) weights[rule.fieldKey] = rule.maxPoints;
+  return weights;
+}
+
+/** The maximum score this configuration can produce. */
+export function maxScore(scoring: ScoringConfig): number {
+  return scoring.rules.reduce((total, rule) => total + rule.maxPoints, 0);
 }
 
 /**
- * Calculate a lead's score (0–100), temperature and per-category breakdown
- * from the structured {@link LeadData}. Pure and side-effect free. Tolerates a
- * malformed or partial object at runtime — unknown values simply score 0.
+ * Calculate a lead's score, temperature and per-field breakdown from the
+ * structured lead and a scoring configuration. Pure and side-effect free.
+ * Tolerates a malformed or partial lead — unknown values simply score their
+ * rule's `whenMissing`.
  */
-export function calculateLeadScore(lead: LeadData): LeadScore {
+export function calculateLeadScore(
+  lead: LeadData,
+  scoring: ScoringConfig,
+): LeadScore {
   const source = (
     lead && typeof lead === "object" ? lead : {}
-  ) as Partial<Record<keyof LeadData, unknown>>;
+  ) as Record<string, unknown>;
 
-  const breakdown: LeadScoreBreakdown = {
-    intent: scoreIntent(source.intent),
-    budget: scoreBudget(source.budget),
-    location: scoreLocation(source.location),
-    property_type: scorePropertyType(source.property_type),
-    bedrooms: scoreBedrooms(source.bedrooms),
-    financing: scoreFinancing(source.financing),
-    timeline: scoreTimeline(source.timeline),
-  };
+  const rules = Array.isArray(scoring?.rules) ? scoring.rules : [];
+  const breakdown: LeadScoreBreakdown = {};
+  let score = 0;
 
-  const score =
-    breakdown.intent +
-    breakdown.budget +
-    breakdown.location +
-    breakdown.property_type +
-    breakdown.bedrooms +
-    breakdown.financing +
-    breakdown.timeline;
+  for (const rule of rules) {
+    if (!rule || typeof rule.fieldKey !== "string") continue;
+    const points = evaluateRule(rule, source[rule.fieldKey]);
+    breakdown[rule.fieldKey] = points;
+    score += points;
+  }
 
-  return { score, temperature: classifyTemperature(score), breakdown };
+  const thresholds = scoring?.thresholds ?? { hot: 80, warm: 50 };
+  return { score, temperature: classifyTemperature(score, thresholds), breakdown };
 }

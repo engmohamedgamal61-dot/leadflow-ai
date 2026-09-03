@@ -5,8 +5,9 @@ import {
   MAX_TOKENS,
   getAnthropicClient,
 } from "@/lib/chat/anthropic";
-import { SYSTEM_PROMPT } from "@/lib/chat/system-prompt";
+import { buildSystemPrompt } from "@/lib/chat/system-prompt";
 import { extractLead } from "@/lib/chat/lead-extraction";
+import { getEffectiveConfig } from "@/lib/config";
 import { EMPTY_LEAD, LEAD_DELIMITER, type ChatTurn } from "@/types/chat";
 
 export const runtime = "nodejs";
@@ -117,12 +118,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // The AI engine runs on the effective configuration (industry template +
+  // any organization overrides). No organization persistence yet, so this is
+  // the default industry template.
+  const config = getEffectiveConfig();
+
   // Thinking disabled: a lead-qualification chat is a low-complexity task and
   // real-time responsiveness matters more than deliberation.
   const stream = client.messages.stream({
     model: CHAT_MODEL,
     max_tokens: MAX_TOKENS,
-    system: SYSTEM_PROMPT,
+    system: buildSystemPrompt(config),
     thinking: { type: "disabled" },
     messages,
   });
@@ -189,10 +195,11 @@ export async function POST(request: NextRequest) {
       // empty lead and the client keeps its last-known value.
       let lead = EMPTY_LEAD;
       try {
-        lead = await extractLead(client, [
-          ...messages,
-          { role: "assistant", content: replyText },
-        ]);
+        lead = await extractLead(
+          client,
+          [...messages, { role: "assistant", content: replyText }],
+          config,
+        );
       } catch (error) {
         console.error("lead extraction error", error);
       }
