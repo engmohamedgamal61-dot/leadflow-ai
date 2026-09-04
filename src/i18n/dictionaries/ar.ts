@@ -54,9 +54,13 @@ export const ar: Dictionary = {
 
   navigation: {
     overview: "نظرة عامة",
+    dashboard: "لوحة التحكم",
     leads: "العملاء المحتملون",
     aiAgent: "الوكيل الذكي",
     integrations: "التكاملات",
+    settings: "الإعدادات",
+    openMenu: "فتح القائمة",
+    closeMenu: "إغلاق القائمة",
   },
 
   auth: {

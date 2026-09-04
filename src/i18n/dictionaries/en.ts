@@ -55,9 +55,13 @@ export const en = {
 
   navigation: {
     overview: "Overview",
+    dashboard: "Dashboard",
     leads: "Leads",
     aiAgent: "AI agent",
     integrations: "Integrations",
+    settings: "Settings",
+    openMenu: "Open menu",
+    closeMenu: "Close menu",
   },
 
   auth: {
