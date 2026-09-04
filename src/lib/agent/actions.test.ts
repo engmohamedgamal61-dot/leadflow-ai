@@ -13,16 +13,22 @@ const NOW = new Date("2026-09-04T12:00:00Z");
 const future = "2026-09-05T15:00:00Z";
 const past = "2026-09-03T15:00:00Z";
 
-test("the registry has all 4 actions; only 2 are AI-proposable", () => {
+test("the registry has all 7 actions; 5 are AI-proposable", () => {
   assert.deepEqual([...AGENT_ACTION_TYPES], [
     "update_lead_status",
     "create_follow_up",
     "request_human_handoff",
     "mark_qualified",
+    "book_appointment",
+    "reschedule_appointment",
+    "cancel_appointment",
   ]);
   assert.deepEqual([...AI_PROPOSABLE_ACTION_TYPES], [
     "create_follow_up",
     "request_human_handoff",
+    "book_appointment",
+    "reschedule_appointment",
+    "cancel_appointment",
   ]);
 });
 
@@ -100,6 +106,49 @@ test("parseProposedActions tolerates non-array input", () => {
   assert.deepEqual(parseProposedActions(null, NOW), { actions: [], rejected: [] });
   assert.deepEqual(parseProposedActions("x", NOW), { actions: [], rejected: [] });
   assert.deepEqual(parseProposedActions(undefined, NOW), { actions: [], rejected: [] });
+});
+
+test("parseProposedActions: book_appointment / reschedule_appointment need a future scheduled_at", () => {
+  const { actions, rejected } = parseProposedActions(
+    [
+      { type: "book_appointment", scheduled_at: future, reason: "prefers mornings" },
+    ],
+    NOW,
+  );
+  assert.equal(rejected.length, 0);
+  assert.deepEqual(actions, [
+    { type: "book_appointment", startsAt: "2026-09-05T15:00:00.000Z", reason: "prefers mornings" },
+  ]);
+
+  const bad = parseProposedActions(
+    [{ type: "reschedule_appointment", scheduled_at: past }],
+    NOW,
+  );
+  assert.equal(bad.actions.length, 0);
+  assert.ok(bad.rejected.some((r) => r.includes("reschedule_appointment")));
+});
+
+test("parseProposedActions: cancel_appointment only needs an optional reason", () => {
+  const { actions } = parseProposedActions(
+    [{ type: "cancel_appointment", reason: "change of plans" }],
+    NOW,
+  );
+  assert.deepEqual(actions, [{ type: "cancel_appointment", reason: "change of plans" }]);
+
+  const noReason = parseProposedActions([{ type: "cancel_appointment" }], NOW);
+  assert.deepEqual(noReason.actions, [{ type: "cancel_appointment", reason: null }]);
+});
+
+test("book_appointment / reschedule_appointment coexist with other action types in one turn", () => {
+  const { actions, rejected } = parseProposedActions(
+    [
+      { type: "book_appointment", scheduled_at: future },
+      { type: "request_human_handoff", reason: "wants a person too" },
+    ],
+    NOW,
+  );
+  assert.equal(rejected.length, 0);
+  assert.equal(actions.length, 2);
 });
 
 test("normalizeNote trims, caps, and nulls empties", () => {

@@ -3,7 +3,9 @@ import { requireOrganizationContext, canManageConfig } from "@/lib/org/context";
 import { createClient } from "@/lib/supabase/server";
 import { formatDateTime } from "@/lib/leads/format";
 import { getI18n } from "@/i18n/server";
+import { getConnectionView } from "@/lib/calendar/connections";
 import { WhatsAppSettings } from "./whatsapp-form";
+import { GoogleCalendarSettings } from "./calendar-form";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { dict } = await getI18n();
@@ -20,10 +22,15 @@ export interface WhatsAppConnectionView {
   updatedAt: string;
 }
 
-export default async function IntegrationsPage() {
+export default async function IntegrationsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ calendar?: string }>;
+}) {
   const { membership } = await requireOrganizationContext();
   const { t, locale } = await getI18n();
   const canManage = canManageConfig(membership.role);
+  const { calendar: calendarParam } = await searchParams;
 
   const supabase = await createClient();
   // Never selects `access_token_encrypted` — and the column is revoked from
@@ -54,6 +61,14 @@ export default async function IntegrationsPage() {
       }
     : null;
 
+  const calendarConnection = await getConnectionView(supabase, membership.organizationId);
+
+  const calendarBanner = calendarParam
+    ? calendarParam === "connected"
+      ? { kind: "ok" as const, code: "calendar.results.connected" }
+      : { kind: "error" as const, code: `calendar.errors.${calendarParam.replace(/^error_/, "")}` }
+    : null;
+
   return (
     <div className="space-y-6">
       <div>
@@ -67,6 +82,14 @@ export default async function IntegrationsPage() {
           </p>
         ) : null}
       </div>
+
+      <GoogleCalendarSettings
+        connection={calendarConnection}
+        canManage={canManage}
+        lastUpdated={calendarConnection ? formatDateTime(calendarConnection.updatedAt, locale) : null}
+        connectUrl="/api/integrations/google-calendar/start"
+        banner={calendarBanner}
+      />
 
       <WhatsAppSettings
         connection={connection}

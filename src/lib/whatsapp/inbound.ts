@@ -19,6 +19,7 @@ import { loadEffectiveConfig } from "@/lib/config/organization-config.server";
 import {
   generateAssistantReply,
   finalizeConversationTurn,
+  getAvailabilityForPrompt,
 } from "@/lib/chat/conversation-service";
 import { resolveOrgByPhoneNumberId, getSendCredentials } from "./connections.ts";
 import { getMetaTransport, buildTextMessage, type MetaTransport } from "./meta-client.ts";
@@ -112,8 +113,12 @@ export async function processInboundWhatsAppMessage(
     { role: "user", content: message.text as string },
   ];
 
-  // 6. Generate the reply (non-streaming) — same engine, one call.
-  const replyText = await generateAssistantReply(anthropic, config, historyMessages);
+  // 6. Generate the reply (non-streaming) — same engine, one call. Real
+  //    appointment availability (if any calendar is connected) is fetched
+  //    once here — a data lookup, not an extra Anthropic call — so the AI is
+  //    never able to invent a time.
+  const availableSlots = await getAvailabilityForPrompt(db, organizationId);
+  const replyText = await generateAssistantReply(anthropic, config, historyMessages, availableSlots);
 
   // 7. Persist + extraction + scoring + agent actions (shared, one more call).
   const { conversationId } = await finalizeConversationTurn({

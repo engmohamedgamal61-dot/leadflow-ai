@@ -13,17 +13,42 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { CHAT_MODEL, MAX_TOKENS } from "@/lib/chat/anthropic";
-import { buildSystemPrompt } from "@/lib/chat/system-prompt";
+import { buildSystemPrompt, type AvailableSlot } from "@/lib/chat/system-prompt";
 import { extractLeadAndActions } from "@/lib/chat/agent-extraction";
 import type { EffectiveConfig } from "@/lib/config";
 import { calculateLeadScore } from "@/lib/lead-scoring";
 import { isQualificationComplete } from "@/lib/agent/qualification";
 import { runChatAgentActions } from "@/lib/agent/chat-actions";
 import { persistCompletedTurn } from "@/lib/persistence/chat";
+import { getAvailability } from "@/lib/calendar/service";
+import type { Database } from "@/lib/supabase/types";
 
 const FALLBACK_REPLY =
   "Thanks for your message. Could you tell me a bit more about what you're looking for?";
+
+/**
+ * Real, provider-backed appointment availability for the system prompt —
+ * shared by every channel so the AI is shown the exact same real slots
+ * regardless of where the conversation is happening. `undefined` (no
+ * organization, no connected calendar, or the lookup failed) means the
+ * prompt won't mention appointments at all. Never throws.
+ */
+export async function getAvailabilityForPrompt(
+  db: SupabaseClient<Database>,
+  organizationId: string | null,
+  now: Date = new Date(),
+): Promise<AvailableSlot[] | undefined> {
+  if (!organizationId) return undefined;
+  try {
+    const slots = await getAvailability(db, organizationId, now);
+    return slots ?? undefined;
+  } catch (error) {
+    console.error("calendar availability lookup failed:", error);
+    return undefined;
+  }
+}
 
 /**
  * Non-streaming reply generation — for channels without a stream (WhatsApp).
@@ -34,12 +59,13 @@ export async function generateAssistantReply(
   client: Anthropic,
   config: EffectiveConfig,
   messages: Anthropic.MessageParam[],
+  availableSlots?: AvailableSlot[],
 ): Promise<string> {
   try {
     const response = await client.messages.create({
       model: CHAT_MODEL,
       max_tokens: MAX_TOKENS,
-      system: buildSystemPrompt(config),
+      system: buildSystemPrompt(config, { availableSlots }),
       thinking: { type: "disabled" },
       messages,
     });

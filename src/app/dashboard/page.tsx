@@ -7,11 +7,12 @@ import {
   getRecentLeads,
   getFollowUpCounts,
   getNeedsAttentionCount,
+  getUpcomingAppointments,
 } from "@/lib/leads/queries";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { StatusBadge, TemperatureBadge } from "@/components/dashboard/badges";
 import { EmptyState } from "@/components/dashboard/states";
-import { formatDate, formatPercent } from "@/lib/leads/format";
+import { formatDate, formatDateTime, formatPercent } from "@/lib/leads/format";
 import { getI18n } from "@/i18n/server";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -27,11 +28,12 @@ export default async function DashboardOverviewPage() {
     ? (tOptional(template.nameKey ?? "") ?? template.name)
     : membership.industryTemplateId;
 
-  const [stats, recent, followUps, needsAttention] = await Promise.all([
+  const [stats, recent, followUps, needsAttention, upcomingAppointments] = await Promise.all([
     getLeadStats(membership.organizationId),
     getRecentLeads(membership.organizationId, 6),
     getFollowUpCounts(membership.organizationId),
     getNeedsAttentionCount(membership.organizationId),
+    getUpcomingAppointments(membership.organizationId, 6),
   ]);
 
   return (
@@ -141,6 +143,37 @@ export default async function DashboardOverviewPage() {
                     <TemperatureBadge value={lead.temperature} />
                     <StatusBadge value={lead.status} />
                   </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section aria-label={t("dashboard.ariaUpcomingAppointments")} className="space-y-3">
+        <h2 className="text-sm font-semibold text-foreground">
+          {t("dashboard.upcomingAppointments")}
+        </h2>
+
+        {upcomingAppointments.length === 0 ? (
+          <EmptyState
+            title={t("dashboard.noAppointmentsTitle")}
+            hint={t("dashboard.noAppointmentsHint")}
+          />
+        ) : (
+          <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
+            {upcomingAppointments.map((a) => (
+              <li key={a.id}>
+                <Link
+                  href={`/dashboard/leads/${a.leadId}`}
+                  className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-background/40"
+                >
+                  <p className="truncate text-sm font-medium text-foreground">
+                    {a.leadName ?? t("common.unnamedLead")}
+                  </p>
+                  <span className="shrink-0 text-xs tabular-nums text-muted">
+                    {formatDateTime(a.startsAt, locale)}
+                  </span>
                 </Link>
               </li>
             ))}

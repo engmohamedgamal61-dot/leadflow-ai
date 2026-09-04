@@ -16,6 +16,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, TablesInsert } from "@/lib/supabase/types";
 import { normalizeNote, type ProposedAction, type AgentActionType } from "./actions.ts";
+import {
+  bookAppointment as calendarBookAppointment,
+  rescheduleAppointment as calendarRescheduleAppointment,
+  cancelAppointment as calendarCancelAppointment,
+  type CalendarExecContext,
+} from "../calendar/service.ts";
 
 type Db = SupabaseClient<Database>;
 
@@ -38,6 +44,19 @@ export interface AgentActionOutcome {
   detail?: string;
   /** Set for a created follow-up. */
   followUpId?: string;
+  /** Set for a booked/rescheduled/cancelled appointment. */
+  appointmentId?: string;
+}
+
+function toCalendarCtx(ctx: AgentExecContext): CalendarExecContext {
+  return {
+    db: ctx.db,
+    organizationId: ctx.organizationId,
+    leadId: ctx.leadId,
+    conversationId: ctx.conversationId,
+    requestId: ctx.requestId,
+    source: ctx.source,
+  };
 }
 
 function metaJson(v: Record<string, unknown>): TablesInsert<"lead_events">["metadata"] {
@@ -156,6 +175,58 @@ export async function createFollowUp(
   };
 }
 
+/**
+ * Book a real appointment via `calendar/service.ts` — the same code path the
+ * dashboard's manual booking action uses. `calendar/service.ts` re-validates
+ * the slot against live provider availability and the DB double-booking
+ * guard; this wrapper only translates the outcome shape.
+ */
+export async function bookAppointment(
+  ctx: AgentExecContext,
+  input: { startsAt: string; notes?: string | null },
+): Promise<AgentActionOutcome> {
+  const outcome = await calendarBookAppointment(toCalendarCtx(ctx), {
+    startsAt: input.startsAt,
+    notes: normalizeNote(input.notes ?? null),
+  });
+  return {
+    type: "book_appointment",
+    status: outcome.status,
+    detail: outcome.detailCode,
+    appointmentId: outcome.appointmentId,
+  };
+}
+
+export async function rescheduleAppointment(
+  ctx: AgentExecContext,
+  input: { newStartsAt: string },
+): Promise<AgentActionOutcome> {
+  const outcome = await calendarRescheduleAppointment(toCalendarCtx(ctx), {
+    newStartsAt: input.newStartsAt,
+  });
+  return {
+    type: "reschedule_appointment",
+    status: outcome.status,
+    detail: outcome.detailCode,
+    appointmentId: outcome.appointmentId,
+  };
+}
+
+export async function cancelAppointment(
+  ctx: AgentExecContext,
+  input: { reason?: string | null },
+): Promise<AgentActionOutcome> {
+  const outcome = await calendarCancelAppointment(toCalendarCtx(ctx), {
+    reason: normalizeNote(input.reason ?? null),
+  });
+  return {
+    type: "cancel_appointment",
+    status: outcome.status,
+    detail: outcome.detailCode,
+    appointmentId: outcome.appointmentId,
+  };
+}
+
 export async function requestHumanHandoff(
   ctx: AgentExecContext,
   input: { reason?: string | null },
@@ -200,6 +271,14 @@ export async function executeAgentActions(
         );
       } else if (action.type === "request_human_handoff") {
         outcomes.push(await requestHumanHandoff(ctx, { reason: action.reason }));
+      } else if (action.type === "book_appointment") {
+        outcomes.push(
+          await bookAppointment(ctx, { startsAt: action.startsAt, notes: action.reason }),
+        );
+      } else if (action.type === "reschedule_appointment") {
+        outcomes.push(await rescheduleAppointment(ctx, { newStartsAt: action.startsAt }));
+      } else if (action.type === "cancel_appointment") {
+        outcomes.push(await cancelAppointment(ctx, { reason: action.reason }));
       }
     }
   } catch (error) {

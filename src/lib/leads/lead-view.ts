@@ -224,6 +224,7 @@ export type TimelineDetail =
   | { kind: "i18nDate"; key: string; iso: string }
   | { kind: "statusTransition"; from: string; to: string }
   | { kind: "temperatureTransition"; from: string; to: string }
+  | { kind: "dateTransition"; from: string; to: string }
   | { kind: "leadCreated"; score: string; temperature: string }
   | null;
 
@@ -369,6 +370,34 @@ export function describeEventKey(event: LeadEventLike): TimelineDescriptor {
         titleKey: "events.humanHandoffRequested",
         detail: typeof m.reason === "string" ? { kind: "text", text: m.reason } : null,
       };
+    case "appointment_booked":
+      return {
+        at,
+        titleKey: "events.appointmentBooked",
+        detail:
+          typeof m.startsAt === "string"
+            ? { kind: "i18nDate", key: "events.appointmentBookedDetail", iso: m.startsAt }
+            : null,
+      };
+    case "appointment_rescheduled":
+      return {
+        at,
+        titleKey: "events.appointmentRescheduled",
+        detail:
+          typeof m.from === "string" && typeof m.to === "string"
+            ? { kind: "dateTransition", from: m.from, to: m.to }
+            : null,
+      };
+    case "appointment_cancelled":
+      return {
+        at,
+        titleKey: "events.appointmentCancelled",
+        detail: typeof m.reason === "string" ? { kind: "text", text: m.reason } : null,
+      };
+    case "appointment_completed":
+      return { at, titleKey: "events.appointmentCompleted", detail: null };
+    case "appointment_no_show":
+      return { at, titleKey: "events.appointmentNoShow", detail: null };
     default:
       return {
         at,
@@ -420,6 +449,12 @@ export function resolveTimelineEntry(
             dt.temperature,
         });
         break;
+      case "dateTransition":
+        detail = t("events.transition", {
+          from: formatDate(dt.from, locale),
+          to: formatDate(dt.to, locale),
+        });
+        break;
     }
   }
 
@@ -452,6 +487,11 @@ function resolveEnglish(d: TimelineDescriptor): TimelineEntry {
     "events.followUpRetryScheduled": "Follow-up retry scheduled",
     "events.followUpFailed": "Follow-up failed",
     "events.humanHandoffRequested": "Human handoff requested",
+    "events.appointmentBooked": "Appointment booked",
+    "events.appointmentRescheduled": "Appointment rescheduled",
+    "events.appointmentCancelled": "Appointment cancelled",
+    "events.appointmentCompleted": "Appointment completed",
+    "events.appointmentNoShow": "Appointment marked no-show",
   };
   const title = d.titleKey ? (EN[d.titleKey] ?? d.titleKey) : (d.titleText ?? "");
 
@@ -474,10 +514,9 @@ function resolveEnglish(d: TimelineDescriptor): TimelineEntry {
         }
         break;
       case "i18nDate":
-        detail =
-          dt.key === "events.followUpRetryDetail"
-            ? `Next attempt ${dt.iso}`
-            : `Due ${dt.iso}`;
+        if (dt.key === "events.followUpRetryDetail") detail = `Next attempt ${dt.iso}`;
+        else if (dt.key === "events.appointmentBookedDetail") detail = dt.iso;
+        else detail = `Due ${dt.iso}`;
         break;
       case "statusTransition":
         detail = `${humanizeKey(dt.from)} → ${humanizeKey(dt.to)}`;
@@ -487,6 +526,9 @@ function resolveEnglish(d: TimelineDescriptor): TimelineEntry {
         break;
       case "leadCreated":
         detail = `Initial score ${dt.score} · ${dt.temperature.toUpperCase() || "—"}`;
+        break;
+      case "dateTransition":
+        detail = `${dt.from} → ${dt.to}`;
         break;
     }
   }

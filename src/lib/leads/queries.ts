@@ -184,12 +184,28 @@ export interface FollowUpRow {
   updatedAt: string;
 }
 
+export interface AppointmentRow {
+  id: string;
+  leadId: string;
+  conversationId: string | null;
+  startsAt: string;
+  endsAt: string;
+  timezone: string;
+  status: string;
+  source: string;
+  notes: string | null;
+  cancelledReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface LeadDetail {
   record: LeadRecord;
   conversations: LeadConversation[];
   messages: LeadMessage[];
   events: LeadEventRow[];
   followUps: FollowUpRow[];
+  appointments: AppointmentRow[];
   /** True while a `human_handoff_requested` event exists for this lead. */
   needsAttention: boolean;
 }
@@ -234,6 +250,39 @@ function toFollowUpRow(r: {
 const MESSAGES_LIMIT = 300;
 const EVENTS_LIMIT = 100;
 
+const APPOINTMENT_COLUMNS =
+  "id, lead_id, conversation_id, starts_at, ends_at, timezone, status, source, notes, cancelled_reason, created_at, updated_at";
+
+function toAppointmentRow(r: {
+  id: string;
+  lead_id: string;
+  conversation_id: string | null;
+  starts_at: string;
+  ends_at: string;
+  timezone: string;
+  status: string;
+  source: string;
+  notes: string | null;
+  cancelled_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}): AppointmentRow {
+  return {
+    id: r.id,
+    leadId: r.lead_id,
+    conversationId: r.conversation_id,
+    startsAt: r.starts_at,
+    endsAt: r.ends_at,
+    timezone: r.timezone,
+    status: r.status,
+    source: r.source,
+    notes: r.notes,
+    cancelledReason: r.cancelled_reason,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
 export async function getLeadDetail(
   organizationId: string,
   leadId: string,
@@ -249,7 +298,7 @@ export async function getLeadDetail(
   if (leadError) throw leadError;
   if (!leadRow) return null;
 
-  const [convResult, eventResult, followUpResult] = await Promise.all([
+  const [convResult, eventResult, followUpResult, appointmentResult] = await Promise.all([
     supabase
       .from("conversations")
       .select("id, channel, status, started_at, last_message_at")
@@ -270,10 +319,18 @@ export async function getLeadDetail(
       .eq("lead_id", leadId)
       .order("scheduled_at", { ascending: true })
       .limit(50),
+    supabase
+      .from("appointments")
+      .select(APPOINTMENT_COLUMNS)
+      .eq("organization_id", organizationId)
+      .eq("lead_id", leadId)
+      .order("starts_at", { ascending: true })
+      .limit(50),
   ]);
   if (convResult.error) throw convResult.error;
   if (eventResult.error) throw eventResult.error;
   if (followUpResult.error) throw followUpResult.error;
+  if (appointmentResult.error) throw appointmentResult.error;
 
   const events = (eventResult.data ?? []).map((e) => ({
     eventType: e.event_type,
@@ -312,6 +369,9 @@ export async function getLeadDetail(
   const followUps = (followUpResult.data ?? []).map((r) =>
     toFollowUpRow(r as Parameters<typeof toFollowUpRow>[0]),
   );
+  const appointments = (appointmentResult.data ?? []).map((r) =>
+    toAppointmentRow(r as Parameters<typeof toAppointmentRow>[0]),
+  );
 
   return {
     record: leadRowToRecord(leadRow),
@@ -319,6 +379,7 @@ export async function getLeadDetail(
     messages,
     events,
     followUps,
+    appointments,
     needsAttention: events.some(
       (e) => e.eventType === "human_handoff_requested",
     ),
@@ -355,6 +416,32 @@ export async function getFollowUpCounts(
     dueNow: dueNow.count ?? 0,
     failed: failed.count ?? 0,
   };
+}
+
+export interface UpcomingAppointmentRow extends AppointmentRow {
+  leadName: string | null;
+}
+
+/** Soonest upcoming (active, not yet started) appointments for the dashboard overview. */
+export async function getUpcomingAppointments(
+  organizationId: string,
+  limit = 6,
+): Promise<UpcomingAppointmentRow[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("appointments")
+    .select(`${APPOINTMENT_COLUMNS}, leads ( name )`)
+    .eq("organization_id", organizationId)
+    .in("status", ["scheduled", "rescheduled"])
+    .gt("starts_at", new Date().toISOString())
+    .order("starts_at", { ascending: true })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []).map((r) => {
+    const row = toAppointmentRow(r as Parameters<typeof toAppointmentRow>[0]);
+    const lead = (r as { leads?: { name: string | null } | null }).leads;
+    return { ...row, leadName: lead?.name ?? null };
+  });
 }
 
 /** Distinct leads that have ever requested a human handoff. */

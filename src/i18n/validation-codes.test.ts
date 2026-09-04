@@ -68,4 +68,8 @@ test("static error-code namespaces are fully covered in both locales", () => {
   walk(en.settingsAi.errors, "settingsAi.errors");
   walk(en.whatsapp.errors, "whatsapp.errors");
   walk(en.whatsapp.results, "whatsapp.results");
+  walk(en.errors.calendar, "errors.calendar");
+  walk(en.calendar.errors, "calendar.errors");
+  walk(en.calendar.validation, "calendar.validation");
+  walk(en.calendar.results, "calendar.results");
 });

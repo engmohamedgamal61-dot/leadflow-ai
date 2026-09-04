@@ -70,17 +70,17 @@ export function buildAgentExtractionSchema(
             type: {
               type: "string",
               description:
-                'Exactly one of: "create_follow_up" (the prospect explicitly asked to be contacted at a specific later time, e.g. "call me tomorrow at 3", "reach out next week"); "request_human_handoff" (the prospect asks to speak to a person, is frustrated, or has a request the assistant cannot handle).',
+                'Exactly one of: "create_follow_up" (the prospect explicitly asked to be contacted at a specific later time, e.g. "call me tomorrow at 3", "reach out next week"); "request_human_handoff" (the prospect asks to speak to a person, is frustrated, or has a request the assistant cannot handle); "book_appointment" (the prospect clearly agreed to book an appointment/viewing/visit at one specific time the assistant offered from the real "Appointment availability" list in its system prompt — never propose this for a time not on that list, and never if no availability list was given); "reschedule_appointment" (the prospect already has an appointment and wants to move it to a different specific time from that same list); "cancel_appointment" (the prospect wants to cancel their existing appointment).',
             },
             scheduled_at: {
               type: ["string", "null"],
               description:
-                'For "create_follow_up" only: the requested time as an ISO 8601 timestamp in the FUTURE, resolved against the current date given in the system prompt. null for any other action.',
+                'For "create_follow_up", "book_appointment" or "reschedule_appointment": the specific time as an ISO 8601 timestamp in the FUTURE, resolved against the current date given in the system prompt — for the two appointment actions this MUST be one of the exact times from the "Appointment availability" list. null for any other action.',
             },
             reason: {
               type: ["string", "null"],
               description:
-                "One short sentence (max 200 chars), in English, explaining why this action was proposed.",
+                "One short sentence (max 200 chars), in English, explaining why this action was proposed. For \"cancel_appointment\", this is the prospect's stated reason, if any.",
             },
           },
         },

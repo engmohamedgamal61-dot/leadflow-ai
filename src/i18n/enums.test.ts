@@ -22,6 +22,8 @@ const ALL_ROLES = new Set([
 
 const FOLLOW_UP_STATUSES = ["pending", "processing", "completed", "failed", "cancelled"];
 const WHATSAPP_STATUSES = ["connected", "disconnected", "error", "pending"];
+const CALENDAR_CONNECTION_STATUSES = ["connected", "disconnected", "error", "pending"];
+const APPOINTMENT_STATUSES = ["scheduled", "rescheduled", "cancelled", "completed", "no_show"];
 
 function bothHave(path: string) {
   assert.ok(hasTranslation(en, path), `en missing ${path}`);
@@ -51,4 +53,12 @@ test("every WhatsApp connection status is translated in both locales", () => {
 test("every timeline event title key exists in both locales", () => {
   const eventKeys = Object.keys(en.events);
   for (const k of eventKeys) bothHave(`events.${k}`);
+});
+
+test("every calendar connection status is translated in both locales", () => {
+  for (const s of CALENDAR_CONNECTION_STATUSES) bothHave(`calendar.status.${s}`);
+});
+
+test("every appointment status is translated in both locales", () => {
+  for (const s of APPOINTMENT_STATUSES) bothHave(`appointmentStatuses.${s}`);
 });

@@ -6,10 +6,14 @@ import {
   getAnthropicClient,
 } from "@/lib/chat/anthropic";
 import { buildSystemPrompt } from "@/lib/chat/system-prompt";
-import { finalizeConversationTurn } from "@/lib/chat/conversation-service";
+import {
+  finalizeConversationTurn,
+  getAvailabilityForPrompt,
+} from "@/lib/chat/conversation-service";
 import { getEffectiveConfig, hasIndustryTemplate } from "@/lib/config";
 import { loadEffectiveConfig } from "@/lib/config/organization-config.server";
 import { resolveChatContext } from "@/lib/org/chat-organization";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { LEAD_DELIMITER, type ChatTurn } from "@/types/chat";
 
 export const runtime = "nodejs";
@@ -188,12 +192,27 @@ export async function POST(request: NextRequest) {
               : null,
         );
 
+  // Real appointment availability, if a calendar is connected — one data
+  // lookup (not an extra Anthropic call) so the AI can never invent a slot.
+  // Reading it needs the service-role client (same trust boundary as
+  // decrypting a WhatsApp access token): the tokens are revoked from
+  // `authenticated` at the database level.
+  let availableSlots: Awaited<ReturnType<typeof getAvailabilityForPrompt>>;
+  try {
+    availableSlots = await getAvailabilityForPrompt(
+      createAdminClient(),
+      organization?.organizationId ?? null,
+    );
+  } catch {
+    availableSlots = undefined;
+  }
+
   // Thinking disabled: a lead-qualification chat is a low-complexity task and
   // real-time responsiveness matters more than deliberation.
   const stream = client.messages.stream({
     model: CHAT_MODEL,
     max_tokens: MAX_TOKENS,
-    system: buildSystemPrompt(config),
+    system: buildSystemPrompt(config, { availableSlots }),
     thinking: { type: "disabled" },
     messages,
   });

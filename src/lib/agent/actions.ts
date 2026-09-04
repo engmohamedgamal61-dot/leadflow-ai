@@ -15,16 +15,26 @@ export const AGENT_ACTION_TYPES = [
   "create_follow_up",
   "request_human_handoff",
   "mark_qualified",
+  "book_appointment",
+  "reschedule_appointment",
+  "cancel_appointment",
 ] as const;
 export type AgentActionType = (typeof AGENT_ACTION_TYPES)[number];
 
 /**
  * The subset Claude may propose. `mark_qualified` is server-deterministic and
  * `update_lead_status` is dashboard-only — the model can't drive either.
+ * `book_appointment` / `reschedule_appointment` only ever carry a timestamp
+ * the model was shown as real, available slots — `calendar/service.ts`
+ * re-validates it against live provider availability before touching
+ * anything, so the model proposing a slot is never enough on its own.
  */
 export const AI_PROPOSABLE_ACTION_TYPES = [
   "create_follow_up",
   "request_human_handoff",
+  "book_appointment",
+  "reschedule_appointment",
+  "cancel_appointment",
 ] as const;
 export type AiProposableActionType =
   (typeof AI_PROPOSABLE_ACTION_TYPES)[number];
@@ -39,10 +49,20 @@ const REASON_MAX = 200;
 const NOTE_MAX = 500;
 /** A follow-up must be scheduled within this window. */
 export const FOLLOW_UP_MAX_DAYS = 365;
+/**
+ * An appointment slot must be within this window — a generic sanity bound.
+ * The real ceiling is the organization's configured lookahead
+ * (`calendar/config.ts` `LIMITS.maxLookaheadDays` = 60), re-checked against
+ * live availability in `calendar/service.ts`.
+ */
+export const APPOINTMENT_MAX_DAYS = 60;
 
 export type ProposedAction =
   | { type: "create_follow_up"; scheduledAt: string; reason: string | null }
-  | { type: "request_human_handoff"; reason: string | null };
+  | { type: "request_human_handoff"; reason: string | null }
+  | { type: "book_appointment"; startsAt: string; reason: string | null }
+  | { type: "reschedule_appointment"; startsAt: string; reason: string | null }
+  | { type: "cancel_appointment"; reason: string | null };
 
 export interface ParseActionsResult {
   actions: ProposedAction[];
@@ -144,23 +164,40 @@ export function parseProposedActions(
 
     const reason = trimCap((item as { reason?: unknown }).reason, REASON_MAX);
 
-    if (type === "request_human_handoff") {
+    if (type === "request_human_handoff" || type === "cancel_appointment") {
       seen.add(type);
       actions.push({ type, reason });
       continue;
     }
 
-    // create_follow_up
+    if (type === "create_follow_up") {
+      const when = validateFutureTimestamp(
+        (item as { scheduled_at?: unknown }).scheduled_at,
+        now,
+      );
+      if (!when.ok) {
+        rejected.push(`create_follow_up rejected: ${when.error}`);
+        continue;
+      }
+      seen.add(type);
+      actions.push({ type, scheduledAt: when.iso as string, reason });
+      continue;
+    }
+
+    // book_appointment / reschedule_appointment — `startsAt` must be one of
+    // the real slots the model was shown; `calendar/service.ts` re-validates
+    // it against live availability regardless.
     const when = validateFutureTimestamp(
       (item as { scheduled_at?: unknown }).scheduled_at,
       now,
+      APPOINTMENT_MAX_DAYS,
     );
     if (!when.ok) {
-      rejected.push(`create_follow_up rejected: ${when.error}`);
+      rejected.push(`${type} rejected: ${when.error}`);
       continue;
     }
     seen.add(type);
-    actions.push({ type, scheduledAt: when.iso as string, reason });
+    actions.push({ type, startsAt: when.iso as string, reason });
   }
 
   return { actions, rejected };

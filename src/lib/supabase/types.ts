@@ -39,6 +39,12 @@ export type FollowUpStatus =
   | "completed"
   | "cancelled"
   | "failed";
+export type AppointmentStatus =
+  | "scheduled"
+  | "rescheduled"
+  | "cancelled"
+  | "completed"
+  | "no_show";
 
 export interface Database {
   public: {
@@ -497,6 +503,146 @@ export interface Database {
           received_at?: string;
         };
         Relationships: [];
+      };
+      organization_calendar_connections: {
+        Row: {
+          id: string;
+          organization_id: string;
+          provider: string;
+          status: string;
+          calendar_id: string | null;
+          calendar_email: string | null;
+          timezone: string;
+          access_token_encrypted: string | null;
+          refresh_token_encrypted: string | null;
+          token_expires_at: string | null;
+          last_error: string | null;
+          settings: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          provider?: string;
+          status?: string;
+          calendar_id?: string | null;
+          calendar_email?: string | null;
+          timezone?: string;
+          access_token_encrypted?: string | null;
+          refresh_token_encrypted?: string | null;
+          token_expires_at?: string | null;
+          last_error?: string | null;
+          settings?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          provider?: string;
+          status?: string;
+          calendar_id?: string | null;
+          calendar_email?: string | null;
+          timezone?: string;
+          access_token_encrypted?: string | null;
+          refresh_token_encrypted?: string | null;
+          token_expires_at?: string | null;
+          last_error?: string | null;
+          settings?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "organization_calendar_connections_organization_id_fkey";
+            columns: ["organization_id"];
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      appointments: {
+        Row: {
+          id: string;
+          organization_id: string;
+          lead_id: string;
+          conversation_id: string | null;
+          calendar_connection_id: string | null;
+          provider_event_id: string | null;
+          starts_at: string;
+          ends_at: string;
+          timezone: string;
+          status: string;
+          source: string;
+          notes: string | null;
+          cancelled_reason: string | null;
+          creation_request_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          lead_id: string;
+          conversation_id?: string | null;
+          calendar_connection_id?: string | null;
+          provider_event_id?: string | null;
+          starts_at: string;
+          ends_at: string;
+          timezone?: string;
+          status?: string;
+          source?: string;
+          notes?: string | null;
+          cancelled_reason?: string | null;
+          creation_request_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          lead_id?: string;
+          conversation_id?: string | null;
+          calendar_connection_id?: string | null;
+          provider_event_id?: string | null;
+          starts_at?: string;
+          ends_at?: string;
+          timezone?: string;
+          status?: string;
+          source?: string;
+          notes?: string | null;
+          cancelled_reason?: string | null;
+          creation_request_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "appointments_organization_id_fkey";
+            columns: ["organization_id"];
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "appointments_lead_id_fkey";
+            columns: ["lead_id"];
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "appointments_conversation_id_fkey";
+            columns: ["conversation_id"];
+            referencedRelation: "conversations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "appointments_calendar_connection_id_fkey";
+            columns: ["calendar_connection_id"];
+            referencedRelation: "organization_calendar_connections";
+            referencedColumns: ["id"];
+          },
+        ];
       };
     };
     Views: Record<never, never>;

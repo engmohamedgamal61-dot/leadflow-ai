@@ -15,6 +15,9 @@ import { formatDate, formatDateTime } from "@/lib/leads/format";
 import { isQualificationComplete } from "@/lib/agent/qualification";
 import { StatusBadge, TemperatureBadge } from "@/components/dashboard/badges";
 import { getI18n } from "@/i18n/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getAvailability } from "@/lib/calendar/service";
+import { getConnectionView } from "@/lib/calendar/connections";
 import { StatusForm } from "./status-form";
 import {
   AddFollowUpForm,
@@ -22,6 +25,7 @@ import {
   HandoffButton,
   MarkQualifiedButton,
 } from "./agent-actions";
+import { AppointmentItem, BookAppointmentForm } from "./appointment-actions";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { dict } = await getI18n();
@@ -40,12 +44,23 @@ export default async function LeadDetailPage({
   const detail = await getLeadDetail(membership.organizationId, id);
   if (!detail) notFound();
 
-  const { record, conversations, messages, events, followUps, needsAttention } =
+  const { record, conversations, messages, events, followUps, appointments, needsAttention } =
     detail;
   const config = await loadEffectiveConfig(
     membership.organizationId,
     membership.industryTemplateId,
   );
+
+  // Reading real availability needs the decrypted calendar tokens, which are
+  // revoked from `authenticated` at the database level — same trusted-server
+  // boundary as the AI chat path (see `getAvailabilityForPrompt`).
+  const adminDb = createAdminClient();
+  const [calendarConnection, availableSlotsRaw] = await Promise.all([
+    getConnectionView(adminDb, membership.organizationId),
+    getAvailability(adminDb, membership.organizationId),
+  ]);
+  const calendarConnected = calendarConnection?.status === "connected";
+  const availableSlots = availableSlotsRaw ?? [];
   const fieldViews = buildLeadFieldViews(
     record.lead,
     enabledLeadFields(config),
@@ -143,6 +158,36 @@ export default async function LeadDetailPage({
                 ))}
               </ul>
             )}
+          </section>
+
+          {/* Appointments */}
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold text-foreground">
+              {t("leadDetail.sections.appointments")}
+            </h2>
+            {appointments.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-border bg-surface/50 px-4 py-6 text-center text-xs text-muted">
+                {t("leadDetail.appointments.none")}
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {appointments.map((a) => (
+                  <AppointmentItem
+                    key={a.id}
+                    appointment={a}
+                    canWrite={canEdit}
+                    availableSlots={availableSlots}
+                  />
+                ))}
+              </ul>
+            )}
+            {canEdit ? (
+              <BookAppointmentForm
+                leadId={record.id}
+                availableSlots={availableSlots}
+                calendarConnected={calendarConnected}
+              />
+            ) : null}
           </section>
 
           {/* Conversation(s) */}

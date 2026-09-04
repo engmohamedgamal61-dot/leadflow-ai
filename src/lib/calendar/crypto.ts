@@ -1,9 +1,7 @@
 /**
- * At-rest encryption for WhatsApp access tokens. Thin wrapper over the shared
- * `lib/security/token-crypto.ts` AES-256-GCM helper, keyed by the server-only
- * `WHATSAPP_TOKEN_ENCRYPTION_KEY` env (64 hex chars = 32 bytes). Not a KMS, but
- * the token is also RLS-scoped, column-revoked from the browser, and never
- * logged — appropriate for the MVP.
+ * At-rest encryption for Google Calendar OAuth tokens. Thin wrapper over the
+ * shared `lib/security/token-crypto.ts` AES-256-GCM helper, keyed by the
+ * server-only `CALENDAR_TOKEN_ENCRYPTION_KEY` env (64 hex chars = 32 bytes).
  */
 
 import {
@@ -12,7 +10,7 @@ import {
   readHexKeyFromEnv,
 } from "../security/token-crypto.ts";
 
-const ENV_VAR = "WHATSAPP_TOKEN_ENCRYPTION_KEY";
+const ENV_VAR = "CALENDAR_TOKEN_ENCRYPTION_KEY";
 
 export function encryptToken(plaintext: string, hexKey: string): string {
   return encrypt(plaintext, hexKey, ENV_VAR);
