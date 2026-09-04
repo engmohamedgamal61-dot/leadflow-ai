@@ -183,10 +183,16 @@ export function DashboardShell({
         />
       ) : null}
 
-      {/* Sidebar: fixed drawer on mobile, sticky column on desktop */}
+      {/* Sidebar: fixed drawer on mobile, sticky column on desktop.
+          The closed-state offset is scoped to `max-md:` (both directions) so
+          it never competes with `md:translate-x-0`: `rtl:` alone is
+          direction-scoped, not viewport-scoped, so an unscoped
+          `rtl:translate-x-full` would have equal specificity to (and, by
+          source order, override) `md:translate-x-0` — hiding the sidebar on
+          desktop in Arabic while English rendered correctly. */}
       <aside
         className={`fixed inset-y-0 start-0 z-50 flex w-64 shrink-0 flex-col border-e border-border bg-surface transition-transform duration-200 ease-out md:sticky md:top-0 md:z-0 md:h-[100dvh] md:translate-x-0 ${
-          open ? "translate-x-0" : "-translate-x-full rtl:translate-x-full"
+          open ? "translate-x-0" : "max-md:-translate-x-full max-md:rtl:translate-x-full"
         }`}
       >
         {brand}
