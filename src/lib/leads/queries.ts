@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { leadRowToRecord, type LeadRecord } from "@/lib/supabase/mappers";
 import type { LeadListParams } from "@/lib/leads/list-params";
 import type {
+  FollowUpStatus,
   LeadStatus,
   LeadTemperatureRow,
 } from "@/lib/supabase/types";
@@ -166,11 +167,53 @@ export interface LeadEventRow {
   createdAt: string;
 }
 
+export interface FollowUpRow {
+  id: string;
+  leadId: string;
+  conversationId: string | null;
+  scheduledAt: string;
+  status: FollowUpStatus;
+  note: string | null;
+  source: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface LeadDetail {
   record: LeadRecord;
   conversations: LeadConversation[];
   messages: LeadMessage[];
   events: LeadEventRow[];
+  followUps: FollowUpRow[];
+  /** True while a `human_handoff_requested` event exists for this lead. */
+  needsAttention: boolean;
+}
+
+const FOLLOW_UP_COLUMNS =
+  "id, lead_id, conversation_id, scheduled_at, status, note, source, created_at, updated_at";
+
+function toFollowUpRow(r: {
+  id: string;
+  lead_id: string;
+  conversation_id: string | null;
+  scheduled_at: string;
+  status: FollowUpStatus;
+  note: string | null;
+  source: string;
+  created_at: string;
+  updated_at: string;
+}): FollowUpRow {
+  return {
+    id: r.id,
+    leadId: r.lead_id,
+    conversationId: r.conversation_id,
+    scheduledAt: r.scheduled_at,
+    status: r.status,
+    note: r.note,
+    source: r.source,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
 }
 
 const MESSAGES_LIMIT = 300;
@@ -191,7 +234,7 @@ export async function getLeadDetail(
   if (leadError) throw leadError;
   if (!leadRow) return null;
 
-  const [convResult, eventResult] = await Promise.all([
+  const [convResult, eventResult, followUpResult] = await Promise.all([
     supabase
       .from("conversations")
       .select("id, channel, status, started_at, last_message_at")
@@ -205,9 +248,23 @@ export async function getLeadDetail(
       .eq("lead_id", leadId)
       .order("created_at", { ascending: true })
       .limit(EVENTS_LIMIT),
+    supabase
+      .from("lead_follow_ups")
+      .select(FOLLOW_UP_COLUMNS)
+      .eq("organization_id", organizationId)
+      .eq("lead_id", leadId)
+      .order("scheduled_at", { ascending: true })
+      .limit(50),
   ]);
   if (convResult.error) throw convResult.error;
   if (eventResult.error) throw eventResult.error;
+  if (followUpResult.error) throw followUpResult.error;
+
+  const events = (eventResult.data ?? []).map((e) => ({
+    eventType: e.event_type,
+    metadata: e.metadata,
+    createdAt: e.created_at,
+  }));
 
   const conversations: LeadConversation[] = (convResult.data ?? []).map((c) => ({
     id: c.id,
@@ -237,14 +294,46 @@ export async function getLeadDetail(
     }));
   }
 
+  const followUps = (followUpResult.data ?? []).map((r) =>
+    toFollowUpRow(r as Parameters<typeof toFollowUpRow>[0]),
+  );
+
   return {
     record: leadRowToRecord(leadRow),
     conversations,
     messages,
-    events: (eventResult.data ?? []).map((e) => ({
-      eventType: e.event_type,
-      metadata: e.metadata,
-      createdAt: e.created_at,
-    })),
+    events,
+    followUps,
+    needsAttention: events.some(
+      (e) => e.eventType === "human_handoff_requested",
+    ),
   };
+}
+
+// ── dashboard-overview aggregates ─────────────────────────────────────────
+
+export async function getPendingFollowUpCount(
+  organizationId: string,
+): Promise<number> {
+  const supabase = await createClient();
+  const { count } = await supabase
+    .from("lead_follow_ups")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId)
+    .eq("status", "pending");
+  return count ?? 0;
+}
+
+/** Distinct leads that have ever requested a human handoff. */
+export async function getNeedsAttentionCount(
+  organizationId: string,
+): Promise<number> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("lead_events")
+    .select("lead_id")
+    .eq("organization_id", organizationId)
+    .eq("event_type", "human_handoff_requested")
+    .limit(1000);
+  return new Set((data ?? []).map((r) => r.lead_id)).size;
 }

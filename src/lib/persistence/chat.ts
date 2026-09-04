@@ -22,7 +22,7 @@ import {
  */
 export async function persistCompletedTurn(
   input: PersistChatTurnInput,
-): Promise<{ conversationId: string } | null> {
+): Promise<{ conversationId: string; leadId: string } | null> {
   let db: ReturnType<typeof createAdminClient>;
   try {
     db = createAdminClient();
@@ -33,7 +33,7 @@ export async function persistCompletedTurn(
 
   try {
     const result = await persistChatTurn(db, input);
-    return { conversationId: result.conversationId };
+    return { conversationId: result.conversationId, leadId: result.leadId };
   } catch (error) {
     if (error instanceof PersistenceError) {
       console.error(

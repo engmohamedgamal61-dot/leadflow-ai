@@ -7,8 +7,15 @@ import { loadEffectiveConfig } from "@/lib/config/organization-config.server";
 import { getLeadDetail } from "@/lib/leads/queries";
 import { buildLeadFieldViews, describeEvent } from "@/lib/leads/lead-view";
 import { formatDate, formatDateTime } from "@/lib/leads/format";
+import { isQualificationComplete } from "@/lib/agent/qualification";
 import { StatusBadge, TemperatureBadge } from "@/components/dashboard/badges";
 import { StatusForm } from "./status-form";
+import {
+  AddFollowUpForm,
+  FollowUpItem,
+  HandoffButton,
+  MarkQualifiedButton,
+} from "./agent-actions";
 
 export const metadata: Metadata = { title: "Lead — LeadFlow AI" };
 
@@ -23,13 +30,21 @@ export default async function LeadDetailPage({
   const detail = await getLeadDetail(membership.organizationId, id);
   if (!detail) notFound();
 
-  const { record, conversations, messages, events } = detail;
+  const { record, conversations, messages, events, followUps, needsAttention } =
+    detail;
   const config = await loadEffectiveConfig(
     membership.organizationId,
     membership.industryTemplateId,
   );
   const fieldViews = buildLeadFieldViews(record.lead, enabledLeadFields(config));
   const canEdit = canWriteLeads(membership.role);
+
+  const pendingFollowUps = followUps.filter((f) => f.status === "pending");
+  const pastFollowUps = followUps.filter((f) => f.status !== "pending");
+  const qualComplete = isQualificationComplete(record.lead, config);
+  const alreadyQualified = ["qualified", "appointment", "won"].includes(
+    record.status,
+  );
 
   return (
     <div className="space-y-6">
@@ -51,6 +66,13 @@ export default async function LeadDetailPage({
           </span>
         </div>
       </div>
+
+      {needsAttention ? (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          <span className="font-medium">Needs attention</span> — a human handoff
+          was requested for this lead. See the timeline for the reason.
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
@@ -76,6 +98,32 @@ export default async function LeadDetailPage({
                 </div>
               ))}
             </dl>
+          </section>
+
+          {/* Follow-ups */}
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold text-foreground">
+              Follow-ups
+              {pendingFollowUps.length > 0 ? (
+                <span className="ml-2 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">
+                  {pendingFollowUps.length} pending
+                </span>
+              ) : null}
+            </h2>
+            {followUps.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-border bg-surface/50 px-4 py-6 text-center text-xs text-muted">
+                No follow-ups scheduled.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {pendingFollowUps.map((f) => (
+                  <FollowUpItem key={f.id} followUp={f} canWrite={canEdit} />
+                ))}
+                {pastFollowUps.map((f) => (
+                  <FollowUpItem key={f.id} followUp={f} canWrite={canEdit} />
+                ))}
+              </ul>
+            )}
           </section>
 
           {/* Conversation(s) */}
@@ -201,6 +249,26 @@ export default async function LeadDetailPage({
               </div>
             )}
           </section>
+
+          {canEdit ? (
+            <section className="space-y-3 rounded-xl border border-border bg-surface p-4">
+              <h2 className="text-sm font-semibold text-foreground">
+                Agent actions
+              </h2>
+              {!alreadyQualified ? (
+                <div>
+                  <MarkQualifiedButton leadId={record.id} />
+                  <p className="mt-1 text-[11px] text-muted/70">
+                    {qualComplete
+                      ? "Qualification looks complete."
+                      : "Qualification is not complete yet — you can still mark it manually."}
+                  </p>
+                </div>
+              ) : null}
+              <AddFollowUpForm leadId={record.id} />
+              <HandoffButton leadId={record.id} />
+            </section>
+          ) : null}
 
           <section className="rounded-xl border border-border bg-surface p-4">
             <dl className="space-y-2.5 text-xs">

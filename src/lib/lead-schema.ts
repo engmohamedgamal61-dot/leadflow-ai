@@ -43,6 +43,52 @@ export function buildLeadSchema(
   };
 }
 
+/**
+ * Structured-output schema for the combined extraction + action-decision call.
+ * Wraps {@link buildLeadSchema} with a `proposed_actions` array so the agent
+ * can suggest business actions in the SAME request — no extra Anthropic call.
+ * Generic: the action vocabulary is industry-agnostic.
+ */
+export function buildAgentExtractionSchema(
+  fields: LeadFieldDefinition[],
+): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["lead", "proposed_actions"],
+    properties: {
+      lead: buildLeadSchema(fields),
+      proposed_actions: {
+        type: "array",
+        description:
+          "Zero or more business actions to propose from the conversation. Leave EMPTY unless the prospect clearly asked for one of these.",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["type"],
+          properties: {
+            type: {
+              type: "string",
+              description:
+                'Exactly one of: "create_follow_up" (the prospect explicitly asked to be contacted at a specific later time, e.g. "call me tomorrow at 3", "reach out next week"); "request_human_handoff" (the prospect asks to speak to a person, is frustrated, or has a request the assistant cannot handle).',
+            },
+            scheduled_at: {
+              type: ["string", "null"],
+              description:
+                'For "create_follow_up" only: the requested time as an ISO 8601 timestamp in the FUTURE, resolved against the current date given in the system prompt. null for any other action.',
+            },
+            reason: {
+              type: ["string", "null"],
+              description:
+                "One short sentence (max 200 chars), in English, explaining why this action was proposed.",
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
 export function buildExtractionSystemPrompt(config: EffectiveConfig): string {
   const languages =
     config.aiBehavior?.languages?.join(", ") || "the prospect's language";

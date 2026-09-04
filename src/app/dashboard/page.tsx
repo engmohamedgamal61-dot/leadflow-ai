@@ -2,7 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requireOrganizationContext } from "@/lib/org/context";
 import { getIndustryTemplate } from "@/lib/config";
-import { getLeadStats, getRecentLeads } from "@/lib/leads/queries";
+import {
+  getLeadStats,
+  getRecentLeads,
+  getPendingFollowUpCount,
+  getNeedsAttentionCount,
+} from "@/lib/leads/queries";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { StatusBadge, TemperatureBadge } from "@/components/dashboard/badges";
 import { EmptyState } from "@/components/dashboard/states";
@@ -14,9 +19,11 @@ export default async function DashboardOverviewPage() {
   const { membership } = await requireOrganizationContext();
   const template = getIndustryTemplate(membership.industryTemplateId);
 
-  const [stats, recent] = await Promise.all([
+  const [stats, recent, pendingFollowUps, needsAttention] = await Promise.all([
     getLeadStats(membership.organizationId),
     getRecentLeads(membership.organizationId, 6),
+    getPendingFollowUpCount(membership.organizationId),
+    getNeedsAttentionCount(membership.organizationId),
   ]);
 
   return (
@@ -47,6 +54,17 @@ export default async function DashboardOverviewPage() {
                 ? `${Math.round((stats.qualified / stats.total) * 100)}%`
                 : "—"
             }
+          />
+        </div>
+      </section>
+
+      <section aria-label="Agent workload">
+        <div className="grid grid-cols-2 gap-3 sm:max-w-md">
+          <StatCard label="Pending follow-ups" value={pendingFollowUps} />
+          <StatCard
+            label="Needs attention"
+            value={needsAttention}
+            accent={needsAttention > 0 ? "warm" : "default"}
           />
         </div>
       </section>

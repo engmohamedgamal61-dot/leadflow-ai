@@ -197,6 +197,34 @@ export function describeEvent(event: LeadEventLike): TimelineEntry {
         title: "Status changed",
         detail: `${humanizeKey(String(m.from ?? "—"))} → ${humanizeKey(String(m.to ?? "—"))}`,
       };
+    case "lead_qualified":
+      return {
+        at: event.created_at,
+        title: "Lead qualified",
+        detail:
+          m.source === "chat"
+            ? "Automatically — qualification complete"
+            : "Marked qualified",
+      };
+    case "follow_up_created":
+      return {
+        at: event.created_at,
+        title: "Follow-up scheduled",
+        detail:
+          typeof m.scheduledAt === "string"
+            ? `Due ${m.scheduledAt}`
+            : null,
+      };
+    case "follow_up_completed":
+      return { at: event.created_at, title: "Follow-up completed", detail: null };
+    case "follow_up_cancelled":
+      return { at: event.created_at, title: "Follow-up cancelled", detail: null };
+    case "human_handoff_requested":
+      return {
+        at: event.created_at,
+        title: "Human handoff requested",
+        detail: typeof m.reason === "string" ? m.reason : null,
+      };
     default:
       return {
         at: event.created_at,

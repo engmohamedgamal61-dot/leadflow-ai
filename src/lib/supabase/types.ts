@@ -33,6 +33,7 @@ export type LeadStatus =
   | "archived";
 export type ConversationStatus = "active" | "closed" | "archived";
 export type MessageRole = "user" | "assistant" | "system";
+export type FollowUpStatus = "pending" | "completed" | "cancelled";
 
 export interface Database {
   public: {
@@ -319,6 +320,67 @@ export interface Database {
           },
         ];
       };
+      lead_follow_ups: {
+        Row: {
+          id: string;
+          organization_id: string;
+          lead_id: string;
+          conversation_id: string | null;
+          scheduled_at: string;
+          status: FollowUpStatus;
+          note: string | null;
+          source: string;
+          creation_request_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          lead_id: string;
+          conversation_id?: string | null;
+          scheduled_at: string;
+          status?: FollowUpStatus;
+          note?: string | null;
+          source?: string;
+          creation_request_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          lead_id?: string;
+          conversation_id?: string | null;
+          scheduled_at?: string;
+          status?: FollowUpStatus;
+          note?: string | null;
+          source?: string;
+          creation_request_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "lead_follow_ups_organization_id_fkey";
+            columns: ["organization_id"];
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "lead_follow_ups_lead_id_fkey";
+            columns: ["lead_id"];
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "lead_follow_ups_conversation_id_fkey";
+            columns: ["conversation_id"];
+            referencedRelation: "conversations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<never, never>;
     Functions: {
@@ -341,6 +403,7 @@ export interface Database {
       lead_status: LeadStatus;
       conversation_status: ConversationStatus;
       message_role: MessageRole;
+      follow_up_status: FollowUpStatus;
     };
     CompositeTypes: Record<never, never>;
   };
