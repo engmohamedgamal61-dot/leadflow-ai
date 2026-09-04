@@ -9,10 +9,14 @@ import {
 } from "@/lib/leads/list-params";
 import { StatusBadge, TemperatureBadge } from "@/components/dashboard/badges";
 import { EmptyState } from "@/components/dashboard/states";
-import { formatDate } from "@/lib/leads/format";
+import { formatDate, formatNumber } from "@/lib/leads/format";
+import { getI18n } from "@/i18n/server";
 import { LeadsFilters } from "./filters";
 
-export const metadata: Metadata = { title: "Leads — LeadFlow AI" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { dict } = await getI18n();
+  return { title: dict.meta.leads };
+}
 
 export default async function LeadsPage({
   searchParams,
@@ -20,6 +24,7 @@ export default async function LeadsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { membership } = await requireOrganizationContext();
+  const { t, locale } = await getI18n();
   const params = parseLeadListParams(await searchParams);
   const { rows, total, page, pageSize } = await listLeads(
     membership.organizationId,
@@ -33,11 +38,15 @@ export default async function LeadsPage({
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-2xl font-semibold text-foreground">Leads</h1>
+        <h1 className="text-2xl font-semibold text-foreground">{t("leads.title")}</h1>
         <p className="text-xs text-muted tabular-nums">
           {total === 0
-            ? "No leads"
-            : `${from}–${to} of ${total.toLocaleString("en-US")}`}
+            ? t("leads.noLeads")
+            : t("leads.range", {
+                from,
+                to,
+                total: formatNumber(total, locale),
+              })}
         </p>
       </div>
 
@@ -49,21 +58,21 @@ export default async function LeadsPage({
       {rows.length === 0 ? (
         params.isFiltered ? (
           <EmptyState
-            title="No leads match your filters"
-            hint="Try a different search term or clear the filters."
+            title={t("leads.noMatchTitle")}
+            hint={t("leads.noMatchHint")}
             action={
               <Link
                 href="/dashboard/leads"
                 className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-foreground"
               >
-                Clear filters
+                {t("leads.clearFilters")}
               </Link>
             }
           />
         ) : (
           <EmptyState
-            title="No leads yet"
-            hint="Leads created through your qualification chat will appear here."
+            title={t("dashboard.noLeadsTitle")}
+            hint={t("dashboard.noLeadsHint")}
           />
         )
       ) : (
@@ -72,15 +81,15 @@ export default async function LeadsPage({
           <div className="hidden overflow-x-auto rounded-xl border border-border bg-surface md:block">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border text-left text-xs text-muted">
-                  <th className="px-4 py-2.5 font-medium">Name</th>
-                  <th className="px-4 py-2.5 font-medium">Contact</th>
-                  <th className="px-4 py-2.5 font-medium">Intent</th>
-                  <th className="px-4 py-2.5 font-medium">Score</th>
-                  <th className="px-4 py-2.5 font-medium">Temp</th>
-                  <th className="px-4 py-2.5 font-medium">Status</th>
-                  <th className="px-4 py-2.5 font-medium">Source</th>
-                  <th className="px-4 py-2.5 font-medium">Created</th>
+                <tr className="border-b border-border text-start text-xs text-muted">
+                  <th className="px-4 py-2.5 font-medium">{t("leads.columns.name")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("leads.columns.contact")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("leads.columns.intent")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("leads.columns.score")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("leads.columns.temp")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("leads.columns.status")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("leads.columns.source")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("leads.columns.created")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -94,7 +103,7 @@ export default async function LeadsPage({
                         href={`/dashboard/leads/${lead.id}`}
                         className="font-medium text-foreground hover:text-accent"
                       >
-                        {lead.name ?? "Unnamed lead"}
+                        {lead.name ?? t("common.unnamedLead")}
                       </Link>
                     </td>
                     <td className="px-4 py-2.5 text-muted">
@@ -114,7 +123,7 @@ export default async function LeadsPage({
                       {lead.source ?? "—"}
                     </td>
                     <td className="px-4 py-2.5 text-muted">
-                      {formatDate(lead.createdAt)}
+                      {formatDate(lead.createdAt, locale)}
                     </td>
                   </tr>
                 ))}
@@ -132,7 +141,7 @@ export default async function LeadsPage({
                 >
                   <div className="flex items-start justify-between gap-2">
                     <p className="min-w-0 truncate text-sm font-medium text-foreground">
-                      {lead.name ?? "Unnamed lead"}
+                      {lead.name ?? t("common.unnamedLead")}
                     </p>
                     <span className="shrink-0 text-xs tabular-nums text-muted">
                       {lead.score}
@@ -145,7 +154,7 @@ export default async function LeadsPage({
                     <TemperatureBadge value={lead.temperature} />
                     <StatusBadge value={lead.status} />
                     <span className="text-[11px] text-muted">
-                      {formatDate(lead.createdAt)}
+                      {formatDate(lead.createdAt, locale)}
                     </span>
                   </div>
                 </Link>
@@ -160,26 +169,26 @@ export default async function LeadsPage({
                   href={`/dashboard/leads${buildLeadsQuery(params, { page: page - 1 })}`}
                   className="rounded-lg border border-border px-3 py-1.5 text-muted hover:text-foreground"
                 >
-                  ← Previous
+                  {t("common.previous")}
                 </Link>
               ) : (
                 <span className="rounded-lg border border-border/50 px-3 py-1.5 text-muted/40">
-                  ← Previous
+                  {t("common.previous")}
                 </span>
               )}
               <span className="text-muted tabular-nums">
-                Page {page} of {pages}
+                {t("leads.pageOf", { page, pages })}
               </span>
               {page < pages ? (
                 <Link
                   href={`/dashboard/leads${buildLeadsQuery(params, { page: page + 1 })}`}
                   className="rounded-lg border border-border px-3 py-1.5 text-muted hover:text-foreground"
                 >
-                  Next →
+                  {t("common.next")}
                 </Link>
               ) : (
                 <span className="rounded-lg border border-border/50 px-3 py-1.5 text-muted/40">
-                  Next →
+                  {t("common.next")}
                 </span>
               )}
             </nav>

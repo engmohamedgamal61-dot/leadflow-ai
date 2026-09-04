@@ -1,3 +1,6 @@
+"use client";
+
+import { useI18n } from "@/i18n/client";
 import { humanizeKey } from "@/lib/leads/lead-view";
 
 const TEMPERATURE_STYLE: Record<string, string> = {
@@ -7,7 +10,9 @@ const TEMPERATURE_STYLE: Record<string, string> = {
 };
 
 export function TemperatureBadge({ value }: { value: string }) {
+  const { tOptional } = useI18n();
   const key = value.toLowerCase();
+  const label = tOptional(`temperatures.${key}`) ?? key;
   return (
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest ${
@@ -15,7 +20,7 @@ export function TemperatureBadge({ value }: { value: string }) {
         "bg-border/40 text-muted ring-1 ring-inset ring-border"
       }`}
     >
-      {key}
+      {label}
     </span>
   );
 }
@@ -31,14 +36,16 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 export function StatusBadge({ value }: { value: string }) {
+  const { tOptional } = useI18n();
   const key = value.toLowerCase();
+  const label = tOptional(`statuses.${key}`) ?? humanizeKey(key);
   return (
     <span
       className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ${
         STATUS_STYLE[key] ?? "bg-border/40 text-muted"
       }`}
     >
-      {humanizeKey(key)}
+      {label}
     </span>
   );
 }

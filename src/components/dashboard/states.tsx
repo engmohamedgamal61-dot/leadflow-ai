@@ -1,4 +1,7 @@
+"use client";
+
 import type { ReactNode } from "react";
+import { useI18n } from "@/i18n/client";
 
 export function EmptyState({
   title,
@@ -19,11 +22,10 @@ export function EmptyState({
 }
 
 export function ErrorState({ message }: { message?: string }) {
+  const { t } = useI18n();
   return (
     <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 px-6 py-10 text-center">
-      <p className="text-sm font-medium text-rose-300">
-        Something went wrong loading this data.
-      </p>
+      <p className="text-sm font-medium text-rose-300">{t("errors.somethingWrong")}</p>
       {message ? <p className="mt-1 text-xs text-muted">{message}</p> : null}
     </div>
   );
@@ -31,6 +33,7 @@ export function ErrorState({ message }: { message?: string }) {
 
 /** Static placeholder block for Suspense fallbacks (no animation). */
 export function SkeletonRows({ rows = 5 }: { rows?: number }) {
+  const { t } = useI18n();
   return (
     <div className="space-y-2" aria-hidden>
       {Array.from({ length: rows }).map((_, i) => (
@@ -39,7 +42,7 @@ export function SkeletonRows({ rows = 5 }: { rows?: number }) {
           className="h-14 rounded-lg border border-border bg-surface/60"
         />
       ))}
-      <p className="pt-1 text-center text-xs text-muted">Loading…</p>
+      <p className="pt-1 text-center text-xs text-muted">{t("common.loading")}</p>
     </div>
   );
 }

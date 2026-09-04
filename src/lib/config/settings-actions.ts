@@ -20,7 +20,13 @@ import {
 
 export interface SettingsFormState {
   ok?: boolean;
-  error?: string;
+  /** Dotted dictionary key. */
+  errorCode?: string;
+  errorParams?: Record<string, string | number>;
+  /**
+   * Raw validator messages (admin-only deep config validation). Shown verbatim
+   * beneath the localized `errorCode` header — see the i18n plan §10.
+   */
   details?: string[];
 }
 
@@ -46,18 +52,21 @@ async function saveSection(
   const { membership } = await requireOrganizationContext();
 
   if (!canManageConfig(membership.role)) {
-    return { error: "Only an owner or admin can change the AI agent settings." };
+    return { errorCode: "settingsAi.errors.onlyOwnerAdmin" };
   }
 
   const template = getIndustryTemplate(membership.industryTemplateId);
-  if (!template) return { error: "Unknown industry template." };
+  if (!template) return { errorCode: "settingsAi.errors.unknownTemplate" };
 
   const current = await loadStoredConfig(membership.organizationId);
   const next = compactStoredConfig(patch(current, template));
 
   const validation = validateStoredConfig(next, template);
   if (!validation.valid) {
-    return { error: "Those settings aren't valid.", details: validation.errors };
+    return {
+      errorCode: "settingsAi.errors.invalid",
+      details: validation.errors,
+    };
   }
 
   const supabase = await createClient();
@@ -73,7 +82,7 @@ async function saveSection(
     .select("organization_id");
 
   if (error || !data || data.length === 0) {
-    return { error: "You don't have permission to change these settings." };
+    return { errorCode: "settingsAi.errors.noPermission" };
   }
 
   revalidatePath("/dashboard/settings/ai");
@@ -108,9 +117,9 @@ export async function updateQualificationAction(
   try {
     raw = JSON.parse(String(formData.get("rows") ?? "[]"));
   } catch {
-    return { error: "Malformed form data." };
+    return { errorCode: "settingsAi.errors.malformed" };
   }
-  if (!Array.isArray(raw)) return { error: "Malformed form data." };
+  if (!Array.isArray(raw)) return { errorCode: "settingsAi.errors.malformed" };
 
   const rows: FieldForm[] = raw
     .map((r) => ({

@@ -1,27 +1,12 @@
-/** Pure date/time formatting for the dashboard. Import-free, testable. */
+/**
+ * Dashboard date formatting. Thin re-export of the locale-aware formatters in
+ * `@/i18n/format` — kept as a module so existing `@/lib/leads/format` imports
+ * don't churn. Callers pass the active locale; it defaults to `"en"`.
+ */
 
-const DATE_FMT = new Intl.DateTimeFormat("en-US", {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-});
-
-const DATE_TIME_FMT = new Intl.DateTimeFormat("en-US", {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-});
-
-export function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "—" : DATE_FMT.format(d);
-}
-
-export function formatDateTime(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "—" : DATE_TIME_FMT.format(d);
-}
+export {
+  formatDate,
+  formatDateTime,
+  formatNumber,
+  formatPercent,
+} from "../../i18n/format.ts";

@@ -1,7 +1,9 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { LanguageSwitcher } from "@/components/i18n/language-switcher";
 import { requireOrganizationContext } from "@/lib/org/context";
+import { getI18n } from "@/i18n/server";
 import { DashboardNav } from "./nav";
 
 /**
@@ -15,6 +17,8 @@ export default async function DashboardLayout({
   children: ReactNode;
 }) {
   const { user, membership } = await requireOrganizationContext();
+  const { tOptional } = await getI18n();
+  const roleLabel = tOptional(`roles.${membership.role}`) ?? membership.role;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-4 py-6 sm:py-8">
@@ -32,10 +36,11 @@ export default async function DashboardLayout({
           <DashboardNav />
         </div>
         <div className="flex items-center gap-3 text-xs text-muted">
-          <span className="hidden capitalize sm:inline">{membership.role}</span>
+          <span className="hidden sm:inline">{roleLabel}</span>
           <span className="hidden max-w-[12rem] truncate sm:inline">
             {user.email}
           </span>
+          <LanguageSwitcher size="compact" />
           <SignOutButton />
         </div>
       </header>

@@ -16,17 +16,20 @@ const ENDPOINT = "/api/chat";
 /** Abort a request that never makes progress so the UI can't lock up. */
 const REQUEST_TIMEOUT_MS = 45_000;
 
-const GENERIC_ERROR = "Something went wrong. Please try sending that again.";
-const TIMEOUT_ERROR = "The assistant took too long to respond. Please try again.";
-const INTERRUPTED_ERROR =
-  "The connection was interrupted. Please try sending that again.";
+// Error identifiers (dictionary keys under `chat.errors.*`), not user copy —
+// `use-chat` resolves them for the active locale.
+const GENERIC_ERROR = "chat.errors.generic";
+const TIMEOUT_ERROR = "chat.errors.timeout";
+const INTERRUPTED_ERROR = "chat.errors.interrupted";
 
 async function readError(response: Response): Promise<string> {
   try {
-    const data = (await response.json()) as { error?: unknown };
-    if (typeof data?.error === "string" && data.error) return data.error;
+    const data = (await response.json()) as { errorCode?: unknown };
+    if (typeof data?.errorCode === "string" && data.errorCode) {
+      return data.errorCode;
+    }
   } catch {
-    // fall through to a generic message
+    // fall through to a generic code
   }
   return GENERIC_ERROR;
 }

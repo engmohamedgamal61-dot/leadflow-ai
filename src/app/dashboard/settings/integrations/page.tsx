@@ -2,9 +2,13 @@ import type { Metadata } from "next";
 import { requireOrganizationContext, canManageConfig } from "@/lib/org/context";
 import { createClient } from "@/lib/supabase/server";
 import { formatDateTime } from "@/lib/leads/format";
+import { getI18n } from "@/i18n/server";
 import { WhatsAppSettings } from "./whatsapp-form";
 
-export const metadata: Metadata = { title: "Integrations — LeadFlow AI" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { dict } = await getI18n();
+  return { title: dict.meta.integrations };
+}
 
 export interface WhatsAppConnectionView {
   status: string;
@@ -18,6 +22,7 @@ export interface WhatsAppConnectionView {
 
 export default async function IntegrationsPage() {
   const { membership } = await requireOrganizationContext();
+  const { t, locale } = await getI18n();
   const canManage = canManageConfig(membership.role);
 
   const supabase = await createClient();
@@ -52,14 +57,13 @@ export default async function IntegrationsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-foreground">Integrations</h1>
-        <p className="mt-1 text-sm text-muted">
-          Connect external channels. LeadFlow uses the same AI engine across
-          every channel.
-        </p>
+        <h1 className="text-2xl font-semibold text-foreground">
+          {t("integrations.title")}
+        </h1>
+        <p className="mt-1 text-sm text-muted">{t("integrations.subtitle")}</p>
         {!canManage ? (
           <p className="mt-2 inline-block rounded-md border border-border bg-background px-2 py-1 text-xs text-muted">
-            Read-only — an owner or admin can manage integrations.
+            {t("integrations.readonly")}
           </p>
         ) : null}
       </div>
@@ -67,7 +71,9 @@ export default async function IntegrationsPage() {
       <WhatsAppSettings
         connection={connection}
         canManage={canManage}
-        lastUpdated={connection ? formatDateTime(connection.updatedAt) : null}
+        lastUpdated={
+          connection ? formatDateTime(connection.updatedAt, locale) : null
+        }
       />
     </div>
   );

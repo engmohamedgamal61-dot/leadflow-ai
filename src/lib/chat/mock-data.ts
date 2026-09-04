@@ -1,37 +1,22 @@
-import type { ChatMessage } from "@/types/chat";
-
-let seq = 0;
-/** Deterministic ids for seed data so server and client markup match. */
-function seedMessage(role: ChatMessage["role"], content: string): ChatMessage {
-  seq += 1;
-  return { id: `seed-${seq}`, role, content, createdAt: seq };
-}
+/**
+ * Fallback seed copy for the chat widget. The real strings come from the UI
+ * dictionary (`chat.*`); these constants are only the English fallback used when
+ * a component renders outside an `<I18nProvider>` (e.g. a unit test).
+ */
 
 export const ASSISTANT_GREETING = "Hi! 👋 How can I help you today?";
 
-/** The message the assistant opens every new conversation with. */
-export const GREETING_MESSAGE: ChatMessage = seedMessage(
-  "assistant",
-  ASSISTANT_GREETING,
-);
-
-/** Quick-start prompts shown in the empty state. */
-export const SUGGESTED_PROMPTS: string[] = [
+export const SUGGESTED_PROMPTS: readonly string[] = [
   "I'm looking for an apartment in Riyadh.",
   "I want to buy a villa in Jeddah.",
   "Do you have offices for rent in Riyadh?",
 ];
 
-/**
- * Realistic mock conversation used to demonstrate the experience.
- * This is sample content only — it is not part of the runtime architecture
- * and will be replaced by real assistant responses in a later phase.
- */
-export const EXAMPLE_CONVERSATION: ChatMessage[] = [
-  seedMessage("assistant", ASSISTANT_GREETING),
-  seedMessage("user", "I'm looking for an apartment in Riyadh."),
-  seedMessage("assistant", "Great. Which area are you interested in?"),
-  seedMessage("user", "North Riyadh."),
-  seedMessage("assistant", "Perfect. What's your approximate budget?"),
-  seedMessage("user", "Around 800,000 SAR."),
+/** User/assistant turns (alternating, starting with the user) after the greeting. */
+export const EXAMPLE_TURNS: readonly string[] = [
+  "I'm looking for an apartment in Riyadh.",
+  "Great. Which area are you interested in?",
+  "North Riyadh.",
+  "Perfect. What's your approximate budget?",
+  "Around 800,000 SAR.",
 ];

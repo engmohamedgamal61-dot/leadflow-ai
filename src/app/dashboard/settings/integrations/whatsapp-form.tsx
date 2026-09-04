@@ -8,19 +8,21 @@ import {
   updateFollowUpTemplateAction,
   type WhatsAppFormState,
 } from "@/lib/whatsapp/connection-actions";
+import { useI18n } from "@/i18n/client";
 import type { WhatsAppConnectionView } from "./page";
 
 const INITIAL: WhatsAppFormState = {};
 
 function Feedback({ state }: { state: WhatsAppFormState }) {
-  if (state.error) {
+  const { t } = useI18n();
+  if (state.errorCode) {
     return (
       <div role="alert" className="space-y-1 text-xs text-rose-400">
-        <p>{state.error}</p>
+        <p>{t(state.errorCode, state.params)}</p>
         {state.details?.length ? (
           <ul className="list-inside list-disc text-rose-400/80">
             {state.details.map((d, i) => (
-              <li key={i}>{d}</li>
+              <li key={i}>{t(d)}</li>
             ))}
           </ul>
         ) : null}
@@ -30,7 +32,7 @@ function Feedback({ state }: { state: WhatsAppFormState }) {
   if (state.ok) {
     return (
       <p role="status" className="text-xs text-emerald-400">
-        {state.message ?? "Saved."}
+        {state.messageCode ? t(state.messageCode, state.params) : t("settings.saved")}
       </p>
     );
   }
@@ -87,6 +89,7 @@ export function WhatsAppSettings({
   canManage: boolean;
   lastUpdated: string | null;
 }) {
+  const { t, tOptional } = useI18n();
   const [connectState, connect, connecting] = useActionState(
     connectWhatsAppAction,
     INITIAL,
@@ -98,17 +101,17 @@ export function WhatsAppSettings({
   const [pending, startTransition] = useTransition();
 
   const isConnected = connection?.status === "connected";
+  const statusLabel = (s: string) =>
+    tOptional(`whatsapp.status.${s}`) ?? s;
 
   return (
     <section className="space-y-5 rounded-xl border border-border bg-surface p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-foreground">WhatsApp</h2>
-          <p className="mt-0.5 text-xs text-muted">
-            Meta WhatsApp Business Cloud API. Inbound messages enter the same
-            qualification flow; scheduled follow-ups on the WhatsApp channel are
-            delivered here.
-          </p>
+          <h2 className="text-sm font-semibold text-foreground">
+            {t("whatsapp.title")}
+          </h2>
+          <p className="mt-0.5 text-xs text-muted">{t("whatsapp.description")}</p>
         </div>
         {connection ? (
           <span
@@ -116,7 +119,7 @@ export function WhatsAppSettings({
               STATUS_STYLE[connection.status] ?? "bg-border/50 text-muted"
             }`}
           >
-            {connection.status}
+            {statusLabel(connection.status)}
           </span>
         ) : null}
       </div>
@@ -124,70 +127,81 @@ export function WhatsAppSettings({
       {connection ? (
         <dl className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
           <div className="flex justify-between gap-2">
-            <dt className="text-muted">Display number</dt>
+            <dt className="text-muted">{t("whatsapp.fields.displayNumber")}</dt>
             <dd className="text-foreground">{connection.displayPhoneNumber ?? "—"}</dd>
           </div>
           <div className="flex justify-between gap-2">
-            <dt className="text-muted">Phone number ID</dt>
+            <dt className="text-muted">{t("whatsapp.fields.phoneNumberId")}</dt>
             <dd className="truncate font-mono text-foreground">{connection.phoneNumberId}</dd>
           </div>
           <div className="flex justify-between gap-2">
-            <dt className="text-muted">WABA ID</dt>
+            <dt className="text-muted">{t("whatsapp.fields.wabaId")}</dt>
             <dd className="truncate font-mono text-foreground">{connection.wabaId ?? "—"}</dd>
           </div>
           <div className="flex justify-between gap-2">
-            <dt className="text-muted">Updated</dt>
+            <dt className="text-muted">{t("whatsapp.fields.updated")}</dt>
             <dd className="text-foreground">{lastUpdated ?? "—"}</dd>
           </div>
           {connection.lastError ? (
             <div className="sm:col-span-2">
-              <dt className="text-muted">Last error</dt>
+              <dt className="text-muted">{t("whatsapp.fields.lastError")}</dt>
               <dd className="mt-0.5 text-rose-400/90">{connection.lastError}</dd>
             </div>
           ) : null}
         </dl>
       ) : (
-        <p className="text-xs text-muted">Not connected.</p>
+        <p className="text-xs text-muted">{t("whatsapp.notConnected")}</p>
       )}
 
       {canManage ? (
         <>
           <form action={connect} className="space-y-3 rounded-lg border border-border bg-background/40 p-4">
             <p className="text-xs font-medium text-foreground">
-              {isConnected ? "Update credentials" : "Connect"}
+              {isConnected
+                ? t("whatsapp.connect.updateTitle")
+                : t("whatsapp.connect.title")}
             </p>
             <Field
-              label="Phone number ID"
+              label={t("whatsapp.connect.phoneNumberId")}
               name="phoneNumberId"
               defaultValue={connection?.phoneNumberId}
               placeholder="1234567890"
-              hint="From your Meta app → WhatsApp → API Setup."
+              hint={t("whatsapp.connect.phoneNumberIdHint")}
               disabled={connecting}
             />
             <Field
-              label="Access token"
+              label={t("whatsapp.connect.accessToken")}
               name="accessToken"
               type="password"
               placeholder="EAAG…"
-              hint="Stored encrypted, server-side only. Never shown again."
+              hint={t("whatsapp.connect.accessTokenHint")}
               disabled={connecting}
             />
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="WABA ID (optional)" name="wabaId" defaultValue={connection?.wabaId ?? ""} disabled={connecting} />
               <Field
-                label="Display number (optional)"
+                label={t("whatsapp.connect.wabaIdOptional")}
+                name="wabaId"
+                defaultValue={connection?.wabaId ?? ""}
+                disabled={connecting}
+              />
+              <Field
+                label={t("whatsapp.connect.displayNumberOptional")}
                 name="displayPhoneNumber"
                 defaultValue={connection?.displayPhoneNumber ?? ""}
                 disabled={connecting}
               />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="submit"
                 disabled={connecting}
                 className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
               >
-                {connecting ? "Connecting…" : isConnected ? "Update" : "Connect WhatsApp"}
+                {connecting
+                  ? t("whatsapp.connect.connecting")
+                  : isConnected
+                    ? t("whatsapp.connect.update")
+                    : t("whatsapp.connect.submit")}
               </button>
               {connection ? (
                 <>
@@ -201,7 +215,9 @@ export function WhatsAppSettings({
                     }
                     className="rounded-lg border border-border px-3 py-2 text-xs text-muted hover:text-foreground disabled:opacity-50"
                   >
-                    {pending ? "Testing…" : "Test connection"}
+                    {pending
+                      ? t("whatsapp.connect.testing")
+                      : t("whatsapp.connect.test")}
                   </button>
                   <button
                     type="button"
@@ -213,7 +229,7 @@ export function WhatsAppSettings({
                     }
                     className="rounded-lg border border-border px-3 py-2 text-xs text-rose-400/80 hover:text-rose-400 disabled:opacity-50"
                   >
-                    Disconnect
+                    {t("whatsapp.connect.disconnect")}
                   </button>
                 </>
               ) : null}
@@ -223,24 +239,21 @@ export function WhatsAppSettings({
 
           <form action={saveTpl} className="space-y-3 rounded-lg border border-border bg-background/40 p-4">
             <p className="text-xs font-medium text-foreground">
-              Out-of-window follow-up template
+              {t("whatsapp.template.title")}
             </p>
             <p className="text-[11px] text-muted/70">
-              Meta only allows free-form messages within 24 hours of the
-              customer&apos;s last message. Set an approved template name for
-              follow-ups sent later. Leave blank to skip such follow-ups (they
-              fail with a clear reason rather than sending an invalid message).
+              {t("whatsapp.template.description")}
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field
-                label="Template name"
+                label={t("whatsapp.template.name")}
                 name="templateName"
                 defaultValue={connection?.followUpTemplate?.name ?? ""}
                 placeholder="lead_follow_up"
                 disabled={savingTpl}
               />
               <Field
-                label="Language code"
+                label={t("whatsapp.template.language")}
                 name="templateLanguage"
                 defaultValue={connection?.followUpTemplate?.language ?? "en_US"}
                 disabled={savingTpl}
@@ -251,7 +264,9 @@ export function WhatsAppSettings({
               disabled={savingTpl}
               className="rounded-lg border border-border px-3 py-2 text-xs text-muted hover:text-foreground disabled:opacity-50"
             >
-              {savingTpl ? "Saving…" : "Save template"}
+              {savingTpl
+                ? t("whatsapp.template.saving")
+                : t("whatsapp.template.save")}
             </button>
             <Feedback state={tplState} />
           </form>

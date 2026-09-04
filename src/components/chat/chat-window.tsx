@@ -1,8 +1,9 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import type { ChatMessage } from "@/types/chat";
 import { useChat } from "@/hooks/use-chat";
-import { EXAMPLE_CONVERSATION } from "@/lib/chat/mock-data";
+import { useI18n } from "@/i18n/client";
 import { ChatHeader } from "@/components/chat/chat-header";
 import { ChatComposer } from "@/components/chat/chat-composer";
 import { EmptyState } from "@/components/chat/empty-state";
@@ -27,6 +28,7 @@ function useIndustryFromUrl(): string | undefined {
 }
 
 export function ChatWindow() {
+  const { dict, tOptional } = useI18n();
   const industry = useIndustryFromUrl();
   const {
     messages,
@@ -38,9 +40,32 @@ export function ChatWindow() {
     sendMessage,
     setConversation,
     reset,
-  } = useChat({ industry });
+  } = useChat({
+    industry,
+    greeting: dict.chat.greeting,
+    errorFallback: dict.chat.errorGeneric,
+    resolveError: (raw) =>
+      raw.startsWith("chat.errors.")
+        ? (tOptional(raw) ?? dict.chat.errorGeneric)
+        : dict.chat.errorGeneric,
+  });
 
   const hasUserMessages = messages.some((message) => message.role === "user");
+
+  const loadExample = () => {
+    const turns: ChatMessage[] = dict.chat.exampleConversation.map(
+      (content, i) => ({
+        id: `example-${i}`,
+        role: i % 2 === 0 ? "user" : "assistant",
+        content,
+        createdAt: i + 1,
+      }),
+    );
+    setConversation([
+      { id: "greeting", role: "assistant", content: dict.chat.greeting, createdAt: 0 },
+      ...turns,
+    ]);
+  };
 
   return (
     <div className="flex flex-1 items-center justify-center p-0 sm:p-6">
@@ -53,7 +78,7 @@ export function ChatWindow() {
           ) : (
             <EmptyState
               onSuggestionSelect={sendMessage}
-              onLoadExample={() => setConversation(EXAMPLE_CONVERSATION)}
+              onLoadExample={loadExample}
             />
           )}
         </div>

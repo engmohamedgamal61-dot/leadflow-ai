@@ -9,7 +9,12 @@ import {
 } from "@/types/chat";
 import { getEffectiveConfig, type EffectiveConfig } from "@/lib/config";
 import { apiAssistant } from "@/lib/chat/api-assistant";
-import { GREETING_MESSAGE } from "@/lib/chat/mock-data";
+import { ASSISTANT_GREETING } from "@/lib/chat/mock-data";
+
+/** Deterministic id so the SSR and first client render agree. */
+function greetingMessage(text: string): ChatMessage {
+  return { id: "greeting", role: "assistant", content: text, createdAt: 0 };
+}
 
 export type ChatStatus = "idle" | "thinking" | "streaming";
 
@@ -32,6 +37,15 @@ interface UseChatOptions {
   client?: AssistantClient;
   /** Industry template slug (e.g. "clinic"); default = server default. */
   industry?: string;
+  /** Localized assistant greeting; the conversation opens with it and `reset` returns to it. */
+  greeting?: string;
+  /** Localized fallback shown when a send fails without a specific message. */
+  errorFallback?: string;
+  /**
+   * Resolve an error identifier thrown by the assistant client (a
+   * `chat.errors.*` key) into localized text. Defaults to identity.
+   */
+  resolveError?: (raw: string) => string;
 }
 
 export interface UseChatResult {
@@ -49,11 +63,16 @@ export interface UseChatResult {
 }
 
 export function useChat({
-  initialMessages = [GREETING_MESSAGE],
+  initialMessages,
   client = apiAssistant,
   industry,
+  greeting = ASSISTANT_GREETING,
+  errorFallback = "Something went wrong. Please try sending that again.",
+  resolveError = (raw) => raw,
 }: UseChatOptions = {}): UseChatResult {
-  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
+  const [messages, setMessages] = useState<ChatMessage[]>(
+    () => initialMessages ?? [greetingMessage(greeting)],
+  );
   const [status, setStatus] = useState<ChatStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [lead, setLead] = useState<LeadData>(EMPTY_LEAD);
@@ -156,8 +175,8 @@ export function useChat({
       } catch (err) {
         setError(
           err instanceof Error && err.message
-            ? err.message
-            : "Something went wrong. Please try sending that again.",
+            ? resolveError(err.message)
+            : errorFallback,
         );
         setMessages((prev) =>
           prev.filter((message) => message.id !== assistantMessage.id),
@@ -170,7 +189,7 @@ export function useChat({
         setStatus("idle");
       }
     },
-    [client, industry],
+    [client, industry, errorFallback, resolveError],
   );
 
   const setConversation = useCallback((next: ChatMessage[]) => {
@@ -184,8 +203,8 @@ export function useChat({
   }, []);
 
   const reset = useCallback(() => {
-    setConversation([GREETING_MESSAGE]);
-  }, [setConversation]);
+    setConversation([greetingMessage(greeting)]);
+  }, [setConversation, greeting]);
 
   return {
     messages,

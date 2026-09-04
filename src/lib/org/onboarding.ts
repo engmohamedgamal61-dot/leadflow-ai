@@ -6,13 +6,14 @@ import { requireUser } from "@/lib/auth/session";
 import { ONBOARDING_INDUSTRY_SLUGS } from "@/lib/org/onboarding-industries";
 import {
   isAlreadyMemberError,
-  mapOnboardingError,
+  mapOnboardingErrorCode,
 } from "@/lib/org/onboarding-errors";
+import type { FieldErrors } from "@/lib/auth/validation";
 
 export type OnboardingOutcome =
   | { status: "created"; organizationId: string }
   | { status: "already-member"; organizationId: string }
-  | { status: "error"; message: string; fieldErrors?: Record<string, string> };
+  | { status: "error"; errorCode: string; fieldErrors?: FieldErrors };
 
 /**
  * Create the current user's first organization: organization + `owner`
@@ -35,8 +36,8 @@ export async function onboardCurrentUser(
   if (!parsed.ok) {
     return {
       status: "error",
-      message: "Please fix the highlighted fields.",
-      fieldErrors: parsed.fieldErrors as Record<string, string>,
+      errorCode: "validation.fixHighlighted",
+      fieldErrors: parsed.fieldErrors,
     };
   }
 
@@ -60,15 +61,12 @@ export async function onboardCurrentUser(
         return { status: "already-member", organizationId: now.organizationId };
       }
     }
-    return { status: "error", message: mapOnboardingError(error) };
+    return { status: "error", errorCode: mapOnboardingErrorCode(error) };
   }
 
   const org = data as { id: string } | null;
   if (!org?.id) {
-    return {
-      status: "error",
-      message: "Something went wrong creating your organization.",
-    };
+    return { status: "error", errorCode: "onboarding.errors.generic" };
   }
   return { status: "created", organizationId: org.id };
 }

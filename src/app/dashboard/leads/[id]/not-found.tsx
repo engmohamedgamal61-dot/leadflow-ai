@@ -1,17 +1,19 @@
 import Link from "next/link";
+import { getI18n } from "@/i18n/server";
 
-export default function LeadNotFound() {
+export default async function LeadNotFound() {
+  const { t } = await getI18n();
   return (
     <div className="rounded-xl border border-border bg-surface px-6 py-12 text-center">
-      <p className="text-sm font-medium text-foreground">Lead not found</p>
-      <p className="mt-1 text-xs text-muted">
-        It may have been removed, or it belongs to another organization.
+      <p className="text-sm font-medium text-foreground">
+        {t("leadDetail.notFound.title")}
       </p>
+      <p className="mt-1 text-xs text-muted">{t("leadDetail.notFound.text")}</p>
       <Link
         href="/dashboard/leads"
         className="mt-4 inline-block rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-foreground"
       >
-        Back to leads
+        {t("leadDetail.notFound.back")}
       </Link>
     </div>
   );

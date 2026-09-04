@@ -14,8 +14,13 @@ import {
 
 export interface WhatsAppFormState {
   ok?: boolean;
-  message?: string;
-  error?: string;
+  /** Dotted dictionary key for a success message. */
+  messageCode?: string;
+  /** Dotted dictionary key for an error. */
+  errorCode?: string;
+  /** Interpolation params for `messageCode` / `errorCode`. */
+  params?: Record<string, string | number>;
+  /** Raw validator message codes (`whatsapp.validation.*`). */
   details?: string[];
 }
 
@@ -23,7 +28,7 @@ export interface WhatsAppFormState {
 async function requireConnectionAdmin() {
   const { membership } = await requireOrganizationContext();
   if (!canManageConfig(membership.role)) {
-    return { ok: false as const, error: "Only an owner or admin can manage integrations." };
+    return { ok: false as const, errorCode: "whatsapp.errors.onlyOwnerAdmin" };
   }
   return { ok: true as const, membership };
 }
@@ -33,7 +38,7 @@ export async function connectWhatsAppAction(
   formData: FormData,
 ): Promise<WhatsAppFormState> {
   const guard = await requireConnectionAdmin();
-  if (!guard.ok) return { error: guard.error };
+  if (!guard.ok) return { errorCode: guard.errorCode };
 
   const v = validateConnectionInput({
     phoneNumberId: formData.get("phoneNumberId"),
@@ -41,13 +46,15 @@ export async function connectWhatsAppAction(
     wabaId: formData.get("wabaId"),
     displayPhoneNumber: formData.get("displayPhoneNumber"),
   });
-  if (!v.ok) return { error: "Please fix the connection details.", details: v.errors };
+  if (!v.ok) {
+    return { errorCode: "whatsapp.errors.fixDetails", details: v.errors };
+  }
 
   let encrypted: string;
   try {
     encrypted = encryptToken(v.clean.accessToken, tokenEncryptionKey());
   } catch {
-    return { error: "The server is missing WHATSAPP_TOKEN_ENCRYPTION_KEY." };
+    return { errorCode: "whatsapp.errors.missingKey" };
   }
 
   // Live check (mocked when WHATSAPP_MOCK_TRANSPORT=1).
@@ -78,20 +85,23 @@ export async function connectWhatsAppAction(
   if (error) {
     // A duplicate phone_number_id already claimed by another organization.
     if (error.code === "23505") {
-      return { error: "That phone number ID is already connected to another workspace." };
+      return { errorCode: "whatsapp.errors.duplicatePhone" };
     }
-    return { error: "You don't have permission to change this." };
+    return { errorCode: "whatsapp.errors.noPermission" };
   }
 
   revalidatePath("/dashboard/settings/integrations");
   return check.ok
-    ? { ok: true, message: "WhatsApp connected." }
-    : { error: `Saved, but the connection check failed: ${check.errorDetail ?? "unknown error"}` };
+    ? { ok: true, messageCode: "whatsapp.results.connected" }
+    : {
+        errorCode: "whatsapp.results.savedButCheckFailed",
+        params: { detail: check.errorDetail ?? "unknown error" },
+      };
 }
 
 export async function testWhatsAppConnectionAction(): Promise<WhatsAppFormState> {
   const guard = await requireConnectionAdmin();
-  if (!guard.ok) return { error: guard.error };
+  if (!guard.ok) return { errorCode: guard.errorCode };
 
   const supabase = await createClient();
   const { data } = await supabase
@@ -101,7 +111,7 @@ export async function testWhatsAppConnectionAction(): Promise<WhatsAppFormState>
     .maybeSingle();
 
   if (!data?.access_token_encrypted) {
-    return { error: "No WhatsApp connection to test." };
+    return { errorCode: "whatsapp.errors.noConnectionToTest" };
   }
 
   let token: string;
@@ -109,7 +119,7 @@ export async function testWhatsAppConnectionAction(): Promise<WhatsAppFormState>
     const { decryptToken } = await import("@/lib/whatsapp/crypto");
     token = decryptToken(data.access_token_encrypted, tokenEncryptionKey());
   } catch {
-    return { error: "Could not read the stored credentials." };
+    return { errorCode: "whatsapp.errors.cantReadCreds" };
   }
 
   const check = await checkMetaPhoneNumber({
@@ -128,14 +138,20 @@ export async function testWhatsAppConnectionAction(): Promise<WhatsAppFormState>
     .eq("organization_id", guard.membership.organizationId);
 
   revalidatePath("/dashboard/settings/integrations");
-  return check.ok
-    ? { ok: true, message: `Connection OK${check.verifiedName ? ` — ${check.verifiedName}` : ""}.` }
-    : { error: `Connection check failed: ${check.errorDetail ?? "unknown error"}` };
+  if (check.ok) {
+    return check.verifiedName
+      ? { ok: true, messageCode: "whatsapp.results.checkOkNamed", params: { name: check.verifiedName } }
+      : { ok: true, messageCode: "whatsapp.results.checkOk" };
+  }
+  return {
+    errorCode: "whatsapp.results.checkFailed",
+    params: { detail: check.errorDetail ?? "unknown error" },
+  };
 }
 
 export async function disconnectWhatsAppAction(): Promise<WhatsAppFormState> {
   const guard = await requireConnectionAdmin();
-  if (!guard.ok) return { error: guard.error };
+  if (!guard.ok) return { errorCode: guard.errorCode };
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -143,10 +159,10 @@ export async function disconnectWhatsAppAction(): Promise<WhatsAppFormState> {
     .update({ status: "disconnected", access_token_encrypted: null, last_error: null })
     .eq("organization_id", guard.membership.organizationId)
     .select("id");
-  if (error) return { error: "You don't have permission to change this." };
+  if (error) return { errorCode: "whatsapp.errors.noPermission" };
 
   revalidatePath("/dashboard/settings/integrations");
-  return { ok: true, message: "WhatsApp disconnected." };
+  return { ok: true, messageCode: "whatsapp.results.disconnected" };
 }
 
 export async function updateFollowUpTemplateAction(
@@ -154,13 +170,13 @@ export async function updateFollowUpTemplateAction(
   formData: FormData,
 ): Promise<WhatsAppFormState> {
   const guard = await requireConnectionAdmin();
-  if (!guard.ok) return { error: guard.error };
+  if (!guard.ok) return { errorCode: guard.errorCode };
 
   const v = validateFollowUpTemplate({
     name: formData.get("templateName"),
     language: formData.get("templateLanguage"),
   });
-  if (!v.ok) return { error: v.error };
+  if (!v.ok) return { errorCode: v.error };
 
   const supabase = await createClient();
   const { data: current } = await supabase
@@ -168,7 +184,7 @@ export async function updateFollowUpTemplateAction(
     .select("metadata")
     .eq("organization_id", guard.membership.organizationId)
     .maybeSingle();
-  if (!current) return { error: "Connect WhatsApp first." };
+  if (!current) return { errorCode: "whatsapp.errors.connectFirst" };
 
   const metadata = { ...((current.metadata ?? {}) as Record<string, unknown>) };
   if (v.clean) metadata.followUpTemplate = v.clean;
@@ -179,8 +195,13 @@ export async function updateFollowUpTemplateAction(
     .update({ metadata: metadata as TablesInsert<"whatsapp_connections">["metadata"] })
     .eq("organization_id", guard.membership.organizationId)
     .select("id");
-  if (error) return { error: "You don't have permission to change this." };
+  if (error) return { errorCode: "whatsapp.errors.noPermission" };
 
   revalidatePath("/dashboard/settings/integrations");
-  return { ok: true, message: v.clean ? "Follow-up template saved." : "Follow-up template cleared." };
+  return {
+    ok: true,
+    messageCode: v.clean
+      ? "whatsapp.results.templateSaved"
+      : "whatsapp.results.templateCleared",
+  };
 }

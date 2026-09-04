@@ -17,7 +17,10 @@ import {
 
 export interface AgentFormState {
   ok?: boolean;
-  error?: string;
+  /** Dotted dictionary key. */
+  errorCode?: string;
+  /** Interpolation params for `errorCode`. */
+  errorParams?: Record<string, string | number>;
 }
 
 const UUID_RE =
@@ -34,12 +37,14 @@ async function withLeadWriteContext(
   leadId: string,
 ): Promise<
   | { ok: true; ctx: AgentExecContext; revalidate: () => void }
-  | { ok: false; error: string }
+  | { ok: false; errorCode: string }
 > {
   const { membership } = await requireOrganizationContext();
-  if (!UUID_RE.test(leadId)) return { ok: false, error: "Invalid lead." };
+  if (!UUID_RE.test(leadId)) {
+    return { ok: false, errorCode: "errors.leads.invalidLead" };
+  }
   if (!canWriteLeads(membership.role)) {
-    return { ok: false, error: "Your role is read-only for leads." };
+    return { ok: false, errorCode: "errors.leads.roleReadonly" };
   }
   const db = await createClient();
 
@@ -49,7 +54,7 @@ async function withLeadWriteContext(
     .eq("organization_id", membership.organizationId)
     .eq("id", leadId)
     .maybeSingle();
-  if (!lead) return { ok: false, error: "Lead not found." };
+  if (!lead) return { ok: false, errorCode: "errors.leads.leadNotFound" };
 
   return {
     ok: true,
@@ -76,18 +81,21 @@ export async function createFollowUpAction(
   const leadId = String(formData.get("leadId") ?? "");
   const when = validateFutureTimestamp(String(formData.get("scheduledAt") ?? ""));
   if (!when.ok) {
-    return { error: `Pick a future date and time (${when.error}).` };
+    return {
+      errorCode: `errors.leads.${when.errorCode ?? "dateMissing"}`,
+      errorParams: when.maxDays ? { maxDays: when.maxDays } : undefined,
+    };
   }
 
   const guard = await withLeadWriteContext(leadId);
-  if (!guard.ok) return { error: guard.error };
+  if (!guard.ok) return { errorCode: guard.errorCode };
 
   const outcome = await createFollowUp(guard.ctx, {
     scheduledAt: when.iso!,
     note: normalizeNote(formData.get("note")),
   });
   if (outcome.status === "failed") {
-    return { error: "Could not create the follow-up. Please retry." };
+    return { errorCode: "errors.leads.createFollowUpFailed" };
   }
   guard.revalidate();
   return { ok: true };
@@ -99,9 +107,11 @@ async function setFollowUpStatus(
   eventType: "follow_up_completed" | "follow_up_cancelled",
 ): Promise<AgentFormState> {
   const { membership } = await requireOrganizationContext();
-  if (!UUID_RE.test(followUpId)) return { error: "Invalid follow-up." };
+  if (!UUID_RE.test(followUpId)) {
+    return { errorCode: "errors.leads.invalidFollowUp" };
+  }
   if (!canWriteLeads(membership.role)) {
-    return { error: "Your role is read-only for leads." };
+    return { errorCode: "errors.leads.roleReadonly" };
   }
 
   const db = await createClient();
@@ -113,9 +123,9 @@ async function setFollowUpStatus(
     .eq("status", "pending")
     .select("id, lead_id");
 
-  if (error) return { error: "You don't have permission to change this." };
+  if (error) return { errorCode: "errors.leads.noPermissionChange" };
   if (!data || data.length === 0) {
-    return { error: "That follow-up is no longer pending." };
+    return { errorCode: "errors.leads.followUpNotPending" };
   }
 
   await db.from("lead_events").insert({
@@ -158,13 +168,13 @@ export async function requestHandoffAction(
   formData: FormData,
 ): Promise<AgentFormState> {
   const guard = await withLeadWriteContext(String(formData.get("leadId") ?? ""));
-  if (!guard.ok) return { error: guard.error };
+  if (!guard.ok) return { errorCode: guard.errorCode };
 
   const outcome = await requestHumanHandoff(guard.ctx, {
     reason: normalizeNote(formData.get("reason")),
   });
   if (outcome.status === "failed") {
-    return { error: "Could not record the handoff. Please retry." };
+    return { errorCode: "errors.leads.handoffFailed" };
   }
   guard.revalidate();
   return { ok: true };
@@ -175,11 +185,11 @@ export async function markQualifiedAction(
   formData: FormData,
 ): Promise<AgentFormState> {
   const guard = await withLeadWriteContext(String(formData.get("leadId") ?? ""));
-  if (!guard.ok) return { error: guard.error };
+  if (!guard.ok) return { errorCode: guard.errorCode };
 
   const outcome = await markQualified(guard.ctx);
   if (outcome.status === "failed") {
-    return { error: "Could not mark the lead qualified. Please retry." };
+    return { errorCode: "errors.leads.markQualifiedFailed" };
   }
   guard.revalidate();
   return { ok: true };

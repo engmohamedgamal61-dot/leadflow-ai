@@ -13,14 +13,17 @@ import type { IndustryTemplate } from "../types.ts";
 export const clinicTemplate: IndustryTemplate = {
   id: "template_clinic",
   name: "Clinic",
+  nameKey: "industries.clinic.name",
   slug: "clinic",
   description:
     "Collect a patient's appointment inquiry: service, preferred doctor, date, insurance and urgency.",
+  descriptionKey: "industries.clinic.description",
 
   leadFields: [
     {
       key: "name",
       label: "Name",
+      labelKey: "fields.name",
       type: "text",
       required: true,
       enabled: true,
@@ -31,6 +34,7 @@ export const clinicTemplate: IndustryTemplate = {
     {
       key: "phone",
       label: "Phone",
+      labelKey: "fields.phone",
       type: "text",
       required: false,
       enabled: true,
@@ -42,6 +46,7 @@ export const clinicTemplate: IndustryTemplate = {
     {
       key: "service",
       label: "Service",
+      labelKey: "fields.service",
       type: "text",
       required: true,
       enabled: true,
@@ -53,6 +58,7 @@ export const clinicTemplate: IndustryTemplate = {
     {
       key: "doctor",
       label: "Doctor",
+      labelKey: "fields.doctor",
       type: "text",
       required: false,
       enabled: true,
@@ -64,6 +70,7 @@ export const clinicTemplate: IndustryTemplate = {
     {
       key: "appointment_date",
       label: "Appointment date",
+      labelKey: "fields.appointmentDate",
       type: "date",
       required: true,
       enabled: true,
@@ -75,6 +82,7 @@ export const clinicTemplate: IndustryTemplate = {
     {
       key: "insurance",
       label: "Insurance",
+      labelKey: "fields.insurance",
       type: "boolean",
       required: false,
       enabled: true,
@@ -86,15 +94,16 @@ export const clinicTemplate: IndustryTemplate = {
     {
       key: "urgency",
       label: "Urgency",
+      labelKey: "fields.urgency",
       type: "select",
       required: false,
       enabled: true,
       order: 70,
       description: "How urgent the patient's need is.",
       options: [
-        { value: "high", label: "High", aliases: ["urgent", "emergency", "asap", "عاجل", "طارئ"] },
-        { value: "medium", label: "Medium", aliases: ["soon", "moderate"] },
-        { value: "low", label: "Low", aliases: ["routine", "whenever", "not urgent", "روتيني"] },
+        { value: "high", label: "High", labelKey: "fieldOptions.high", aliases: ["urgent", "emergency", "asap", "عاجل", "طارئ"] },
+        { value: "medium", label: "Medium", labelKey: "fieldOptions.medium", aliases: ["soon", "moderate"] },
+        { value: "low", label: "Low", labelKey: "fieldOptions.low", aliases: ["routine", "whenever", "not urgent", "روتيني"] },
       ],
       extractionHint:
         'One of "high", "medium" or "low" based on how the patient describes their need. null if unclear.',

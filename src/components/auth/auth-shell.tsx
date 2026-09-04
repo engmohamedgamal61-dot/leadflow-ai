@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { LanguageSwitcher } from "@/components/i18n/language-switcher";
 
 interface AuthShellProps {
   title: string;
@@ -17,6 +18,9 @@ export function AuthShell({ title, subtitle, children, footer }: AuthShellProps)
   return (
     <div className="flex flex-1 items-center justify-center px-4 py-10 sm:py-16">
       <div className="w-full max-w-sm">
+        <div className="mb-4 flex justify-center">
+          <LanguageSwitcher />
+        </div>
         <div className="mb-8 flex flex-col items-center text-center">
           <Link
             href="/"

@@ -1,5 +1,8 @@
+"use client";
+
 import type { ReactNode } from "react";
 import type { SettingsFormState } from "@/lib/config/settings-actions";
+import { useI18n } from "@/i18n/client";
 
 export function SectionShell({
   title,
@@ -24,17 +27,18 @@ export function SectionShell({
 }
 
 export function Feedback({ state }: { state: SettingsFormState }) {
+  const { t } = useI18n();
   if (state.ok) {
     return (
       <p role="status" className="text-xs text-emerald-400">
-        Saved.
+        {t("settings.saved")}
       </p>
     );
   }
-  if (state.error) {
+  if (state.errorCode) {
     return (
       <div role="alert" className="space-y-1 text-xs text-rose-400">
-        <p>{state.error}</p>
+        <p>{t(state.errorCode, state.errorParams)}</p>
         {state.details?.length ? (
           <ul className="list-inside list-disc text-rose-400/80">
             {state.details.slice(0, 6).map((d, i) => (
@@ -49,13 +53,14 @@ export function Feedback({ state }: { state: SettingsFormState }) {
 }
 
 export function SaveButton({ pending }: { pending: boolean }) {
+  const { t } = useI18n();
   return (
     <button
       type="submit"
       disabled={pending}
       className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
     >
-      {pending ? "Saving…" : "Save changes"}
+      {pending ? t("common.saving") : t("common.saveChanges")}
     </button>
   );
 }

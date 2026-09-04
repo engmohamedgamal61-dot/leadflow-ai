@@ -11,20 +11,31 @@ import {
 } from "@/lib/leads/follow-up-actions";
 import { formatDateTime } from "@/lib/leads/format";
 import type { FollowUpRow } from "@/lib/leads/queries";
+import { useI18n } from "@/i18n/client";
 
 const INITIAL: AgentFormState = {};
 
 function Msg({ state }: { state: AgentFormState }) {
-  if (state.error) {
-    return <p role="alert" className="text-xs text-rose-400">{state.error}</p>;
+  const { t } = useI18n();
+  if (state.errorCode) {
+    return (
+      <p role="alert" className="text-xs text-rose-400">
+        {t(state.errorCode, state.errorParams)}
+      </p>
+    );
   }
   if (state.ok) {
-    return <p role="status" className="text-xs text-emerald-400">Done.</p>;
+    return (
+      <p role="status" className="text-xs text-emerald-400">
+        {t("common.done")}
+      </p>
+    );
   }
   return null;
 }
 
 export function AddFollowUpForm({ leadId }: { leadId: string }) {
+  const { t } = useI18n();
   const [state, formAction, pending] = useActionState(
     createFollowUpAction,
     INITIAL,
@@ -49,20 +60,20 @@ export function AddFollowUpForm({ leadId }: { leadId: string }) {
       <input type="hidden" name="leadId" value={leadId} />
       <input type="hidden" name="scheduledAt" ref={isoRef} />
       <label className="block text-[11px] font-medium text-muted">
-        Schedule a follow-up
+        {t("leadDetail.agentActions.scheduleFollowUp")}
       </label>
       <input
         type="datetime-local"
         value={local}
         onChange={(e) => setLocal(e.target.value)}
         required
-        aria-label="Follow-up date and time"
+        aria-label={t("leadDetail.agentActions.followUpDateLabel")}
         className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-accent/60"
       />
       <input
         type="text"
         name="note"
-        placeholder="Note (optional)"
+        placeholder={t("leadDetail.agentActions.noteOptional")}
         maxLength={500}
         className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-accent/60"
       />
@@ -71,7 +82,7 @@ export function AddFollowUpForm({ leadId }: { leadId: string }) {
         disabled={pending || !local}
         className="w-full rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground hover:opacity-90 disabled:opacity-40"
       >
-        {pending ? "Saving…" : "Add follow-up"}
+        {pending ? t("common.saving") : t("leadDetail.agentActions.addFollowUp")}
       </button>
       <Msg state={state} />
     </form>
@@ -85,6 +96,7 @@ export function FollowUpItem({
   followUp: FollowUpRow;
   canWrite: boolean;
 }) {
+  const { t, tOptional, locale } = useI18n();
   const [completeState, complete, completing] = useActionState(
     completeFollowUpAction,
     INITIAL,
@@ -102,23 +114,32 @@ export function FollowUpItem({
   };
   const badge = badgeStyles[followUp.status] ?? "bg-border/50 text-muted";
 
+  const attemptsLabel =
+    followUp.attemptCount === 1
+      ? t("leadDetail.followUps.oneAttempt")
+      : t("leadDetail.followUps.attempts", { count: followUp.attemptCount });
+  const sourceLabel =
+    tOptional(`followUps.source.${followUp.source}`) ?? followUp.source;
+
   return (
     <li className="rounded-lg border border-border bg-surface px-3 py-2">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-sm text-foreground">
-            {formatDateTime(followUp.scheduledAt)}
+            {formatDateTime(followUp.scheduledAt, locale)}
           </p>
           {followUp.note ? (
             <p className="mt-0.5 truncate text-xs text-muted">{followUp.note}</p>
           ) : null}
           <p className="mt-0.5 text-[10px] uppercase tracking-wide text-muted/60">
-            {followUp.source} · {followUp.channel}
-            {followUp.attemptCount > 0 ? ` · ${followUp.attemptCount} attempt${followUp.attemptCount > 1 ? "s" : ""}` : ""}
+            {sourceLabel} · {followUp.channel}
+            {followUp.attemptCount > 0 ? ` · ${attemptsLabel}` : ""}
           </p>
           {followUp.status === "completed" && followUp.completedAt ? (
             <p className="mt-0.5 text-[11px] text-emerald-400/80">
-              Sent {formatDateTime(followUp.completedAt)}
+              {t("leadDetail.followUps.sent", {
+                date: formatDateTime(followUp.completedAt, locale),
+              })}
             </p>
           ) : null}
           {followUp.status === "failed" && followUp.lastError ? (
@@ -130,12 +151,14 @@ export function FollowUpItem({
           followUp.attemptCount > 0 &&
           followUp.nextAttemptAt ? (
             <p className="mt-0.5 text-[11px] text-amber-400/80">
-              Retry {formatDateTime(followUp.nextAttemptAt)}
+              {t("leadDetail.followUps.retry", {
+                date: formatDateTime(followUp.nextAttemptAt, locale),
+              })}
             </p>
           ) : null}
         </div>
         <span className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-medium ${badge}`}>
-          {followUp.status}
+          {tOptional(`followUps.status.${followUp.status}`) ?? followUp.status}
         </span>
       </div>
 
@@ -148,7 +171,7 @@ export function FollowUpItem({
               disabled={completing}
               className="rounded-md border border-border px-2 py-1 text-[11px] text-muted hover:text-foreground disabled:opacity-40"
             >
-              {completing ? "…" : "Complete"}
+              {completing ? "…" : t("leadDetail.agentActions.complete")}
             </button>
           </form>
           <form action={cancel}>
@@ -158,17 +181,18 @@ export function FollowUpItem({
               disabled={cancelling}
               className="rounded-md border border-border px-2 py-1 text-[11px] text-muted hover:text-foreground disabled:opacity-40"
             >
-              {cancelling ? "…" : "Cancel"}
+              {cancelling ? "…" : t("common.cancel")}
             </button>
           </form>
         </div>
       ) : null}
-      <Msg state={completeState.error ? completeState : cancelState} />
+      <Msg state={completeState.errorCode ? completeState : cancelState} />
     </li>
   );
 }
 
 export function HandoffButton({ leadId }: { leadId: string }) {
+  const { t } = useI18n();
   const [state, formAction, pending] = useActionState(
     requestHandoffAction,
     INITIAL,
@@ -182,7 +206,7 @@ export function HandoffButton({ leadId }: { leadId: string }) {
         onClick={() => setOpen(true)}
         className="w-full rounded-lg border border-border px-3 py-2 text-xs text-muted hover:text-foreground"
       >
-        Request human handoff
+        {t("leadDetail.agentActions.requestHandoff")}
       </button>
     );
   }
@@ -193,7 +217,7 @@ export function HandoffButton({ leadId }: { leadId: string }) {
       <input
         type="text"
         name="reason"
-        placeholder="Reason (optional)"
+        placeholder={t("leadDetail.agentActions.reasonOptional")}
         maxLength={200}
         autoFocus
         className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-accent/60"
@@ -203,7 +227,7 @@ export function HandoffButton({ leadId }: { leadId: string }) {
         disabled={pending}
         className="w-full rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground hover:opacity-90 disabled:opacity-40"
       >
-        {pending ? "…" : "Flag for a human"}
+        {pending ? "…" : t("leadDetail.agentActions.flagForHuman")}
       </button>
       <Msg state={state} />
     </form>
@@ -211,6 +235,7 @@ export function HandoffButton({ leadId }: { leadId: string }) {
 }
 
 export function MarkQualifiedButton({ leadId }: { leadId: string }) {
+  const { t } = useI18n();
   const [state, formAction, pending] = useActionState(
     markQualifiedAction,
     INITIAL,
@@ -223,7 +248,7 @@ export function MarkQualifiedButton({ leadId }: { leadId: string }) {
         disabled={pending}
         className="w-full rounded-lg border border-accent/50 bg-accent/10 px-3 py-2 text-xs font-medium text-foreground hover:bg-accent/20 disabled:opacity-40"
       >
-        {pending ? "…" : "Mark qualified"}
+        {pending ? "…" : t("leadDetail.agentActions.markQualified")}
       </button>
       <Msg state={state} />
     </form>

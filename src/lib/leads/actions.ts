@@ -8,7 +8,8 @@ import { LEAD_STATUSES, type LeadStatusValue } from "@/lib/leads/list-params";
 
 export interface StatusFormState {
   ok?: boolean;
-  error?: string;
+  /** Dotted dictionary key. */
+  errorCode?: string;
   status?: LeadStatusValue;
 }
 
@@ -32,14 +33,14 @@ export async function updateLeadStatusAction(
   const leadId = String(formData.get("leadId") ?? "");
   const nextStatus = String(formData.get("status") ?? "");
 
-  if (!UUID_RE.test(leadId)) return { error: "Invalid lead." };
+  if (!UUID_RE.test(leadId)) return { errorCode: "errors.leads.invalidLead" };
   if (!(LEAD_STATUSES as readonly string[]).includes(nextStatus)) {
-    return { error: "Choose a valid status." };
+    return { errorCode: "errors.leads.invalidStatus" };
   }
   const status = nextStatus as LeadStatusValue;
 
   if (!canWriteLeads(membership.role)) {
-    return { error: "Your role is read-only for leads." };
+    return { errorCode: "errors.leads.roleReadonly" };
   }
 
   const supabase = await createClient();
@@ -50,8 +51,8 @@ export async function updateLeadStatusAction(
     .eq("organization_id", membership.organizationId)
     .eq("id", leadId)
     .maybeSingle();
-  if (readError) return { error: "Could not load the lead. Please retry." };
-  if (!current) return { error: "Lead not found." };
+  if (readError) return { errorCode: "errors.leads.loadFailed" };
+  if (!current) return { errorCode: "errors.leads.leadNotFound" };
 
   if (current.status === status) {
     return { ok: true, status };
@@ -65,7 +66,7 @@ export async function updateLeadStatusAction(
     .select("id");
 
   if (error || !data || data.length === 0) {
-    return { error: "You don't have permission to update this lead." };
+    return { errorCode: "errors.leads.noPermissionLead" };
   }
 
   // Best-effort timeline entry — same shape the chat pipeline uses. A failure

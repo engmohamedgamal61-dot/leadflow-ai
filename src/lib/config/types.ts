@@ -25,6 +25,12 @@ export interface LeadFieldOption {
   value: string;
   label: string;
   /**
+   * Dotted key into the UI dictionary (`fieldOptions.*`) for a localized label.
+   * Additive — `label` stays the source of truth for extraction/prompts and the
+   * fallback when no translation exists.
+   */
+  labelKey?: string;
+  /**
    * Alternative spellings/synonyms that normalize to this option's `value`
    * (e.g. "purchase" → "buy"). Matched case-insensitively.
    */
@@ -39,6 +45,11 @@ export interface LeadFieldOption {
 export interface LeadFieldDefinition {
   key: string;
   label: string;
+  /**
+   * Dotted key into the UI dictionary (`fields.*`) for a localized label.
+   * Additive — `label` still feeds the AI system prompt and is the fallback.
+   */
+  labelKey?: string;
   type: LeadFieldType;
   required: boolean;
   enabled: boolean;
@@ -158,9 +169,13 @@ export interface AiBehaviorConfig {
 export interface IndustryTemplate {
   id: string;
   name: string;
+  /** Dotted key into the UI dictionary (`industries.<slug>.name`); `name` is the fallback. */
+  nameKey?: string;
   /** URL-safe identifier used to look the template up. */
   slug: string;
   description: string;
+  /** Dotted key into the UI dictionary (`industries.<slug>.description`); `description` is the fallback. */
+  descriptionKey?: string;
   leadFields: LeadFieldDefinition[];
   qualificationFlow: QualificationStep[];
   scoring: ScoringConfig;

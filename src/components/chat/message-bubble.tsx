@@ -1,11 +1,15 @@
+"use client";
+
 import type { ChatMessage } from "@/types/chat";
 import { AssistantAvatar } from "@/components/chat/assistant-avatar";
+import { useI18n } from "@/i18n/client";
 
 interface MessageBubbleProps {
   message: ChatMessage;
 }
 
 export function MessageBubble({ message }: MessageBubbleProps) {
+  const { t } = useI18n();
   const isAssistant = message.role === "assistant";
 
   return (
@@ -21,7 +25,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           aria-hidden
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-[11px] font-semibold text-muted"
         >
-          You
+          {t("chat.you")}
         </span>
       )}
 

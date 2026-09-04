@@ -4,22 +4,27 @@ import { redirect } from "next/navigation";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { getSessionUser } from "@/lib/auth/session";
 import { APP_HOME_PATH } from "@/lib/auth/route-policy";
+import { getI18n } from "@/i18n/server";
 import { LoginForm } from "./login-form";
 
-export const metadata: Metadata = { title: "Sign in — LeadFlow AI" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { dict } = await getI18n();
+  return { title: dict.meta.signIn };
+}
 
 export default async function LoginPage() {
   if (await getSessionUser()) redirect(APP_HOME_PATH);
+  const { t } = await getI18n();
 
   return (
     <AuthShell
-      title="Welcome back"
-      subtitle="Sign in to your LeadFlow AI workspace."
+      title={t("auth.login.title")}
+      subtitle={t("auth.login.subtitle")}
       footer={
         <>
-          New to LeadFlow?{" "}
+          {t("auth.login.footerText")}{" "}
           <Link href="/signup" className="text-foreground hover:text-accent">
-            Create an account
+            {t("auth.login.footerLink")}
           </Link>
         </>
       }

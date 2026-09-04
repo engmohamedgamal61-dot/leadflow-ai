@@ -60,7 +60,12 @@ function trimCap(value: unknown, max: number): string | null {
 export interface TimestampResult {
   ok: boolean;
   iso?: string;
+  /** Human-readable reason for server logs / AI rejection notes. */
   error?: string;
+  /** Dotted `errors.leads.*` dictionary key for the dashboard form. */
+  errorCode?: "dateMissing" | "dateUnparseable" | "datePast" | "dateTooFarOut";
+  /** Populated with `errorCode === "dateTooFarOut"`. */
+  maxDays?: number;
 }
 
 /**
@@ -74,7 +79,7 @@ export function validateFutureTimestamp(
   maxDays: number = FOLLOW_UP_MAX_DAYS,
 ): TimestampResult {
   if (typeof raw !== "string" || raw.trim() === "") {
-    return { ok: false, error: "missing timestamp" };
+    return { ok: false, error: "missing timestamp", errorCode: "dateMissing" };
   }
   let value = raw.trim();
   // "YYYY-MM-DDTHH:MM(:SS)" with no zone → treat as UTC.
@@ -82,12 +87,21 @@ export function validateFutureTimestamp(
     value = value.replace(" ", "T") + "Z";
   }
   const ts = Date.parse(value);
-  if (Number.isNaN(ts)) return { ok: false, error: "unparseable timestamp" };
+  if (Number.isNaN(ts)) {
+    return { ok: false, error: "unparseable timestamp", errorCode: "dateUnparseable" };
+  }
 
   const nowMs = now.getTime();
-  if (ts <= nowMs) return { ok: false, error: "timestamp is in the past" };
+  if (ts <= nowMs) {
+    return { ok: false, error: "timestamp is in the past", errorCode: "datePast" };
+  }
   if (ts - nowMs > maxDays * 86_400_000) {
-    return { ok: false, error: `timestamp is more than ${maxDays} days out` };
+    return {
+      ok: false,
+      error: `timestamp is more than ${maxDays} days out`,
+      errorCode: "dateTooFarOut",
+      maxDays,
+    };
   }
   return { ok: true, iso: new Date(ts).toISOString() };
 }

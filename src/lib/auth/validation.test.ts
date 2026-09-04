@@ -12,45 +12,44 @@ import {
   PASSWORD_MIN_LENGTH,
 } from "./validation.ts";
 
-test("validateEmail accepts well-formed addresses, rejects the rest", () => {
+test("validateEmail accepts well-formed addresses, rejects the rest (codes)", () => {
   assert.equal(validateEmail("a@b.co"), undefined);
   assert.equal(validateEmail("  user@company.io  "), undefined);
-  assert.match(validateEmail("") ?? "", /enter your email/i);
-  assert.match(validateEmail("not-an-email") ?? "", /valid email/i);
-  assert.match(validateEmail("a@b") ?? "", /valid email/i);
-  assert.match(validateEmail("a b@c.com") ?? "", /valid email/i);
-  assert.match(validateEmail(42) ?? "", /enter your email/i);
+  assert.equal(validateEmail("")?.code, "email.required");
+  assert.equal(validateEmail("not-an-email")?.code, "email.invalid");
+  assert.equal(validateEmail("a@b")?.code, "email.invalid");
+  assert.equal(validateEmail("a b@c.com")?.code, "email.invalid");
+  assert.equal(validateEmail(42)?.code, "email.required");
 });
 
 test("validatePassword enforces the minimum length (signup)", () => {
   assert.equal(validatePassword("x".repeat(PASSWORD_MIN_LENGTH)), undefined);
-  assert.match(
-    validatePassword("x".repeat(PASSWORD_MIN_LENGTH - 1)) ?? "",
-    /at least 8/i,
-  );
-  assert.match(validatePassword("") ?? "", /enter a password/i);
-  assert.match(validatePassword("x".repeat(73)) ?? "", /at most 72/i);
+  const short = validatePassword("x".repeat(PASSWORD_MIN_LENGTH - 1));
+  assert.equal(short?.code, "password.tooShort");
+  assert.equal(short?.params?.min, PASSWORD_MIN_LENGTH);
+  assert.equal(validatePassword("")?.code, "password.required");
+  assert.equal(validatePassword("x".repeat(73))?.code, "password.tooLong");
 });
 
 test("validateLoginPassword only checks presence", () => {
   assert.equal(validateLoginPassword("short"), undefined);
-  assert.match(validateLoginPassword("") ?? "", /enter your password/i);
+  assert.equal(validateLoginPassword("")?.code, "password.loginRequired");
 });
 
 test("validateOrgName enforces 2..200 chars", () => {
   assert.equal(validateOrgName("Acme Realty"), undefined);
-  assert.match(validateOrgName(" ") ?? "", /enter your organization/i);
-  assert.match(validateOrgName("A") ?? "", /at least 2/i);
-  assert.match(validateOrgName("x".repeat(201)) ?? "", /at most 200/i);
+  assert.equal(validateOrgName(" ")?.code, "orgName.required");
+  assert.equal(validateOrgName("A")?.code, "orgName.tooShort");
+  assert.equal(validateOrgName("x".repeat(201))?.code, "orgName.tooLong");
 });
 
 test("validateIndustrySlug checks membership of the allowed registry list", () => {
   const allowed = ["real-estate", "clinic"];
   assert.equal(validateIndustrySlug("real-estate", allowed), undefined);
   assert.equal(validateIndustrySlug("clinic", allowed), undefined);
-  assert.match(validateIndustrySlug("automotive", allowed) ?? "", /valid industry/i);
-  assert.match(validateIndustrySlug("", allowed) ?? "", /choose an industry/i);
-  assert.match(validateIndustrySlug("../etc", allowed) ?? "", /valid industry/i);
+  assert.equal(validateIndustrySlug("automotive", allowed)?.code, "industry.invalid");
+  assert.equal(validateIndustrySlug("", allowed)?.code, "industry.required");
+  assert.equal(validateIndustrySlug("../etc", allowed)?.code, "industry.invalid");
 });
 
 test("validateSignup aggregates field errors and echoes trimmed input", () => {

@@ -6,6 +6,7 @@ import {
   type SettingsFormState,
 } from "@/lib/config/settings-actions";
 import type { AiBehaviorConfig } from "@/lib/config";
+import { useI18n } from "@/i18n/client";
 import { SectionShell, Feedback, SaveButton } from "./section-ui";
 
 const INITIAL: SettingsFormState = {};
@@ -58,6 +59,7 @@ export function AiBehaviorForm({
   templateDefaults: AiBehaviorConfig;
   canManage: boolean;
 }) {
+  const { t } = useI18n();
   const [state, formAction, pending] = useActionState(
     updateAiBehaviorAction,
     INITIAL,
@@ -66,47 +68,61 @@ export function AiBehaviorForm({
 
   return (
     <SectionShell
-      title="Assistant behavior"
-      description="How the AI agent introduces itself and talks. Blank fields fall back to the industry template."
+      title={t("settingsAi.behavior.title")}
+      description={t("settingsAi.behavior.description")}
     >
       <form action={formAction} className="space-y-4">
         <Field
-          label="Identity / persona"
+          label={t("settingsAi.behavior.persona")}
           name="persona"
           defaultValue={effective.persona}
-          hint={`Template: ${templateDefaults.persona}`}
+          hint={t("settingsAi.behavior.templateHint", {
+            value: templateDefaults.persona,
+          })}
           disabled={disabled}
           rows={2}
         />
         <Field
-          label="Goal"
+          label={t("settingsAi.behavior.goal")}
           name="goal"
           defaultValue={effective.goal}
           disabled={disabled}
           rows={2}
         />
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Tone" name="tone" defaultValue={effective.tone} disabled={disabled} rows={2} />
-          <Field label="Style" name="style" defaultValue={effective.style} disabled={disabled} rows={2} />
+          <Field
+            label={t("settingsAi.behavior.tone")}
+            name="tone"
+            defaultValue={effective.tone}
+            disabled={disabled}
+            rows={2}
+          />
+          <Field
+            label={t("settingsAi.behavior.style")}
+            name="style"
+            defaultValue={effective.style}
+            disabled={disabled}
+            rows={2}
+          />
         </div>
         <Field
-          label="Languages (one per line)"
+          label={t("settingsAi.behavior.languages")}
           name="languages"
           defaultValue={effective.languages.join("\n")}
-          hint="The assistant understands and mirrors these. Replaces the template list."
+          hint={t("settingsAi.behavior.languagesHint")}
           disabled={disabled}
           rows={3}
         />
         <Field
-          label="Additional rules (one per line)"
+          label={t("settingsAi.behavior.additionalRules")}
           name="additionalRules"
-          defaultValue={(effectiveOnlyRules(effective, templateDefaults)).join("\n")}
-          hint="Appended after the template's built-in rules."
+          defaultValue={effectiveOnlyRules(effective, templateDefaults).join("\n")}
+          hint={t("settingsAi.behavior.additionalRulesHint")}
           disabled={disabled}
           rows={4}
         />
         <Field
-          label="Domain context"
+          label={t("settingsAi.behavior.domainContext")}
           name="domainContext"
           defaultValue={effective.domainContext ?? ""}
           disabled={disabled}

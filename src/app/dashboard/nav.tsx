@@ -2,16 +2,22 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useI18n } from "@/i18n/client";
 
 const LINKS = [
-  { href: "/dashboard", label: "Overview", exact: true },
-  { href: "/dashboard/leads", label: "Leads", exact: false },
-  { href: "/dashboard/settings/ai", label: "AI agent", exact: true },
-  { href: "/dashboard/settings/integrations", label: "Integrations", exact: false },
+  { href: "/dashboard", labelKey: "navigation.overview", exact: true },
+  { href: "/dashboard/leads", labelKey: "navigation.leads", exact: false },
+  { href: "/dashboard/settings/ai", labelKey: "navigation.aiAgent", exact: true },
+  {
+    href: "/dashboard/settings/integrations",
+    labelKey: "navigation.integrations",
+    exact: false,
+  },
 ];
 
 export function DashboardNav() {
   const pathname = usePathname();
+  const { t } = useI18n();
 
   return (
     <nav className="flex items-center gap-1">
@@ -30,7 +36,7 @@ export function DashboardNav() {
                 : "text-muted hover:text-foreground"
             }`}
           >
-            {link.label}
+            {t(link.labelKey)}
           </Link>
         );
       })}

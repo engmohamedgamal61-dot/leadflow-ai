@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent, type KeyboardEvent } from "react";
+import { useI18n } from "@/i18n/client";
 
 interface ChatComposerProps {
   onSend: (content: string) => void;
@@ -8,6 +9,7 @@ interface ChatComposerProps {
 }
 
 export function ChatComposer({ onSend, disabled = false }: ChatComposerProps) {
+  const { t } = useI18n();
   const [value, setValue] = useState("");
   const canSend = value.trim().length > 0 && !disabled;
 
@@ -44,15 +46,15 @@ export function ChatComposer({ onSend, disabled = false }: ChatComposerProps) {
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={handleKeyDown}
           rows={1}
-          placeholder="Type your message…"
-          aria-label="Message"
+          placeholder={t("chat.composerPlaceholder")}
+          aria-label={t("chat.composerLabel")}
           className="max-h-32 flex-1 resize-none bg-transparent py-1.5 text-sm leading-relaxed text-foreground placeholder:text-muted focus:outline-none"
         />
         <button
           type="submit"
           disabled={!canSend}
-          aria-label="Send message"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-30"
+          aria-label={t("chat.sendMessage")}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-30 rtl:-scale-x-100"
         >
           <svg
             width="16"
@@ -71,9 +73,7 @@ export function ChatComposer({ onSend, disabled = false }: ChatComposerProps) {
           </svg>
         </button>
       </div>
-      <p className="mt-2 px-1 text-[11px] text-muted">
-        LeadFlow AI is an automated assistant and can make mistakes.
-      </p>
+      <p className="mt-2 px-1 text-[11px] text-muted">{t("chat.disclaimer")}</p>
     </form>
   );
 }

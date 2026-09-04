@@ -15,14 +15,17 @@ import type { IndustryTemplate } from "../types.ts";
 export const realEstateTemplate: IndustryTemplate = {
   id: "template_real_estate",
   name: "Real Estate",
+  nameKey: "industries.real-estate.name",
   slug: "real-estate",
   description:
     "Qualify inbound property buyers and renters: intent, area, budget, property type, bedrooms, financing and timeline.",
+  descriptionKey: "industries.real-estate.description",
 
   leadFields: [
     {
       key: "name",
       label: "Name",
+      labelKey: "fields.name",
       type: "text",
       required: false,
       enabled: true,
@@ -34,14 +37,15 @@ export const realEstateTemplate: IndustryTemplate = {
     {
       key: "intent",
       label: "Intent",
+      labelKey: "fields.intent",
       type: "select",
       required: true,
       enabled: true,
       order: 20,
       description: "Whether the prospect wants to buy or rent.",
       options: [
-        { value: "buy", label: "Buy" },
-        { value: "rent", label: "Rent" },
+        { value: "buy", label: "Buy", labelKey: "fieldOptions.buy" },
+        { value: "rent", label: "Rent", labelKey: "fieldOptions.rent" },
       ],
       extractionHint:
         'Exactly "buy" or "rent" (lowercase), or null. Infer from clear signals: financing/mortgage or a large purchase-sized budget imply "buy"; "rent"/"إيجار"/"للإيجار" imply "rent". null if genuinely unclear.',
@@ -49,6 +53,7 @@ export const realEstateTemplate: IndustryTemplate = {
     {
       key: "location",
       label: "Location",
+      labelKey: "fields.location",
       type: "text",
       required: true,
       enabled: true,
@@ -60,6 +65,7 @@ export const realEstateTemplate: IndustryTemplate = {
     {
       key: "budget",
       label: "Budget",
+      labelKey: "fields.budget",
       type: "number",
       required: true,
       enabled: true,
@@ -71,17 +77,18 @@ export const realEstateTemplate: IndustryTemplate = {
     {
       key: "property_type",
       label: "Property type",
+      labelKey: "fields.propertyType",
       type: "select",
       required: false,
       enabled: true,
       order: 50,
       description: "Kind of property, e.g. apartment, villa, townhouse.",
       options: [
-        { value: "apartment", label: "Apartment" },
-        { value: "villa", label: "Villa" },
-        { value: "townhouse", label: "Townhouse" },
-        { value: "office", label: "Office" },
-        { value: "land", label: "Land" },
+        { value: "apartment", label: "Apartment", labelKey: "fieldOptions.apartment" },
+        { value: "villa", label: "Villa", labelKey: "fieldOptions.villa" },
+        { value: "townhouse", label: "Townhouse", labelKey: "fieldOptions.townhouse" },
+        { value: "office", label: "Office", labelKey: "fieldOptions.office" },
+        { value: "land", label: "Land", labelKey: "fieldOptions.land" },
       ],
       extractionHint:
         'Lowercase English: "apartment", "villa", "townhouse", "office", "land", etc.',
@@ -89,6 +96,7 @@ export const realEstateTemplate: IndustryTemplate = {
     {
       key: "bedrooms",
       label: "Bedrooms",
+      labelKey: "fields.bedrooms",
       type: "number",
       required: false,
       enabled: true,
@@ -100,6 +108,7 @@ export const realEstateTemplate: IndustryTemplate = {
     {
       key: "financing",
       label: "Financing",
+      labelKey: "fields.financing",
       type: "boolean",
       required: false,
       enabled: true,
@@ -111,6 +120,7 @@ export const realEstateTemplate: IndustryTemplate = {
     {
       key: "timeline",
       label: "Timeline",
+      labelKey: "fields.timeline",
       type: "text",
       required: true,
       enabled: true,

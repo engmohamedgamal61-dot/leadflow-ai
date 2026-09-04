@@ -1,6 +1,6 @@
 /**
- * Pure mapping of onboarding RPC errors → user-facing text. Kept import-free
- * so it can be unit-tested directly.
+ * Pure mapping of onboarding RPC errors → dictionary codes (never raw Postgres
+ * text). Kept import-free so it can be unit-tested directly.
  */
 export interface RpcError {
   code?: string;
@@ -13,16 +13,18 @@ export function isAlreadyMemberError(error: RpcError): boolean {
   );
 }
 
-export function mapOnboardingError(error: RpcError): string {
+/** Dotted key under the `onboarding.errors.*` dictionary namespace. */
+export function mapOnboardingErrorCode(error: RpcError): string {
   switch (error.code) {
     case "23505":
-      if (isAlreadyMemberError(error)) return "You already have an organization.";
-      return "That organization could not be created. Please try again.";
+      return isAlreadyMemberError(error)
+        ? "onboarding.errors.alreadyMember"
+        : "onboarding.errors.createFailed";
     case "28000":
-      return "Your session has expired. Please sign in again.";
+      return "onboarding.errors.sessionExpired";
     case "22023":
-      return "Please check the organization details and try again.";
+      return "onboarding.errors.invalidDetails";
     default:
-      return "Something went wrong creating your organization. Please try again.";
+      return "onboarding.errors.generic";
   }
 }

@@ -105,23 +105,23 @@ function toAnthropicMessages(turns: ChatTurn[]): Anthropic.MessageParam[] {
 function errorResponse(error: unknown) {
   if (error instanceof Anthropic.AuthenticationError) {
     return Response.json(
-      { error: "The assistant is misconfigured. Check ANTHROPIC_API_KEY." },
+      { errorCode: "chat.errors.misconfigured" },
       { status: 502 },
     );
   }
   if (error instanceof Anthropic.RateLimitError) {
     return Response.json(
-      { error: "The assistant is busy right now. Please try again shortly." },
+      { errorCode: "chat.errors.busy" },
       { status: 429 },
     );
   }
   if (error instanceof Anthropic.APIError) {
     return Response.json(
-      { error: "The assistant is temporarily unavailable." },
+      { errorCode: "chat.errors.unavailable" },
       { status: 502 },
     );
   }
-  return Response.json({ error: "Unexpected server error." }, { status: 500 });
+  return Response.json({ errorCode: "chat.errors.serverError" }, { status: 500 });
 }
 
 export async function POST(request: NextRequest) {
@@ -129,18 +129,18 @@ export async function POST(request: NextRequest) {
   try {
     json = await request.json();
   } catch {
-    return Response.json({ error: "Invalid JSON body." }, { status: 400 });
+    return Response.json({ errorCode: "chat.errors.invalidRequest" }, { status: 400 });
   }
 
   const parsed = parseBody(json);
   if (!parsed) {
-    return Response.json({ error: "Invalid request payload." }, { status: 400 });
+    return Response.json({ errorCode: "chat.errors.invalidRequest" }, { status: 400 });
   }
 
   const messages = toAnthropicMessages(parsed.turns);
   if (messages.length === 0) {
     return Response.json(
-      { error: "Conversation must include a user message." },
+      { errorCode: "chat.errors.invalidRequest" },
       { status: 400 },
     );
   }
@@ -150,7 +150,7 @@ export async function POST(request: NextRequest) {
     client = getAnthropicClient();
   } catch {
     return Response.json(
-      { error: "The assistant is not configured. Set ANTHROPIC_API_KEY." },
+      { errorCode: "chat.errors.notConfigured" },
       { status: 503 },
     );
   }

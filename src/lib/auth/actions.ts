@@ -11,31 +11,24 @@ import { onboardCurrentUser } from "@/lib/org/onboarding";
 import { APP_HOME_PATH, ONBOARDING_PATH } from "@/lib/auth/route-policy";
 
 export interface AuthFormState {
-  error?: string;
-  /** Non-blocking info (e.g. "check your email"). */
-  message?: string;
+  /** Dotted dictionary key for a blocking error. */
+  errorCode?: string;
+  /** Dotted dictionary key for non-blocking info (e.g. "check your email"). */
+  messageCode?: string;
   fieldErrors?: FieldErrors;
 }
 
-/** Friendly text for the Supabase Auth errors we expect from these forms. */
-function authErrorMessage(raw: string): string {
+/** Dictionary code for the Supabase Auth errors we expect from these forms. */
+function authErrorCode(raw: string): string {
   const m = raw.toLowerCase();
-  if (m.includes("invalid login credentials")) {
-    return "Incorrect email or password.";
-  }
+  if (m.includes("invalid login credentials")) return "auth.errors.invalidCredentials";
   if (m.includes("already registered") || m.includes("already been registered")) {
-    return "An account with that email already exists. Try signing in.";
+    return "auth.errors.emailExists";
   }
-  if (m.includes("email not confirmed")) {
-    return "Please confirm your email address before signing in.";
-  }
-  if (m.includes("rate limit") || m.includes("too many")) {
-    return "Too many attempts. Please wait a moment and try again.";
-  }
-  if (m.includes("password")) {
-    return "That password is not allowed. Choose a stronger one.";
-  }
-  return "Authentication failed. Please try again.";
+  if (m.includes("email not confirmed")) return "auth.errors.emailNotConfirmed";
+  if (m.includes("rate limit") || m.includes("too many")) return "auth.errors.rateLimited";
+  if (m.includes("password")) return "auth.errors.weakPassword";
+  return "auth.errors.generic";
 }
 
 export async function signUpAction(
@@ -44,7 +37,7 @@ export async function signUpAction(
 ): Promise<AuthFormState> {
   const parsed = validateSignup(formData.get("email"), formData.get("password"));
   if (!parsed.ok) {
-    return { error: "Please fix the highlighted fields.", fieldErrors: parsed.fieldErrors };
+    return { errorCode: "validation.fixHighlighted", fieldErrors: parsed.fieldErrors };
   }
 
   const supabase = await createClient();
@@ -54,16 +47,13 @@ export async function signUpAction(
   });
 
   if (error) {
-    return { error: authErrorMessage(error.message) };
+    return { errorCode: authErrorCode(error.message) };
   }
 
   // Confirmations off (local / no-SMTP) → a session is issued immediately.
   // Confirmations on (production) → no session until the user clicks the link.
   if (!data.session) {
-    return {
-      message:
-        "Check your email for a confirmation link, then sign in to continue.",
-    };
+    return { messageCode: "auth.signup.checkEmail" };
   }
 
   redirect(ONBOARDING_PATH);
@@ -75,7 +65,7 @@ export async function signInAction(
 ): Promise<AuthFormState> {
   const parsed = validateLogin(formData.get("email"), formData.get("password"));
   if (!parsed.ok) {
-    return { error: "Please fix the highlighted fields.", fieldErrors: parsed.fieldErrors };
+    return { errorCode: "validation.fixHighlighted", fieldErrors: parsed.fieldErrors };
   }
 
   const supabase = await createClient();
@@ -85,7 +75,7 @@ export async function signInAction(
   });
 
   if (error) {
-    return { error: authErrorMessage(error.message) };
+    return { errorCode: authErrorCode(error.message) };
   }
 
   // `/dashboard` sends the user on to `/onboarding` if they have no org yet.
@@ -99,8 +89,8 @@ export async function signOutAction(): Promise<void> {
 }
 
 export interface OnboardingFormState {
-  error?: string;
-  fieldErrors?: Record<string, string>;
+  errorCode?: string;
+  fieldErrors?: FieldErrors;
 }
 
 export async function onboardAction(
@@ -113,7 +103,7 @@ export async function onboardAction(
   );
 
   if (outcome.status === "error") {
-    return { error: outcome.message, fieldErrors: outcome.fieldErrors };
+    return { errorCode: outcome.errorCode, fieldErrors: outcome.fieldErrors };
   }
 
   // "created" and "already-member" both land on the app.

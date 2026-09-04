@@ -8,6 +8,7 @@ import {
   buildLeadsQuery,
   type LeadListParams,
 } from "@/lib/leads/list-params";
+import { useI18n } from "@/i18n/client";
 import { humanizeKey } from "@/lib/leads/lead-view";
 
 /**
@@ -17,6 +18,7 @@ import { humanizeKey } from "@/lib/leads/lead-view";
 export function LeadsFilters({ params }: { params: LeadListParams }) {
   const router = useRouter();
   const pathname = usePathname();
+  const { t, tOptional } = useI18n();
   const [pending, startTransition] = useTransition();
   const [search, setSearch] = useState(params.search);
   const firstRender = useRef(true);
@@ -46,12 +48,12 @@ export function LeadsFilters({ params }: { params: LeadListParams }) {
           type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search name, phone or email…"
-          aria-label="Search leads"
+          placeholder={t("leads.searchPlaceholder")}
+          aria-label={t("leads.searchLabel")}
           className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted/60 outline-none focus:border-accent/60"
         />
         {pending ? (
-          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-muted">
+          <span className="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-[11px] text-muted">
             …
           </span>
         ) : null}
@@ -59,7 +61,7 @@ export function LeadsFilters({ params }: { params: LeadListParams }) {
 
       <select
         value={params.temperature ?? ""}
-        aria-label="Filter by temperature"
+        aria-label={t("leads.filterTemperature")}
         onChange={(e) =>
           navigate(
             buildLeadsQuery(params, { temperature: e.target.value || null }),
@@ -67,26 +69,26 @@ export function LeadsFilters({ params }: { params: LeadListParams }) {
         }
         className="rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent/60"
       >
-        <option value="">All temperatures</option>
-        {LEAD_TEMPERATURES.map((t) => (
-          <option key={t} value={t}>
-            {t.toUpperCase()}
+        <option value="">{t("leads.allTemperatures")}</option>
+        {LEAD_TEMPERATURES.map((temp) => (
+          <option key={temp} value={temp}>
+            {tOptional(`temperatures.${temp}`) ?? temp.toUpperCase()}
           </option>
         ))}
       </select>
 
       <select
         value={params.status ?? ""}
-        aria-label="Filter by status"
+        aria-label={t("leads.filterStatus")}
         onChange={(e) =>
           navigate(buildLeadsQuery(params, { status: e.target.value || null }))
         }
         className="rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent/60"
       >
-        <option value="">All statuses</option>
-        {LEAD_STATUSES.map((s) => (
-          <option key={s} value={s}>
-            {humanizeKey(s)}
+        <option value="">{t("leads.allStatuses")}</option>
+        {LEAD_STATUSES.map((status) => (
+          <option key={status} value={status}>
+            {tOptional(`statuses.${status}`) ?? humanizeKey(status)}
           </option>
         ))}
       </select>
@@ -97,7 +99,7 @@ export function LeadsFilters({ params }: { params: LeadListParams }) {
           onClick={() => navigate("")}
           className="rounded-lg border border-border px-3 py-2 text-xs text-muted hover:text-foreground"
         >
-          Clear
+          {t("common.clear")}
         </button>
       ) : null}
     </div>

@@ -17,11 +17,12 @@ test("validateConnectionInput accepts a well-formed connection", () => {
   assert.equal(v.clean.phoneNumberId, "106540352242922");
 });
 
-test("validateConnectionInput rejects bad ids / short token", () => {
+test("validateConnectionInput rejects bad ids / short token (dictionary codes)", () => {
   const v = validateConnectionInput({ phoneNumberId: "abc", accessToken: "short", wabaId: "xx" });
   assert.equal(v.ok, false);
-  assert.ok(v.errors.some((e) => /Phone number ID/.test(e)));
-  assert.ok(v.errors.some((e) => /token/.test(e)));
+  assert.ok(v.errors.includes("whatsapp.validation.phoneNumberIdNumeric"));
+  assert.ok(v.errors.includes("whatsapp.validation.accessTokenInvalid"));
+  assert.ok(v.errors.every((e) => e.startsWith("whatsapp.validation.")));
 });
 
 test("validateFollowUpTemplate: blank clears, valid passes, bad rejected", () => {
@@ -30,8 +31,10 @@ test("validateFollowUpTemplate: blank clears, valid passes, bad rejected", () =>
     ok: true,
     clean: { name: "lead_follow_up", language: "ar" },
   });
-  assert.equal(validateFollowUpTemplate({ name: "Bad Name!" }).ok, false);
-  assert.equal(validateFollowUpTemplate({ name: "ok_name", language: "123" }).ok, false);
+  const badName = validateFollowUpTemplate({ name: "Bad Name!" });
+  assert.equal(badName.ok, false);
+  assert.equal(badName.error, "whatsapp.validation.templateNameFormat");
+  assert.equal(validateFollowUpTemplate({ name: "ok_name", language: "123" }).error, "whatsapp.validation.languageCodeInvalid");
 });
 
 test("graphApiVersion falls back for junk, keeps valid vNN.N", () => {

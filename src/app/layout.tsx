@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, IBM_Plex_Sans_Arabic } from "next/font/google";
 import "./globals.css";
+import { getDictionary, getI18n } from "@/i18n/server";
+import { I18nProvider } from "@/i18n/client";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -12,22 +14,37 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: "LeadFlow AI — AI-powered lead qualification and sales automation",
-  description: "AI-powered lead qualification and sales automation",
-};
+const arabicSans = IBM_Plex_Sans_Arabic({
+  variable: "--font-arabic",
+  subsets: ["arabic", "latin"],
+  weight: ["300", "400", "500", "600", "700"],
+  display: "swap",
+});
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export async function generateMetadata(): Promise<Metadata> {
+  const dict = await getDictionary();
+  return {
+    title: dict.meta.appTitle,
+    description: dict.meta.appDescription,
+  };
+}
+
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const { locale, dir, dict } = await getI18n();
+
   return (
     <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      lang={locale}
+      dir={dir}
+      className={`${geistSans.variable} ${geistMono.variable} ${arabicSans.variable} h-full antialiased`}
     >
       <body
         suppressHydrationWarning
         className="min-h-full flex flex-col bg-background text-foreground"
       >
-        {children}
+        <I18nProvider locale={locale} dict={dict}>
+          {children}
+        </I18nProvider>
       </body>
     </html>
   );
