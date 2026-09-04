@@ -1,77 +1,111 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { SignOutButton } from "@/components/auth/sign-out-button";
-import { requireUser } from "@/lib/auth/session";
-import { getUserMembership } from "@/lib/org/membership.server";
+import { requireOrganizationContext } from "@/lib/org/context";
 import { getIndustryTemplate } from "@/lib/config";
-import { ONBOARDING_PATH } from "@/lib/auth/route-policy";
+import { getLeadStats, getRecentLeads } from "@/lib/leads/queries";
+import { StatCard } from "@/components/dashboard/stat-card";
+import { StatusBadge, TemperatureBadge } from "@/components/dashboard/badges";
+import { EmptyState } from "@/components/dashboard/states";
+import { formatDate } from "@/lib/leads/format";
 
-export const metadata: Metadata = { title: "Dashboard — LeadFlow AI" };
+export const metadata: Metadata = { title: "Overview — LeadFlow AI" };
 
-/**
- * Minimal protected placeholder — enough to validate routing and membership
- * resolution. The real dashboard is a later phase.
- */
-export default async function DashboardPage() {
-  const user = await requireUser();
-
-  const membership = await getUserMembership(user.id);
-  if (!membership) redirect(ONBOARDING_PATH);
-
+export default async function DashboardOverviewPage() {
+  const { membership } = await requireOrganizationContext();
   const template = getIndustryTemplate(membership.industryTemplateId);
 
+  const [stats, recent] = await Promise.all([
+    getLeadStats(membership.organizationId),
+    getRecentLeads(membership.organizationId, 6),
+  ]);
+
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-4 py-10 sm:py-16">
-      <header className="flex items-center justify-between gap-4">
-        <Link
-          href="/dashboard"
-          className="flex items-center gap-2 text-sm font-semibold tracking-tight text-foreground"
-        >
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-xs font-bold text-accent-foreground">
-            LF
-          </span>
-          LeadFlow AI
-        </Link>
-        <SignOutButton />
-      </header>
+    <div className="space-y-8">
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wide text-muted">
+          Overview
+        </p>
+        <h1 className="mt-1 text-2xl font-semibold text-foreground">
+          {membership.organizationName}
+        </h1>
+        <p className="mt-1 text-sm text-muted">
+          {template?.name ?? membership.industryTemplateId} workspace
+        </p>
+      </div>
 
-      <main className="mt-10 space-y-6">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">
-            Workspace
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold text-foreground">
-            {membership.organizationName}
-          </h1>
+      <section aria-label="Lead statistics">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <StatCard label="Total leads" value={stats.total} />
+          <StatCard label="Hot" value={stats.hot} accent="hot" />
+          <StatCard label="Warm" value={stats.warm} accent="warm" />
+          <StatCard label="Cold" value={stats.cold} accent="cold" />
+          <StatCard label="Qualified" value={stats.qualified} />
+          <StatCard
+            label="Conversion"
+            value={
+              stats.total > 0
+                ? `${Math.round((stats.qualified / stats.total) * 100)}%`
+                : "—"
+            }
+          />
+        </div>
+      </section>
+
+      <section aria-label="Recent leads" className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-foreground">Recent leads</h2>
+          <Link
+            href="/dashboard/leads"
+            className="text-xs text-muted hover:text-foreground"
+          >
+            View all →
+          </Link>
         </div>
 
-        <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="rounded-xl border border-border bg-surface p-4">
-            <dt className="text-xs text-muted">Your role</dt>
-            <dd className="mt-1 text-sm font-medium capitalize text-foreground">
-              {membership.role}
-            </dd>
-          </div>
-          <div className="rounded-xl border border-border bg-surface p-4">
-            <dt className="text-xs text-muted">Industry template</dt>
-            <dd className="mt-1 text-sm font-medium text-foreground">
-              {template?.name ?? membership.industryTemplateId}
-            </dd>
-          </div>
-        </dl>
-
-        <div className="rounded-xl border border-border bg-surface p-4">
-          <p className="text-sm text-muted">
-            Your workspace is ready. The lead dashboard is coming soon — in the
-            meantime, try your{" "}
-            <Link href="/" className="text-foreground hover:text-accent">
-              qualification chat
-            </Link>
-            .
-          </p>
-        </div>
-      </main>
+        {recent.length === 0 ? (
+          <EmptyState
+            title="No leads yet"
+            hint="Leads created through your qualification chat will appear here."
+            action={
+              <Link
+                href="/"
+                className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground hover:opacity-90"
+              >
+                Open the chat
+              </Link>
+            }
+          />
+        ) : (
+          <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
+            {recent.map((lead) => (
+              <li key={lead.id}>
+                <Link
+                  href={`/dashboard/leads/${lead.id}`}
+                  className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-background/40"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {lead.name ?? "Unnamed lead"}
+                    </p>
+                    <p className="truncate text-xs text-muted">
+                      {lead.intent ?? "—"} ·{" "}
+                      {lead.phone ?? lead.email ?? "no contact"} ·{" "}
+                      {formatDate(lead.createdAt)}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="text-xs tabular-nums text-muted">
+                      {lead.score}
+                    </span>
+                    <TemperatureBadge value={lead.temperature} />
+                    <StatusBadge value={lead.status} />
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
