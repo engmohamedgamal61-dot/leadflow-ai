@@ -321,7 +321,19 @@ export interface Database {
       };
     };
     Views: Record<never, never>;
-    Functions: Record<never, never>;
+    Functions: {
+      /**
+       * Onboarding bootstrap: atomically create an organization, the calling
+       * user's `owner` membership, and an empty `organization_configs` row.
+       * The owner is always `auth.uid()`; refuses if the caller already
+       * belongs to an organization. See
+       * `20260904140000_auth_onboarding.sql`.
+       */
+      create_organization_with_owner: {
+        Args: { p_name: string; p_industry_template_id: string };
+        Returns: Database["public"]["Tables"]["organizations"]["Row"];
+      };
+    };
     Enums: {
       organization_status: OrganizationStatus;
       organization_member_role: OrganizationMemberRole;

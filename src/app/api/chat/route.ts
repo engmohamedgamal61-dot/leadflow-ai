@@ -9,7 +9,7 @@ import { buildSystemPrompt } from "@/lib/chat/system-prompt";
 import { extractLead } from "@/lib/chat/lead-extraction";
 import { getEffectiveConfig, hasIndustryTemplate } from "@/lib/config";
 import { calculateLeadScore } from "@/lib/lead-scoring";
-import { resolveDevOrganization } from "@/lib/org/resolve";
+import { resolveChatContext } from "@/lib/org/chat-organization";
 import { persistCompletedTurn } from "@/lib/persistence/chat";
 import { EMPTY_LEAD, LEAD_DELIMITER, type ChatTurn } from "@/types/chat";
 
@@ -156,23 +156,27 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Resolve the organization this chat belongs to. Dev/demo only for now — a
-  // `?industry=` hint selects a pre-seeded demo org; production will resolve it
-  // from the authenticated user's membership. `null` when Supabase isn't
-  // configured, in which case the chat runs config-only with no persistence.
-  const organization = await resolveDevOrganization(parsed.industry);
+  // Resolve the organization this chat belongs to. Authenticated requests use
+  // the organization from the user's membership (the `industry` hint is
+  // ignored — it cannot override org or industry). Anonymous requests keep the
+  // dev/demo behavior: an `industry` hint selects a pre-seeded demo org.
+  // `null` organization → the chat runs config-only with no persistence.
+  const { organization, industryHintAllowed } = await resolveChatContext(
+    parsed.industry,
+  );
+  const hintSlug = industryHintAllowed ? parsed.industry : null;
 
   // The AI engine runs on the effective configuration. The organization's
   // `industry_template_id` is the source of truth when we have one; otherwise
-  // fall back to the client's industry hint (dev without a database).
+  // fall back to the (anonymous-only) industry hint.
   const config = getEffectiveConfig(
     organization
       ? {
           organizationId: organization.organizationId,
           industryTemplateId: organization.industryTemplateId,
         }
-      : parsed.industry
-        ? { organizationId: "request", industryTemplateId: parsed.industry }
+      : hintSlug
+        ? { organizationId: "request", industryTemplateId: hintSlug }
         : null,
   );
 
