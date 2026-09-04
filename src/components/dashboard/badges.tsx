@@ -49,3 +49,34 @@ export function StatusBadge({ value }: { value: string }) {
     </span>
   );
 }
+
+const RISK_STYLE: Record<string, string> = {
+  needs_attention:
+    "bg-amber-500/15 text-amber-300 ring-1 ring-inset ring-amber-500/30",
+  at_risk: "bg-rose-500/15 text-rose-300 ring-1 ring-inset ring-rose-500/30",
+  none: "bg-emerald-500/10 text-emerald-300 ring-1 ring-inset ring-emerald-500/20",
+};
+
+/** Renders a `RiskLevel` from `lib/leads/insights.ts` ("needs_attention" | "at_risk" | "none"). */
+export function RiskBadge({ value }: { value: string }) {
+  const { t } = useI18n();
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest ${
+        RISK_STYLE[value] ?? "bg-border/40 text-muted ring-1 ring-inset ring-border"
+      }`}
+    >
+      {t(`insights.riskLevels.${value}`)}
+    </span>
+  );
+}
+
+/** Renders a `NextBestAction` from `lib/leads/insights.ts` (e.g. "call_now", "follow_up"). */
+export function ActionBadge({ value }: { value: string }) {
+  const { t } = useI18n();
+  return (
+    <span className="inline-flex items-center rounded-md bg-border/40 px-2 py-0.5 text-[11px] font-medium text-foreground">
+      {t(`insights.actions.${value}`)}
+    </span>
+  );
+}

@@ -12,6 +12,7 @@ import {
   LEAD_MANAGE_ROLES,
   LEAD_WRITE_ROLES,
 } from "../lib/org/roles.ts";
+import { NEXT_BEST_ACTIONS, RISK_LEVELS } from "../lib/leads/insights.ts";
 
 const ALL_ROLES = new Set([
   ...LEAD_WRITE_ROLES,
@@ -61,4 +62,12 @@ test("every calendar connection status is translated in both locales", () => {
 
 test("every appointment status is translated in both locales", () => {
   for (const s of APPOINTMENT_STATUSES) bothHave(`appointmentStatuses.${s}`);
+});
+
+test("every next-best-action is translated in both locales", () => {
+  for (const a of NEXT_BEST_ACTIONS) bothHave(`insights.actions.${a}`);
+});
+
+test("every risk level is translated in both locales", () => {
+  for (const r of RISK_LEVELS) bothHave(`insights.riskLevels.${r}`);
 });

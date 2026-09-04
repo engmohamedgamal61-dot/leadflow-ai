@@ -5,11 +5,18 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LEAD_STATUSES,
   LEAD_TEMPERATURES,
+  LEAD_FOCUS_VALUES,
   buildLeadsQuery,
   type LeadListParams,
 } from "@/lib/leads/list-params";
 import { useI18n } from "@/i18n/client";
 import { humanizeKey } from "@/lib/leads/lead-view";
+
+const FOCUS_LABEL_KEY: Record<(typeof LEAD_FOCUS_VALUES)[number], string> = {
+  needs_attention: "insights.filter.needsAttention",
+  at_risk: "insights.filter.atRisk",
+  no_action: "insights.filter.noAction",
+};
 
 /**
  * Remounted by the parent (via `key`) on every URL change, so `useState`
@@ -89,6 +96,22 @@ export function LeadsFilters({ params }: { params: LeadListParams }) {
         {LEAD_STATUSES.map((status) => (
           <option key={status} value={status}>
             {tOptional(`statuses.${status}`) ?? humanizeKey(status)}
+          </option>
+        ))}
+      </select>
+
+      <select
+        value={params.focus ?? ""}
+        aria-label={t("insights.filter.label")}
+        onChange={(e) =>
+          navigate(buildLeadsQuery(params, { focus: e.target.value || null }))
+        }
+        className="rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent/60"
+      >
+        <option value="">{t("insights.filter.all")}</option>
+        {LEAD_FOCUS_VALUES.map((focus) => (
+          <option key={focus} value={focus}>
+            {t(FOCUS_LABEL_KEY[focus])}
           </option>
         ))}
       </select>

@@ -7,7 +7,12 @@ import {
   buildLeadsQuery,
   totalPages,
 } from "@/lib/leads/list-params";
-import { StatusBadge, TemperatureBadge } from "@/components/dashboard/badges";
+import {
+  StatusBadge,
+  TemperatureBadge,
+  RiskBadge,
+  ActionBadge,
+} from "@/components/dashboard/badges";
 import { EmptyState } from "@/components/dashboard/states";
 import { formatDate, formatNumber } from "@/lib/leads/format";
 import { getI18n } from "@/i18n/server";
@@ -26,7 +31,7 @@ export default async function LeadsPage({
   const { membership } = await requireOrganizationContext();
   const { t, locale } = await getI18n();
   const params = parseLeadListParams(await searchParams);
-  const { rows, total, page, pageSize } = await listLeads(
+  const { rows, total, page, pageSize, insights } = await listLeads(
     membership.organizationId,
     params,
   );
@@ -51,7 +56,7 @@ export default async function LeadsPage({
       </div>
 
       <LeadsFilters
-        key={`${params.search}|${params.temperature ?? ""}|${params.status ?? ""}`}
+        key={`${params.search}|${params.temperature ?? ""}|${params.status ?? ""}|${params.focus ?? ""}`}
         params={params}
       />
 
@@ -88,6 +93,7 @@ export default async function LeadsPage({
                   <th className="px-4 py-2.5 font-medium">{t("leads.columns.score")}</th>
                   <th className="px-4 py-2.5 font-medium">{t("leads.columns.temp")}</th>
                   <th className="px-4 py-2.5 font-medium">{t("leads.columns.status")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("insights.sectionTitle")}</th>
                   <th className="px-4 py-2.5 font-medium">{t("leads.columns.source")}</th>
                   <th className="px-4 py-2.5 font-medium">{t("leads.columns.created")}</th>
                 </tr>
@@ -118,6 +124,16 @@ export default async function LeadsPage({
                     </td>
                     <td className="px-4 py-2.5">
                       <StatusBadge value={lead.status} />
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {insights.get(lead.id) ? (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <RiskBadge value={insights.get(lead.id)!.riskLevel} />
+                          <ActionBadge value={insights.get(lead.id)!.action} />
+                        </div>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-muted">
                       {lead.source ?? "—"}
@@ -153,6 +169,12 @@ export default async function LeadsPage({
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <TemperatureBadge value={lead.temperature} />
                     <StatusBadge value={lead.status} />
+                    {insights.get(lead.id) ? (
+                      <>
+                        <RiskBadge value={insights.get(lead.id)!.riskLevel} />
+                        <ActionBadge value={insights.get(lead.id)!.action} />
+                      </>
+                    ) : null}
                     <span className="text-[11px] text-muted">
                       {formatDate(lead.createdAt, locale)}
                     </span>

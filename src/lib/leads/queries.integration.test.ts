@@ -24,6 +24,9 @@ let admin: AnyClient;
 const users: Record<string, { id: string; client: AnyClient }> = {};
 let orgA = "";
 let orgB = "";
+let archivedLeadId = "";
+let aHotLeadId = "";
+let bLeadId = "";
 
 async function makeUser(tag: string) {
   const email = `leads-it-${tag}-${stamp}@example.test`;
@@ -113,10 +116,21 @@ before(async () => {
         status: "new",
         source: "chat",
       },
+      {
+        organization_id: orgA,
+        name: "Archived Amy",
+        intent: null,
+        custom_data: {},
+        score: 5,
+        temperature: "cold",
+        status: "archived",
+        source: "chat",
+      },
     ])
     .select("id");
   if (leads.error) throw leads.error;
   const hotLeadId = leads.data[0].id;
+  archivedLeadId = leads.data[3].id;
 
   const conv = await admin
     .from("conversations")
@@ -135,9 +149,30 @@ before(async () => {
       event_type: "lead_created",
       metadata: { score: 90, temperature: "hot" },
     },
+    {
+      organization_id: orgA,
+      lead_id: hotLeadId,
+      event_type: "human_handoff_requested",
+      metadata: { reason: "wants to negotiate price" },
+    },
   ]);
+  aHotLeadId = hotLeadId;
+  const followUp = await admin
+    .from("lead_follow_ups")
+    .insert({
+      organization_id: orgA,
+      lead_id: hotLeadId,
+      scheduled_at: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+      status: "pending",
+      source: "manual",
+      channel: "chat",
+    })
+    .select("id")
+    .single();
+  if (followUp.error) throw followUp.error;
 
-  // B gets one lead.
+  // B gets one lead, plus its own follow-up / handoff event on it — used to
+  // prove these joined-by-lead_id tables never leak across organizations.
   const bLead = await admin
     .from("leads")
     .insert({
@@ -147,8 +182,24 @@ before(async () => {
       temperature: "warm",
       status: "new",
     })
-    .select("id");
+    .select("id")
+    .single();
   if (bLead.error) throw bLead.error;
+  bLeadId = bLead.data.id;
+  await admin.from("lead_events").insert({
+    organization_id: orgB,
+    lead_id: bLeadId,
+    event_type: "human_handoff_requested",
+    metadata: { reason: "billing question" },
+  });
+  await admin.from("lead_follow_ups").insert({
+    organization_id: orgB,
+    lead_id: bLeadId,
+    scheduled_at: new Date(Date.now() - 86_400_000).toISOString(),
+    status: "pending",
+    source: "manual",
+    channel: "chat",
+  });
 });
 
 after(async () => {
@@ -167,7 +218,7 @@ test("lead list returns only the caller's organization", { skip }, async () => {
     .select("id, name, organization_id")
     .order("created_at", { ascending: false });
   assert.equal(a.error, null);
-  assert.equal(a.data.length, 3);
+  assert.equal(a.data.length, 4);
   assert.ok(a.data.every((r: { organization_id: string }) => r.organization_id === orgA));
 });
 
@@ -196,10 +247,10 @@ test("stats counts are organization-scoped", { skip }, async () => {
     c((q) => q.eq("temperature", "cold")),
     c((q) => q.eq("status", "qualified")),
   ]);
-  assert.equal(total.count, 3);
+  assert.equal(total.count, 4);
   assert.equal(hot.count, 1);
   assert.equal(warm.count, 1);
-  assert.equal(cold.count, 1);
+  assert.equal(cold.count, 2); // Cold Carl + Archived Amy
   assert.equal(qualified.count, 1);
 });
 
@@ -329,4 +380,84 @@ test("a writer in org B cannot update a lead in org A", { skip }, async () => {
   assert.ok(upd.error || (upd.data ?? []).length === 0);
   const after = await admin.from("leads").select("status").eq("id", aLead.data.id).single();
   assert.notEqual(after.data.status, "archived");
+});
+
+// ── Next Best Action / lost-lead insight candidate scan (getLeadInsightCandidates) ──
+// Exercises the exact query shapes that function issues, via the same
+// user-JWT/RLS-enforced clients as the rest of this file.
+
+test("insight candidate scan excludes closed-status leads (won/lost/archived)", { skip }, async () => {
+  const all = await admin.from("leads").select("id, status").eq("organization_id", orgA);
+  const closedIds = new Set(
+    all.data
+      .filter((r: { status: string }) => ["won", "lost", "archived"].includes(r.status))
+      .map((r: { id: string }) => r.id),
+  );
+  assert.ok(closedIds.has(archivedLeadId), "Archived Amy must be closed-status");
+
+  const candidates = await users.a.client
+    .from("leads")
+    .select("id, status")
+    .eq("organization_id", orgA)
+    .not("status", "in", "(won,lost,archived)");
+  assert.equal(candidates.error, null);
+  assert.equal(candidates.data.length, all.data.length - closedIds.size);
+  assert.ok(!candidates.data.some((r: { id: string }) => closedIds.has(r.id)));
+  assert.ok(
+    candidates.data.every(
+      (r: { status: string }) => !["won", "lost", "archived"].includes(r.status),
+    ),
+  );
+});
+
+test("insight signal tables (follow-ups, appointments, handoff events) joined by lead_id never leak across organizations", { skip }, async () => {
+  // Org A's client, scoped to org A + its own lead ids, sees only its own rows.
+  const aFollowUps = await users.a.client
+    .from("lead_follow_ups")
+    .select("lead_id, status")
+    .eq("organization_id", orgA)
+    .eq("status", "pending")
+    .in("lead_id", [aHotLeadId, bLeadId]);
+  assert.equal(aFollowUps.error, null);
+  assert.ok(aFollowUps.data.every((r: { lead_id: string }) => r.lead_id === aHotLeadId));
+  assert.ok(!aFollowUps.data.some((r: { lead_id: string }) => r.lead_id === bLeadId));
+
+  const aHandoffs = await users.a.client
+    .from("lead_events")
+    .select("lead_id")
+    .eq("organization_id", orgA)
+    .eq("event_type", "human_handoff_requested")
+    .in("lead_id", [aHotLeadId, bLeadId]);
+  assert.equal(aHandoffs.error, null);
+  assert.ok(aHandoffs.data.every((r: { lead_id: string }) => r.lead_id === aHotLeadId));
+
+  // Org B's client cannot see org A's follow-up/handoff rows even when it
+  // knows org A's lead id and asks by lead_id directly (RLS, not app filtering).
+  const bProbeFollowUps = await users.b.client
+    .from("lead_follow_ups")
+    .select("id")
+    .in("lead_id", [aHotLeadId]);
+  assert.deepEqual(bProbeFollowUps.data, []);
+
+  const bProbeHandoffs = await users.b.client
+    .from("lead_events")
+    .select("id")
+    .eq("event_type", "human_handoff_requested")
+    .in("lead_id", [aHotLeadId]);
+  assert.deepEqual(bProbeHandoffs.data, []);
+
+  // And org B's own scoped query sees exactly its own follow-up / handoff event.
+  const bOwnFollowUps = await users.b.client
+    .from("lead_follow_ups")
+    .select("lead_id")
+    .eq("organization_id", orgB)
+    .eq("status", "pending");
+  assert.deepEqual(bOwnFollowUps.data.map((r: { lead_id: string }) => r.lead_id), [bLeadId]);
+
+  const bOwnHandoffs = await users.b.client
+    .from("lead_events")
+    .select("lead_id")
+    .eq("organization_id", orgB)
+    .eq("event_type", "human_handoff_requested");
+  assert.deepEqual(bOwnHandoffs.data.map((r: { lead_id: string }) => r.lead_id), [bLeadId]);
 });

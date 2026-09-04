@@ -13,7 +13,13 @@ import {
 } from "@/lib/leads/lead-view";
 import { formatDate, formatDateTime } from "@/lib/leads/format";
 import { isQualificationComplete } from "@/lib/agent/qualification";
-import { StatusBadge, TemperatureBadge } from "@/components/dashboard/badges";
+import { buildInsightSignals, computeLeadInsight } from "@/lib/leads/insights";
+import {
+  StatusBadge,
+  TemperatureBadge,
+  RiskBadge,
+  ActionBadge,
+} from "@/components/dashboard/badges";
 import { getI18n } from "@/i18n/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAvailability } from "@/lib/calendar/service";
@@ -44,11 +50,25 @@ export default async function LeadDetailPage({
   const detail = await getLeadDetail(membership.organizationId, id);
   if (!detail) notFound();
 
-  const { record, conversations, messages, events, followUps, appointments, needsAttention } =
-    detail;
+  const { record, conversations, messages, events, followUps, appointments } = detail;
   const config = await loadEffectiveConfig(
     membership.organizationId,
     membership.industryTemplateId,
+  );
+
+  const insight = computeLeadInsight(
+    buildInsightSignals({
+      lead: {
+        status: record.status,
+        temperature: record.temperature,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+      },
+      messages,
+      events,
+      followUps,
+      appointments,
+    }),
   );
 
   // Reading real availability needs the decrypted calendar tokens, which are
@@ -99,10 +119,19 @@ export default async function LeadDetailPage({
         </div>
       </div>
 
-      {needsAttention ? (
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          <span className="font-medium">{t("leadDetail.needsAttentionBadge")}</span>{" "}
-          {t("leadDetail.needsAttentionText")}
+      {insight.riskLevel !== "none" ? (
+        <div
+          className={`rounded-xl border px-4 py-3 text-sm ${
+            insight.riskLevel === "needs_attention"
+              ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
+              : "border-rose-500/40 bg-rose-500/10 text-rose-200"
+          }`}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <RiskBadge value={insight.riskLevel} />
+            <ActionBadge value={insight.action} />
+          </div>
+          <p className="mt-1.5">{t(insight.reasonKey, insight.reasonParams)}</p>
         </div>
       ) : null}
 
@@ -310,6 +339,19 @@ export default async function LeadDetailPage({
 
         {/* Sidebar */}
         <aside className="space-y-4">
+          <section className="rounded-xl border border-border bg-surface p-4">
+            <h2 className="text-sm font-semibold text-foreground">
+              {t("leadDetail.sections.nextBestAction")}
+            </h2>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <RiskBadge value={insight.riskLevel} />
+              <ActionBadge value={insight.action} />
+            </div>
+            <p className="mt-2 text-xs text-muted">
+              {t(insight.reasonKey, insight.reasonParams)}
+            </p>
+          </section>
+
           <section className="rounded-xl border border-border bg-surface p-4">
             <h2 className="text-sm font-semibold text-foreground">
               {t("leadDetail.sections.status")}

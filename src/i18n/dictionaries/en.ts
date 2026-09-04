@@ -154,6 +154,8 @@ export const en = {
     ariaUpcomingAppointments: "Upcoming appointments",
     noAppointmentsTitle: "No upcoming appointments",
     noAppointmentsHint: "Booked appointments will appear here.",
+    leadHealthTitle: "Lead health",
+    ariaLeadHealth: "Lead health",
   },
 
   leads: {
@@ -186,11 +188,9 @@ export const en = {
     allLeads: "All leads",
     scoreLabel: "Score",
     scoreWithValue: "Score {score}",
-    needsAttentionBadge: "Needs attention",
-    needsAttentionText:
-      "— a human handoff was requested for this lead. See the timeline for the reason.",
     sections: {
       leadData: "Lead data",
+      nextBestAction: "Next best action",
       followUps: "Follow-ups",
       appointments: "Appointments",
       conversation: "Conversation",
@@ -515,6 +515,45 @@ export const en = {
       templateNameFormat:
         "Template name must be lowercase letters, digits and underscores.",
       languageCodeInvalid: "Language code looks invalid (e.g. en_US, ar).",
+    },
+  },
+
+  insights: {
+    sectionTitle: "Next Best Action",
+    riskLevels: {
+      needs_attention: "Needs Attention",
+      at_risk: "At Risk",
+      none: "No Action Needed",
+    },
+    actions: {
+      call_now: "Call now",
+      follow_up: "Follow up",
+      reply_now: "Reply now",
+      book_appointment: "Book appointment",
+      human_handoff: "Human handoff",
+      recover_lead: "Recover lead",
+      none: "No action needed",
+    },
+    reasons: {
+      closed: "This lead's lifecycle is complete.",
+      unansweredInbound: "The lead messaged {minutes} minutes ago with no reply yet.",
+      handoffPending: "A human handoff was requested and no one has replied since.",
+      followUpOverdue: "A follow-up is {days} day(s) overdue.",
+      appointmentMissed: "The scheduled appointment time has already passed.",
+      appointmentUpcoming: "An appointment is already scheduled.",
+      followUpScheduled: "A follow-up is already scheduled.",
+      appointmentCancelled:
+        "The appointment was cancelled {days} day(s) ago and hasn't been rebooked.",
+      hotLeadStale: "This hot lead has had no activity for {hours} hours.",
+      qualifiedInactive: "Qualified but inactive for {days} day(s) with nothing scheduled.",
+      onTrack: "On track — no action needed.",
+    },
+    filter: {
+      label: "Focus",
+      all: "All leads",
+      needsAttention: "Needs Attention",
+      atRisk: "At Risk",
+      noAction: "No Action Needed",
     },
   },
 

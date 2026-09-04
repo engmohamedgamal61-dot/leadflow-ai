@@ -7,6 +7,7 @@ import {
   totalPages,
   LEADS_PAGE_SIZE,
   LEADS_MAX_PAGE,
+  LEAD_FOCUS_VALUES,
 } from "./list-params.ts";
 
 test("sanitizeSearch strips characters that could break an or(...) filter", () => {
@@ -58,6 +59,24 @@ test("buildLeadsQuery resets the page when a filter changes, drops empties", () 
   assert.equal(buildLeadsQuery(base, { page: 2 }), "?q=sara&temp=hot&page=2");
   assert.equal(buildLeadsQuery(base, { search: "" }), "?temp=hot");
   assert.equal(buildLeadsQuery(parseLeadListParams({}), {}), "");
+});
+
+test("parseLeadListParams accepts a known focus value, drops an unknown one", () => {
+  for (const focus of LEAD_FOCUS_VALUES) {
+    const p = parseLeadListParams({ focus });
+    assert.equal(p.focus, focus);
+    assert.equal(p.isFiltered, true);
+  }
+  const p = parseLeadListParams({ focus: "definitely-not-a-focus" });
+  assert.equal(p.focus, null);
+  assert.equal(p.isFiltered, false);
+});
+
+test("buildLeadsQuery carries focus through and resets the page when it changes", () => {
+  const base = parseLeadListParams({ focus: "at_risk", page: "3" });
+  assert.equal(buildLeadsQuery(base, {}), "?focus=at_risk&page=3");
+  assert.equal(buildLeadsQuery(base, { focus: "needs_attention" }), "?focus=needs_attention");
+  assert.equal(buildLeadsQuery(base, { focus: null }), "");
 });
 
 test("totalPages never returns less than 1", () => {

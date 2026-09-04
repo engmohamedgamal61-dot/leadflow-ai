@@ -1,11 +1,24 @@
 import { createClient } from "@/lib/supabase/server";
-import { leadRowToRecord, type LeadRecord } from "@/lib/supabase/mappers";
-import type { LeadListParams } from "@/lib/leads/list-params";
+import { leadRowToRecord, dbTemperatureToApp, type LeadRecord } from "@/lib/supabase/mappers";
+import type { LeadFocusValue, LeadListParams } from "@/lib/leads/list-params";
+import {
+  computeLeadInsight,
+  type LeadInsight,
+  type LeadInsightSignals,
+  type RiskLevel,
+} from "@/lib/leads/insights";
 import type {
   FollowUpStatus,
   LeadStatus,
   LeadTemperatureRow,
 } from "@/lib/supabase/types";
+
+const CLOSED_LEAD_STATUSES = ["won", "lost", "archived"] as const;
+const ACTIVE_APPOINTMENT_STATUSES = ["scheduled", "rescheduled"] as const;
+/** Bounds for the insight candidate scan — an MVP-scale aggregate, not a full table scan. */
+const INSIGHT_CANDIDATE_LEADS_LIMIT = 300;
+const INSIGHT_RECENT_MESSAGES_LIMIT = 1500;
+const INSIGHT_HANDOFF_EVENTS_LIMIT = 500;
 
 /**
  * All reads go through the request-scoped, RLS-enforced Supabase client. Every
@@ -33,6 +46,7 @@ export interface LeadListRow {
   status: LeadStatus;
   source: string | null;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface LeadListResult {
@@ -40,10 +54,12 @@ export interface LeadListResult {
   total: number;
   page: number;
   pageSize: number;
+  /** Next Best Action insight per row (by lead id), for the list's badges. */
+  insights: Map<string, LeadInsight>;
 }
 
 const LIST_COLUMNS =
-  "id, name, phone, email, intent, score, temperature, status, source, created_at";
+  "id, name, phone, email, intent, score, temperature, status, source, created_at, updated_at";
 
 function toListRow(row: {
   id: string;
@@ -56,6 +72,7 @@ function toListRow(row: {
   status: LeadStatus;
   source: string | null;
   created_at: string;
+  updated_at: string;
 }): LeadListRow {
   return {
     id: row.id,
@@ -68,6 +85,7 @@ function toListRow(row: {
     status: row.status,
     source: row.source,
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -96,10 +114,58 @@ export async function getLeadStats(organizationId: string): Promise<LeadStats> {
   };
 }
 
+const FOCUS_TO_RISK_LEVEL: Record<LeadFocusValue, RiskLevel> = {
+  needs_attention: "needs_attention",
+  at_risk: "at_risk",
+  no_action: "none",
+};
+
+/**
+ * The "focus" (Next Best Action risk bucket) filter can't be expressed as a
+ * `leads` column — it's computed. When present, filter/paginate the same
+ * bounded candidate scan `getLeadInsightCandidates` already does for the
+ * dashboard summary, in memory, instead of the normal SQL-filtered path.
+ */
+async function listLeadsByFocus(
+  organizationId: string,
+  params: LeadListParams,
+): Promise<LeadListResult> {
+  const candidates = await getLeadInsightCandidates(organizationId);
+  const wantedRisk = FOCUS_TO_RISK_LEVEL[params.focus as LeadFocusValue];
+
+  let filtered = candidates.filter((c) => c.insight.riskLevel === wantedRisk);
+
+  if (params.temperature) {
+    filtered = filtered.filter((c) => c.lead.temperature === params.temperature);
+  }
+  if (params.status) filtered = filtered.filter((c) => c.lead.status === params.status);
+  if (params.searchPattern) {
+    const needle = params.searchPattern.toLowerCase();
+    filtered = filtered.filter(
+      (c) =>
+        (c.lead.name ?? "").toLowerCase().includes(needle) ||
+        (c.lead.phone ?? "").toLowerCase().includes(needle) ||
+        (c.lead.email ?? "").toLowerCase().includes(needle),
+    );
+  }
+
+  const page = filtered.slice(params.rangeFrom, params.rangeFrom + params.pageSize);
+
+  return {
+    rows: page.map((c) => c.lead),
+    total: filtered.length,
+    page: params.page,
+    pageSize: params.pageSize,
+    insights: new Map(page.map((c) => [c.lead.id, c.insight])),
+  };
+}
+
 export async function listLeads(
   organizationId: string,
   params: LeadListParams,
 ): Promise<LeadListResult> {
+  if (params.focus) return listLeadsByFocus(organizationId, params);
+
   const supabase = await createClient();
 
   let query = supabase
@@ -122,11 +188,14 @@ export async function listLeads(
   const { data, error, count } = await query;
   if (error) throw error;
 
+  const rows = (data ?? []).map((r) => toListRow(r as Parameters<typeof toListRow>[0]));
+
   return {
-    rows: (data ?? []).map((r) => toListRow(r as Parameters<typeof toListRow>[0])),
+    rows,
     total: count ?? 0,
     page: params.page,
     pageSize: params.pageSize,
+    insights: await attachInsights(organizationId, rows),
   };
 }
 
@@ -384,6 +453,234 @@ export async function getLeadDetail(
       (e) => e.eventType === "human_handoff_requested",
     ),
   };
+}
+
+// ── Next Best Action / lost-lead candidates (dashboard summary + leads focus filter) ──
+
+export interface InsightedLead {
+  lead: LeadListRow;
+  insight: LeadInsight;
+}
+
+/**
+ * Shared by both the bounded candidate scan (dashboard summary + "focus"
+ * filter) and single-page decoration (badges on an already-fetched, already
+ * SQL-filtered/paginated page of leads) — one code path builds every
+ * `LeadInsight`, just fed a different (and differently-sized) `leads` array.
+ */
+async function computeInsightsForLeads(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  organizationId: string,
+  leads: LeadListRow[],
+  now: Date,
+): Promise<InsightedLead[]> {
+  if (leads.length === 0) return [];
+  const leadIds = leads.map((l) => l.id);
+
+  const [convResult, followUpResult, appointmentResult, handoffResult] = await Promise.all([
+    supabase
+      .from("conversations")
+      .select("id, lead_id")
+      .eq("organization_id", organizationId)
+      .in("lead_id", leadIds),
+    supabase
+      .from("lead_follow_ups")
+      .select("lead_id, scheduled_at, status")
+      .eq("organization_id", organizationId)
+      .eq("status", "pending")
+      .in("lead_id", leadIds),
+    supabase
+      .from("appointments")
+      .select("lead_id, starts_at, status, updated_at")
+      .eq("organization_id", organizationId)
+      .in("lead_id", leadIds),
+    supabase
+      .from("lead_events")
+      .select("lead_id, created_at")
+      .eq("organization_id", organizationId)
+      .eq("event_type", "human_handoff_requested")
+      .in("lead_id", leadIds)
+      .order("created_at", { ascending: false })
+      .limit(INSIGHT_HANDOFF_EVENTS_LIMIT),
+  ]);
+  if (convResult.error) throw convResult.error;
+  if (followUpResult.error) throw followUpResult.error;
+  if (appointmentResult.error) throw appointmentResult.error;
+  if (handoffResult.error) throw handoffResult.error;
+
+  const conversations = convResult.data ?? [];
+  const conversationLead = new Map(conversations.map((c) => [c.id, c.lead_id]));
+
+  // Most-recent-first messages for these conversations, bounded — only the
+  // tail matters (the latest inbound/outbound per lead), not full history.
+  const lastInboundByLead = new Map<string, string>();
+  const lastOutboundByLead = new Map<string, string>();
+  const lastMessageRoleByLead = new Map<string, string>();
+  if (conversations.length > 0) {
+    const { data: recentMessages, error: messagesError } = await supabase
+      .from("messages")
+      .select("conversation_id, role, created_at")
+      .in(
+        "conversation_id",
+        conversations.map((c) => c.id),
+      )
+      .order("created_at", { ascending: false })
+      .limit(INSIGHT_RECENT_MESSAGES_LIMIT);
+    if (messagesError) throw messagesError;
+
+    for (const m of recentMessages ?? []) {
+      const leadId = conversationLead.get(m.conversation_id);
+      if (!leadId) continue;
+      if (!lastMessageRoleByLead.has(leadId)) lastMessageRoleByLead.set(leadId, m.role);
+      if (m.role === "user" && !lastInboundByLead.has(leadId)) {
+        lastInboundByLead.set(leadId, m.created_at);
+      }
+      if (m.role === "assistant" && !lastOutboundByLead.has(leadId)) {
+        lastOutboundByLead.set(leadId, m.created_at);
+      }
+    }
+  }
+
+  const pendingFollowUpsByLead = new Map<string, { scheduledAt: string }[]>();
+  for (const f of followUpResult.data ?? []) {
+    const list = pendingFollowUpsByLead.get(f.lead_id) ?? [];
+    list.push({ scheduledAt: f.scheduled_at });
+    pendingFollowUpsByLead.set(f.lead_id, list);
+  }
+
+  const activeAppointmentByLead = new Map<string, { startsAt: string }>();
+  const cancelledAppointmentsByLead = new Map<string, { updatedAt: string }[]>();
+  for (const a of appointmentResult.data ?? []) {
+    if ((ACTIVE_APPOINTMENT_STATUSES as readonly string[]).includes(a.status)) {
+      const existing = activeAppointmentByLead.get(a.lead_id);
+      if (!existing || Date.parse(a.starts_at) < Date.parse(existing.startsAt)) {
+        activeAppointmentByLead.set(a.lead_id, { startsAt: a.starts_at });
+      }
+    } else if (a.status === "cancelled") {
+      const list = cancelledAppointmentsByLead.get(a.lead_id) ?? [];
+      list.push({ updatedAt: a.updated_at });
+      cancelledAppointmentsByLead.set(a.lead_id, list);
+    }
+  }
+
+  const lastHandoffByLead = new Map<string, string>();
+  for (const h of handoffResult.data ?? []) {
+    if (!lastHandoffByLead.has(h.lead_id)) lastHandoffByLead.set(h.lead_id, h.created_at);
+  }
+
+  return leads.map((lead) => {
+    const lastOutboundAt = lastOutboundByLead.get(lead.id) ?? null;
+    const lastHandoffAt = lastHandoffByLead.get(lead.id) ?? null;
+    const cancelledList = (cancelledAppointmentsByLead.get(lead.id) ?? []).sort(
+      (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
+    );
+
+    const signals: LeadInsightSignals = {
+      status: lead.status,
+      temperature: dbTemperatureToApp(lead.temperature),
+      createdAt: lead.createdAt,
+      updatedAt: lead.updatedAt,
+      lastInboundAt: lastInboundByLead.get(lead.id) ?? null,
+      lastOutboundAt,
+      lastMessageIsInbound: lastMessageRoleByLead.get(lead.id) === "user",
+      handoffPending: lastHandoffAt !== null && (!lastOutboundAt || lastHandoffAt > lastOutboundAt),
+      pendingFollowUps: pendingFollowUpsByLead.get(lead.id) ?? [],
+      activeAppointment: activeAppointmentByLead.get(lead.id) ?? null,
+      lastCancelledAppointment: cancelledList[0] ?? null,
+    };
+
+    return { lead, insight: computeLeadInsight(signals, now) };
+  });
+}
+
+/**
+ * Non-closed leads for the organization, each paired with its computed
+ * insight. Bounded to `INSIGHT_CANDIDATE_LEADS_LIMIT` most-recently-updated
+ * leads — an MVP-scale aggregate (same tradeoff as `getNeedsAttentionCount`'s
+ * cap), not a full-table scan. Shared by the dashboard summary and the leads
+ * list's "focus" filter so both use one code path.
+ */
+export async function getLeadInsightCandidates(
+  organizationId: string,
+  now: Date = new Date(),
+): Promise<InsightedLead[]> {
+  const supabase = await createClient();
+
+  const { data: leadRows, error: leadsError } = await supabase
+    .from("leads")
+    .select(LIST_COLUMNS)
+    .eq("organization_id", organizationId)
+    .not("status", "in", `(${CLOSED_LEAD_STATUSES.join(",")})`)
+    .order("updated_at", { ascending: false })
+    .limit(INSIGHT_CANDIDATE_LEADS_LIMIT);
+  if (leadsError) throw leadsError;
+
+  const leads = (leadRows ?? []).map((r) => toListRow(r as Parameters<typeof toListRow>[0]));
+  return computeInsightsForLeads(supabase, organizationId, leads, now);
+}
+
+/**
+ * Decorates an already-fetched (SQL-filtered/paginated) page of leads with
+ * their `LeadInsight`, for the per-row badge on the normal leads list. A
+ * closed lead (won/lost/archived) always resolves to `none`/`none` via rule 0
+ * — cheap and correct without a query — so only non-closed rows on the page
+ * need the same signal-fetch `getLeadInsightCandidates` uses, scoped to just
+ * this page's ids instead of the org-wide candidate bound.
+ */
+export async function attachInsights(
+  organizationId: string,
+  rows: LeadListRow[],
+  now: Date = new Date(),
+): Promise<Map<string, LeadInsight>> {
+  const result = new Map<string, LeadInsight>();
+  const open: LeadListRow[] = [];
+  for (const row of rows) {
+    if ((CLOSED_LEAD_STATUSES as readonly string[]).includes(row.status)) {
+      result.set(row.id, computeLeadInsight(
+        {
+          status: row.status,
+          temperature: dbTemperatureToApp(row.temperature),
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+          lastInboundAt: null,
+          lastOutboundAt: null,
+          lastMessageIsInbound: false,
+          handoffPending: false,
+          pendingFollowUps: [],
+          activeAppointment: null,
+          lastCancelledAppointment: null,
+        },
+        now,
+      ));
+    } else {
+      open.push(row);
+    }
+  }
+  if (open.length > 0) {
+    const supabase = await createClient();
+    for (const { lead, insight } of await computeInsightsForLeads(supabase, organizationId, open, now)) {
+      result.set(lead.id, insight);
+    }
+  }
+  return result;
+}
+
+export interface InsightSummary {
+  needsAttention: number;
+  atRisk: number;
+  noActionNeeded: number;
+}
+
+/** Aggregate counts for the dashboard — see {@link getLeadInsightCandidates} for the scan bound. */
+export async function getInsightSummary(organizationId: string): Promise<InsightSummary> {
+  const candidates = await getLeadInsightCandidates(organizationId);
+  const summary: InsightSummary = { needsAttention: 0, atRisk: 0, noActionNeeded: 0 };
+  for (const { insight } of candidates) {
+    if (insight.riskLevel === "needs_attention") summary.needsAttention++;
+    else if (insight.riskLevel === "at_risk") summary.atRisk++;
+    else summary.noActionNeeded++;
+  }
+  return summary;
 }
 
 // ── dashboard-overview aggregates ─────────────────────────────────────────

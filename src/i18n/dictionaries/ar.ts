@@ -148,6 +148,8 @@ export const ar: Dictionary = {
     ariaUpcomingAppointments: "المواعيد القادمة",
     noAppointmentsTitle: "لا توجد مواعيد قادمة",
     noAppointmentsHint: "ستظهر هنا المواعيد المحجوزة.",
+    leadHealthTitle: "صحة العملاء المحتملين",
+    ariaLeadHealth: "صحة العملاء المحتملين",
   },
 
   leads: {
@@ -180,11 +182,9 @@ export const ar: Dictionary = {
     allLeads: "كل العملاء",
     scoreLabel: "الدرجة",
     scoreWithValue: "الدرجة {score}",
-    needsAttentionBadge: "بحاجة إلى انتباه",
-    needsAttentionText:
-      "— طُلب تحويل هذا العميل إلى موظف بشري. راجع الخط الزمني لمعرفة السبب.",
     sections: {
       leadData: "بيانات العميل",
+      nextBestAction: "أفضل إجراء تالٍ",
       followUps: "المتابعات",
       appointments: "المواعيد",
       conversation: "المحادثة",
@@ -500,6 +500,44 @@ export const ar: Dictionary = {
       templateNameFormat:
         "يجب أن يتكون اسم القالب من حروف إنجليزية صغيرة وأرقام وشرطات سفلية.",
       languageCodeInvalid: "رمز اللغة يبدو غير صالح (مثل en_US أو ar).",
+    },
+  },
+
+  insights: {
+    sectionTitle: "أفضل إجراء تالٍ",
+    riskLevels: {
+      needs_attention: "يحتاج انتباه",
+      at_risk: "معرّض للخطر",
+      none: "لا يحتاج إجراء",
+    },
+    actions: {
+      call_now: "اتصل الآن",
+      follow_up: "تابع",
+      reply_now: "رُدّ الآن",
+      book_appointment: "احجز موعدًا",
+      human_handoff: "تحويل لموظف",
+      recover_lead: "استعِد العميل",
+      none: "لا حاجة لإجراء",
+    },
+    reasons: {
+      closed: "دورة حياة هذا العميل مكتملة.",
+      unansweredInbound: "راسل العميل منذ {minutes} دقيقة ولم يتم الرد بعد.",
+      handoffPending: "تم طلب تحويل لموظف ولم يرد أحد منذ ذلك الحين.",
+      followUpOverdue: "هناك متابعة متأخرة منذ {days} يوم/أيام.",
+      appointmentMissed: "موعد المقابلة المحدد قد فات بالفعل.",
+      appointmentUpcoming: "يوجد موعد محجوز بالفعل.",
+      followUpScheduled: "توجد متابعة مجدولة بالفعل.",
+      appointmentCancelled: "تم إلغاء الموعد منذ {days} يوم/أيام ولم تتم إعادة حجزه.",
+      hotLeadStale: "هذا العميل الساخن بلا نشاط منذ {hours} ساعة.",
+      qualifiedInactive: "مؤهّل لكنه غير نشط منذ {days} يوم/أيام دون أي شيء مجدول.",
+      onTrack: "على المسار الصحيح — لا حاجة لإجراء.",
+    },
+    filter: {
+      label: "التركيز",
+      all: "كل العملاء",
+      needsAttention: "يحتاج انتباه",
+      atRisk: "معرّض للخطر",
+      noAction: "لا يحتاج إجراء",
     },
   },
 

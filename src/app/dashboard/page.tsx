@@ -8,6 +8,7 @@ import {
   getFollowUpCounts,
   getNeedsAttentionCount,
   getUpcomingAppointments,
+  getInsightSummary,
 } from "@/lib/leads/queries";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { StatusBadge, TemperatureBadge } from "@/components/dashboard/badges";
@@ -28,13 +29,15 @@ export default async function DashboardOverviewPage() {
     ? (tOptional(template.nameKey ?? "") ?? template.name)
     : membership.industryTemplateId;
 
-  const [stats, recent, followUps, needsAttention, upcomingAppointments] = await Promise.all([
-    getLeadStats(membership.organizationId),
-    getRecentLeads(membership.organizationId, 6),
-    getFollowUpCounts(membership.organizationId),
-    getNeedsAttentionCount(membership.organizationId),
-    getUpcomingAppointments(membership.organizationId, 6),
-  ]);
+  const [stats, recent, followUps, needsAttention, upcomingAppointments, insightSummary] =
+    await Promise.all([
+      getLeadStats(membership.organizationId),
+      getRecentLeads(membership.organizationId, 6),
+      getFollowUpCounts(membership.organizationId),
+      getNeedsAttentionCount(membership.organizationId),
+      getUpcomingAppointments(membership.organizationId, 6),
+      getInsightSummary(membership.organizationId),
+    ]);
 
   return (
     <div className="space-y-8">
@@ -89,6 +92,34 @@ export default async function DashboardOverviewPage() {
             value={needsAttention}
             accent={needsAttention > 0 ? "warm" : "default"}
           />
+        </div>
+      </section>
+
+      <section aria-label={t("dashboard.ariaLeadHealth")} className="space-y-3">
+        <h2 className="text-sm font-semibold text-foreground">
+          {t("dashboard.leadHealthTitle")}
+        </h2>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:max-w-2xl">
+          <Link href="/dashboard/leads?focus=needs_attention">
+            <StatCard
+              label={t("insights.filter.needsAttention")}
+              value={insightSummary.needsAttention}
+              accent={insightSummary.needsAttention > 0 ? "warm" : "default"}
+            />
+          </Link>
+          <Link href="/dashboard/leads?focus=at_risk">
+            <StatCard
+              label={t("insights.filter.atRisk")}
+              value={insightSummary.atRisk}
+              accent={insightSummary.atRisk > 0 ? "hot" : "default"}
+            />
+          </Link>
+          <Link href="/dashboard/leads?focus=no_action">
+            <StatCard
+              label={t("insights.filter.noAction")}
+              value={insightSummary.noActionNeeded}
+            />
+          </Link>
         </div>
       </section>
 
