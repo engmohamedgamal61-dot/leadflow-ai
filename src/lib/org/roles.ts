@@ -7,6 +7,7 @@
 
 export const LEAD_WRITE_ROLES = ["owner", "admin", "manager", "sales"] as const;
 export const LEAD_MANAGE_ROLES = ["owner", "admin", "manager"] as const;
+export const CONFIG_MANAGE_ROLES = ["owner", "admin"] as const;
 
 /** Matches the `leads_update_writers` / `conversations_*_writers` RLS policy. */
 export function canWriteLeads(role: string): boolean {
@@ -16,4 +17,9 @@ export function canWriteLeads(role: string): boolean {
 /** Matches the `leads_delete_admins` RLS policy (broader lead management). */
 export function canManageLeads(role: string): boolean {
   return (LEAD_MANAGE_ROLES as readonly string[]).includes(role);
+}
+
+/** Matches the `organization_configs_*_admins` RLS policies (owner/admin only). */
+export function canManageConfig(role: string): boolean {
+  return (CONFIG_MANAGE_ROLES as readonly string[]).includes(role);
 }

@@ -18,6 +18,20 @@ export {
   validateEffectiveConfig,
   type ValidationResult,
 } from "./validate.ts";
+export {
+  parseStoredConfig,
+  validateStoredConfig,
+  toOrganizationConfig,
+  effectiveConfigFromStored,
+  compactStoredConfig,
+  diffAiBehavior,
+  diffQualification,
+  diffScoringThresholds,
+  LIMITS as ORG_CONFIG_LIMITS,
+  type StoredOrgConfig,
+  type AiBehaviorForm,
+  type FieldForm,
+} from "./organization-config.ts";
 
 /**
  * The effective configuration the AI engine runs on.

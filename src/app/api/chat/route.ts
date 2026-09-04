@@ -8,6 +8,7 @@ import {
 import { buildSystemPrompt } from "@/lib/chat/system-prompt";
 import { extractLead } from "@/lib/chat/lead-extraction";
 import { getEffectiveConfig, hasIndustryTemplate } from "@/lib/config";
+import { loadEffectiveConfig } from "@/lib/config/organization-config.server";
 import { calculateLeadScore } from "@/lib/lead-scoring";
 import { resolveChatContext } from "@/lib/org/chat-organization";
 import { persistCompletedTurn } from "@/lib/persistence/chat";
@@ -166,19 +167,28 @@ export async function POST(request: NextRequest) {
   );
   const hintSlug = industryHintAllowed ? parsed.industry : null;
 
-  // The AI engine runs on the effective configuration. The organization's
-  // `industry_template_id` is the source of truth when we have one; otherwise
-  // fall back to the (anonymous-only) industry hint.
-  const config = getEffectiveConfig(
-    organization
-      ? {
-          organizationId: organization.organizationId,
-          industryTemplateId: organization.industryTemplateId,
-        }
-      : hintSlug
-        ? { organizationId: "request", industryTemplateId: hintSlug }
-        : null,
-  );
+  // The AI engine runs on one EffectiveConfig. For an authenticated member it
+  // is `IndustryTemplate + stored organization overrides` (system prompt,
+  // extraction, qualification flow and scoring all consume the same object).
+  // The anonymous/demo path is unchanged: template defaults, optionally the
+  // industry hint. `loadEffectiveConfig` falls back to template defaults if the
+  // stored overrides are missing or invalid.
+  const config =
+    organization && organization.source === "member"
+      ? await loadEffectiveConfig(
+          organization.organizationId,
+          organization.industryTemplateId,
+        )
+      : getEffectiveConfig(
+          organization
+            ? {
+                organizationId: organization.organizationId,
+                industryTemplateId: organization.industryTemplateId,
+              }
+            : hintSlug
+              ? { organizationId: "request", industryTemplateId: hintSlug }
+              : null,
+        );
 
   // Thinking disabled: a lead-qualification chat is a low-complexity task and
   // real-time responsiveness matters more than deliberation.

@@ -6,7 +6,7 @@ import { getUserMembership } from "@/lib/org/membership.server";
 import type { UserMembership } from "@/lib/org/membership";
 import { ONBOARDING_PATH } from "@/lib/auth/route-policy";
 
-export { canWriteLeads, canManageLeads } from "@/lib/org/roles";
+export { canWriteLeads, canManageLeads, canManageConfig } from "@/lib/org/roles";
 
 export interface OrganizationContext {
   user: User;

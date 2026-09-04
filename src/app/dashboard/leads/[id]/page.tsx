@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireOrganizationContext, canWriteLeads } from "@/lib/org/context";
-import { getEffectiveConfig, enabledLeadFields } from "@/lib/config";
+import { enabledLeadFields } from "@/lib/config";
+import { loadEffectiveConfig } from "@/lib/config/organization-config.server";
 import { getLeadDetail } from "@/lib/leads/queries";
 import { buildLeadFieldViews, describeEvent } from "@/lib/leads/lead-view";
 import { formatDate, formatDateTime } from "@/lib/leads/format";
@@ -23,10 +24,10 @@ export default async function LeadDetailPage({
   if (!detail) notFound();
 
   const { record, conversations, messages, events } = detail;
-  const config = getEffectiveConfig({
-    organizationId: membership.organizationId,
-    industryTemplateId: membership.industryTemplateId,
-  });
+  const config = await loadEffectiveConfig(
+    membership.organizationId,
+    membership.industryTemplateId,
+  );
   const fieldViews = buildLeadFieldViews(record.lead, enabledLeadFields(config));
   const canEdit = canWriteLeads(membership.role);
 
