@@ -24,9 +24,16 @@ import {
   type ClaimedFollowUp,
   type FollowUpDisposition,
 } from "./executor.ts";
-import type { FollowUpChannelAdapter } from "./channels.ts";
+import { CHANNEL_ADAPTERS, type FollowUpChannelAdapter } from "./channels.ts";
+import { whatsAppFollowUpAdapter } from "../whatsapp/outbound-adapter.ts";
 
 type Db = SupabaseClient<Database>;
+
+/** The channel registry the scheduler runs with by default. */
+const DEFAULT_ADAPTERS: Record<string, FollowUpChannelAdapter> = {
+  ...CHANNEL_ADAPTERS,
+  whatsapp: whatsAppFollowUpAdapter,
+};
 
 export interface SchedulerRunSummary {
   runId: string;
@@ -133,7 +140,7 @@ export async function runFollowUpScheduler(
       disposition = await executeFollowUp(db, claimed, {
         maxAttempts,
         now: opts.now,
-        adapters: opts.adapters,
+        adapters: opts.adapters ?? DEFAULT_ADAPTERS,
       });
     } catch (err) {
       console.error(

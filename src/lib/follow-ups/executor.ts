@@ -77,7 +77,7 @@ export async function executeFollowUp(
   const isDemo = !claimed.orgHasMembers;
 
   // Demo orgs never reach a real external channel — belt & braces on top of
-  // "no external adapters exist in Phase G".
+  // adapters doing their own demo guard.
   const channel = isDemo ? "internal" : claimed.channel;
   const adapter = resolveAdapter(channel, opts.adapters);
 
@@ -89,6 +89,7 @@ export async function executeFollowUp(
   let result: FollowUpDeliveryResult;
   try {
     result = await adapter.deliver({
+      db,
       organizationId: claimed.organizationId,
       leadId: claimed.leadId,
       conversationId: claimed.conversationId,

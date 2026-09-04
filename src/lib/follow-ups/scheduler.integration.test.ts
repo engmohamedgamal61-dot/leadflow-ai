@@ -15,10 +15,16 @@ const skip = enabled
   ? false
   : "set LEADFLOW_DB_TEST_URL + LEADFLOW_DB_TEST_SERVICE_KEY + LEADFLOW_DB_TEST_ANON_KEY";
 
+// The WhatsApp follow-up adapter (reached via the scheduler's default registry)
+// must use the mock Meta transport and be able to decrypt a stored token.
+process.env.WHATSAPP_MOCK_TRANSPORT = "1";
+process.env.WHATSAPP_TOKEN_ENCRYPTION_KEY ??= "d".repeat(64);
+
 const { runFollowUpScheduler } = await import("./scheduler.ts");
 import type { RunSchedulerOptions } from "./scheduler.ts";
 const { internalAdapter } = await import("./channels.ts");
 import type { FollowUpChannelAdapter } from "./channels.ts";
+const { encryptToken } = await import("../whatsapp/crypto.ts");
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyClient = any;
@@ -26,6 +32,7 @@ const stamp = Date.now();
 let admin: AnyClient;
 let orgRE = "", orgClinic = "", demoOrg = "";
 let leadRE = "", leadClinic = "", leadDemo = "";
+let convRE = "";
 let userId = "";
 
 const run = (opts: RunSchedulerOptions = {}) => runFollowUpScheduler({ db: admin, ...opts });
@@ -108,6 +115,32 @@ before(async () => {
   ({ org: orgRE, lead: leadRE } = await mkOrg("sched-re", "real-estate", true));
   ({ org: orgClinic, lead: leadClinic } = await mkOrg("sched-clinic", "clinic", true));
   ({ org: demoOrg, lead: leadDemo } = await mkOrg("sched-demo", "real-estate", false));
+
+  // A connected WhatsApp org + an in-session-window conversation for leadRE,
+  // so a `channel = whatsapp` follow-up routes through the real adapter
+  // (mock Meta transport).
+  await admin.from("whatsapp_connections").insert({
+    organization_id: orgRE,
+    phone_number_id: `PN-SCHED-${stamp}`,
+    status: "connected",
+    access_token_encrypted: encryptToken(
+      "meta-token-value-1234567890",
+      process.env.WHATSAPP_TOKEN_ENCRYPTION_KEY as string,
+    ),
+  });
+  convRE = (
+    await admin
+      .from("conversations")
+      .insert({
+        organization_id: orgRE,
+        lead_id: leadRE,
+        channel: "whatsapp",
+        external_contact_id: "16505550123",
+        last_inbound_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single()
+  ).data.id;
 });
 
 after(async () => {
@@ -124,6 +157,13 @@ beforeEach(async () => {
   for (const o of [orgRE, orgClinic, demoOrg]) {
     await admin.from("lead_follow_ups").delete().eq("organization_id", o);
     await admin.from("lead_events").delete().eq("organization_id", o);
+  }
+  if (convRE) {
+    await admin.from("messages").delete().eq("conversation_id", convRE);
+    await admin
+      .from("conversations")
+      .update({ last_inbound_at: new Date().toISOString() })
+      .eq("id", convRE);
   }
 });
 
@@ -274,9 +314,50 @@ test("demo org (no members) executes through the internal adapter with no error"
   assert.equal((ev.metadata as { channel?: string }).channel, "internal", "demo forced onto internal channel");
 });
 
+test("a channel=whatsapp follow-up routes through the WhatsApp adapter (mock transport)", { skip }, async () => {
+  const id = await newFollowUp(orgRE, leadRE, {
+    channel: "whatsapp",
+    conversation_id: convRE,
+    note: "Checking in as promised.",
+  });
+  const summary = await run();
+  assert.equal(summary.completed, 1);
+  assert.equal((await statusOf(id)).status, "completed");
+
+  // the adapter persisted the outbound message with Meta provider metadata
+  const msgs = (
+    await admin
+      .from("messages")
+      .select("role, channel, provider, provider_message_id, delivery_status")
+      .eq("conversation_id", convRE)
+  ).data;
+  assert.equal(msgs.length, 1);
+  assert.equal(msgs[0].channel, "whatsapp");
+  assert.equal(msgs[0].provider, "meta_cloud");
+  assert.equal(msgs[0].delivery_status, "sent");
+  assert.match(msgs[0].provider_message_id, /^wamid\.mock-/);
+
+  // re-running does not re-send (row already completed)
+  await run();
+  assert.equal(
+    (await admin.from("messages").select("id").eq("conversation_id", convRE)).data.length,
+    1,
+  );
+});
+
+test("a retryable WhatsApp adapter failure still uses the Phase G retry policy", { skip }, async () => {
+  const id = await newFollowUp(orgRE, leadRE, { channel: "whatsapp", conversation_id: convRE });
+  const summary = await run({ adapters: { whatsapp: failing } });
+  assert.equal(summary.retryScheduled, 1);
+  const row = await statusOf(id);
+  assert.equal(row.status, "pending");
+  assert.ok(new Date(row.next_attempt_at).getTime() > Date.now());
+  assert.equal((await eventsOf(leadRE, "follow_up_retry_scheduled")).length, 1);
+});
+
 test("the real internal adapter is a no-op success (sanity)", { skip }, async () => {
   const r = await internalAdapter.deliver({
-    organizationId: "o", leadId: "l", conversationId: null, channel: "internal", message: "hi", isDemo: true,
+    db: admin, organizationId: "o", leadId: "l", conversationId: null, channel: "internal", message: "hi", isDemo: true,
   });
   assert.deepEqual(r, { ok: true, retryable: false });
 });

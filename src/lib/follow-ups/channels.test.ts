@@ -7,6 +7,8 @@ import {
 } from "./channels.ts";
 
 const ctx = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db: {} as any,
   organizationId: "org",
   leadId: "lead",
   conversationId: null,

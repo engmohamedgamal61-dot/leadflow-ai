@@ -29,6 +29,11 @@ export function isPublicPath(pathname: string): boolean {
   if (pathname === "/api/internal" || pathname.startsWith("/api/internal/")) {
     return true;
   }
+  // Provider webhooks (WhatsApp, …) — each route enforces its own
+  // signature/secret; the proxy must not redirect them to `/login`.
+  if (pathname === "/api/webhooks" || pathname.startsWith("/api/webhooks/")) {
+    return true;
+  }
   if (pathname === "/auth" || pathname.startsWith("/auth/")) return true;
   return false;
 }

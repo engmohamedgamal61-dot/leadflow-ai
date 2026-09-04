@@ -6,14 +6,10 @@ import {
   getAnthropicClient,
 } from "@/lib/chat/anthropic";
 import { buildSystemPrompt } from "@/lib/chat/system-prompt";
-import { extractLeadAndActions } from "@/lib/chat/agent-extraction";
+import { finalizeConversationTurn } from "@/lib/chat/conversation-service";
 import { getEffectiveConfig, hasIndustryTemplate } from "@/lib/config";
 import { loadEffectiveConfig } from "@/lib/config/organization-config.server";
-import { calculateLeadScore } from "@/lib/lead-scoring";
-import { isQualificationComplete } from "@/lib/agent/qualification";
-import { runChatAgentActions } from "@/lib/agent/chat-actions";
 import { resolveChatContext } from "@/lib/org/chat-organization";
-import { persistCompletedTurn } from "@/lib/persistence/chat";
 import { LEAD_DELIMITER, type ChatTurn } from "@/types/chat";
 
 export const runtime = "nodejs";
@@ -258,54 +254,23 @@ export async function POST(request: NextRequest) {
         return;
       }
 
-      // Second pass: ONE structured-output call that both extracts the
-      // structured lead AND lets the model propose business actions (this
-      // replaces the old extraction call — it is not an extra request).
-      // Failure never breaks the chat — empty lead, no actions.
-      const { lead, proposedActions } = await extractLeadAndActions(
+      // Second pass — shared by every channel: ONE structured-output call
+      // (extraction + proposed actions, not an extra request), deterministic
+      // scoring, persistence, and agent-action execution. Never throws.
+      const lastUserMessage =
+        [...parsed.turns].reverse().find((turn) => turn.role === "user")
+          ?.content ?? "";
+      const { lead, conversationId, actions } = await finalizeConversationTurn({
         client,
-        [...messages, { role: "assistant", content: replyText }],
         config,
-      );
-
-      // Persist the completed turn (lead + conversation + messages + events)
-      // when we have an organization. `persistCompletedTurn` never throws — a
-      // database failure is logged server-side and the AI response continues.
-      let conversationId = parsed.conversationId;
-      let actions: unknown[] = [];
-      if (organization) {
-        const lastUserMessage =
-          [...parsed.turns].reverse().find((turn) => turn.role === "user")
-            ?.content ?? "";
-        const { score, temperature } = calculateLeadScore(lead, config.scoring);
-        const persisted = await persistCompletedTurn({
-          organizationId: organization.organizationId,
-          conversationId: parsed.conversationId,
-          requestId: parsed.requestId,
-          channel: "web",
-          source: "chat",
-          userMessage: lastUserMessage,
-          assistantMessage: replyText,
-          lead,
-          score,
-          temperature,
-        });
-        if (persisted) {
-          conversationId = persisted.conversationId;
-
-          // Agent actions: the deterministic `mark_qualified` (decided here in
-          // app code, never by Claude) plus the model's validated proposals.
-          // Same trusted service-role boundary as persistence; never throws.
-          actions = await runChatAgentActions({
-            organizationId: organization.organizationId,
-            leadId: persisted.leadId,
-            conversationId: persisted.conversationId,
-            requestId: parsed.requestId,
-            markQualified: isQualificationComplete(lead, config),
-            proposedActions,
-          });
-        }
-      }
+        organizationId: organization?.organizationId ?? null,
+        historyMessages: messages,
+        replyText,
+        userMessage: lastUserMessage,
+        channel: "web",
+        conversationId: parsed.conversationId,
+        requestId: parsed.requestId,
+      });
 
       controller.enqueue(
         encoder.encode(

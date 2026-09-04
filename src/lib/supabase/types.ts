@@ -202,6 +202,8 @@ export interface Database {
           status: ConversationStatus;
           started_at: string;
           last_message_at: string;
+          last_inbound_at: string | null;
+          external_contact_id: string | null;
           creation_request_id: string | null;
           created_at: string;
           updated_at: string;
@@ -214,6 +216,8 @@ export interface Database {
           status?: ConversationStatus;
           started_at?: string;
           last_message_at?: string;
+          last_inbound_at?: string | null;
+          external_contact_id?: string | null;
           creation_request_id?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -226,6 +230,8 @@ export interface Database {
           status?: ConversationStatus;
           started_at?: string;
           last_message_at?: string;
+          last_inbound_at?: string | null;
+          external_contact_id?: string | null;
           creation_request_id?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -253,6 +259,11 @@ export interface Database {
           content: string;
           metadata: Json;
           request_id: string | null;
+          channel: string;
+          provider: string | null;
+          provider_message_id: string | null;
+          delivery_status: string | null;
+          provider_metadata: Json | null;
           created_at: string;
         };
         Insert: {
@@ -262,6 +273,11 @@ export interface Database {
           content: string;
           metadata?: Json;
           request_id?: string | null;
+          channel?: string;
+          provider?: string | null;
+          provider_message_id?: string | null;
+          delivery_status?: string | null;
+          provider_metadata?: Json | null;
           created_at?: string;
         };
         Update: {
@@ -271,6 +287,11 @@ export interface Database {
           content?: string;
           metadata?: Json;
           request_id?: string | null;
+          channel?: string;
+          provider?: string | null;
+          provider_message_id?: string | null;
+          delivery_status?: string | null;
+          provider_metadata?: Json | null;
           created_at?: string;
         };
         Relationships: [
@@ -406,6 +427,76 @@ export interface Database {
             referencedColumns: ["id"];
           },
         ];
+      };
+      whatsapp_connections: {
+        Row: {
+          id: string;
+          organization_id: string;
+          provider: string;
+          phone_number_id: string;
+          waba_id: string | null;
+          display_phone_number: string | null;
+          status: string;
+          access_token_encrypted: string | null;
+          last_error: string | null;
+          metadata: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          provider?: string;
+          phone_number_id: string;
+          waba_id?: string | null;
+          display_phone_number?: string | null;
+          status?: string;
+          access_token_encrypted?: string | null;
+          last_error?: string | null;
+          metadata?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          provider?: string;
+          phone_number_id?: string;
+          waba_id?: string | null;
+          display_phone_number?: string | null;
+          status?: string;
+          access_token_encrypted?: string | null;
+          last_error?: string | null;
+          metadata?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_connections_organization_id_fkey";
+            columns: ["organization_id"];
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      whatsapp_inbound_events: {
+        Row: {
+          provider_message_id: string;
+          organization_id: string;
+          received_at: string;
+        };
+        Insert: {
+          provider_message_id: string;
+          organization_id: string;
+          received_at?: string;
+        };
+        Update: {
+          provider_message_id?: string;
+          organization_id?: string;
+          received_at?: string;
+        };
+        Relationships: [];
       };
     };
     Views: Record<never, never>;

@@ -8,7 +8,16 @@
  * executor stay unchanged.
  */
 
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/lib/supabase/types";
+
 export interface FollowUpDeliveryContext {
+  /**
+   * The (already-trusted) Supabase client from the executor. An adapter that
+   * talks to an external API needs it to resolve credentials + the recipient,
+   * scoped by `organizationId`. The `internal` adapter ignores it.
+   */
+  db: SupabaseClient<Database>;
   organizationId: string;
   leadId: string;
   conversationId: string | null;

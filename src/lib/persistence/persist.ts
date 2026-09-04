@@ -25,7 +25,7 @@ export interface PersistChatTurnInput {
    * works, just without the concurrency guarantee.
    */
   requestId?: string | null;
-  /** Conversation channel for a newly created conversation. */
+  /** Conversation channel for a newly created conversation ("web" | "whatsapp" | …). */
   channel: string;
   /** Lead source for a newly created lead. */
   source: string | null;
@@ -36,6 +36,15 @@ export interface PersistChatTurnInput {
   lead: LeadData;
   score: number;
   temperature: LeadTemperature;
+  /**
+   * External channel contact id (e.g. a WhatsApp `wa_id`). When set and no
+   * `conversationId` is given, the conversation is resolved / created by
+   * `(organization_id, channel, external_contact_id)` so repeat messages from
+   * the same customer reuse one lead + one conversation.
+   */
+  externalContactId?: string | null;
+  /** Provider message id of the inbound user message (e.g. a WhatsApp `wamid`). */
+  userProviderMessageId?: string | null;
 }
 
 export interface PersistChatTurnResult {
@@ -128,6 +137,24 @@ export async function persistChatTurn(
     }
   }
 
+  // External channel (WhatsApp): reuse the customer's existing conversation.
+  if (!conversationId && input.externalContactId) {
+    const { data, error } = await db
+      .from("conversations")
+      .select("id, lead_id")
+      .eq("organization_id", input.organizationId)
+      .eq("channel", input.channel)
+      .eq("external_contact_id", input.externalContactId)
+      .maybeSingle();
+    if (error) {
+      throw new PersistenceError("load conversation by contact", error);
+    }
+    if (data) {
+      conversationId = data.id;
+      leadId = data.lead_id;
+    }
+  }
+
   const startedWithLead = leadId !== null;
 
   // 2. Snapshot the lead's current state (for change events).
@@ -205,10 +232,12 @@ export async function persistChatTurn(
   }
 
   // 4. Reuse or create the conversation.
+  //    `last_inbound_at` tracks the customer's last message — it drives the
+  //    WhatsApp 24-hour session window (harmless for web).
   if (conversationId) {
     const { error } = await db
       .from("conversations")
-      .update({ last_message_at: nowIso })
+      .update({ last_message_at: nowIso, last_inbound_at: nowIso })
       .eq("id", conversationId);
     if (error) throw new PersistenceError("update conversation", error);
   } else {
@@ -220,13 +249,38 @@ export async function persistChatTurn(
           lead_id: leadId,
           channel: input.channel,
           last_message_at: nowIso,
+          last_inbound_at: nowIso,
+          external_contact_id: input.externalContactId ?? null,
           creation_request_id: requestId,
         },
         { onConflict: "organization_id,creation_request_id", ignoreDuplicates: true },
       )
       .select("id");
-    if (error) throw new PersistenceError("insert conversation", error);
-    if (data && data.length > 0) {
+
+    // A concurrent first message from the same WhatsApp contact created the
+    // conversation first — its own unique index rejects this insert. Reuse it.
+    if (
+      (error || !data || data.length === 0) &&
+      input.externalContactId
+    ) {
+      const byContact = await db
+        .from("conversations")
+        .select("id, lead_id")
+        .eq("organization_id", input.organizationId)
+        .eq("channel", input.channel)
+        .eq("external_contact_id", input.externalContactId)
+        .maybeSingle();
+      if (byContact.data) {
+        conversationId = byContact.data.id;
+        leadId = byContact.data.lead_id;
+      }
+    }
+
+    if (conversationId) {
+      // resolved via the contact fallback above
+    } else if (error) {
+      throw new PersistenceError("insert conversation", error);
+    } else if (data && data.length > 0) {
       conversationId = data[0].id;
     } else if (requestId) {
       const existing = await db
@@ -256,6 +310,7 @@ export async function persistChatTurn(
   if (recentError) throw new PersistenceError("load recent messages", recentError);
   const recentMessages: RecentMessage[] = recent ?? [];
 
+  const isExternal = input.channel !== "web";
   const messageRows: TablesInsert<"messages">[] = [];
   if (!alreadyPersisted(recentMessages, "user", input.userMessage)) {
     messageRows.push({
@@ -263,6 +318,13 @@ export async function persistChatTurn(
       role: "user",
       content: input.userMessage,
       request_id: requestId,
+      channel: input.channel,
+      ...(isExternal
+        ? {
+            provider: "meta_cloud",
+            provider_message_id: input.userProviderMessageId ?? null,
+          }
+        : {}),
     });
   }
   if (!alreadyPersisted(recentMessages, "assistant", input.assistantMessage)) {
@@ -271,6 +333,8 @@ export async function persistChatTurn(
       role: "assistant",
       content: input.assistantMessage,
       request_id: requestId,
+      channel: input.channel,
+      ...(isExternal ? { provider: "meta_cloud" } : {}),
     });
   }
   let messagesInserted = 0;
