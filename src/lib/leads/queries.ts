@@ -175,6 +175,11 @@ export interface FollowUpRow {
   status: FollowUpStatus;
   note: string | null;
   source: string;
+  channel: string;
+  attemptCount: number;
+  lastError: string | null;
+  nextAttemptAt: string | null;
+  completedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -190,7 +195,7 @@ export interface LeadDetail {
 }
 
 const FOLLOW_UP_COLUMNS =
-  "id, lead_id, conversation_id, scheduled_at, status, note, source, created_at, updated_at";
+  "id, lead_id, conversation_id, scheduled_at, status, note, source, channel, attempt_count, last_error, next_attempt_at, completed_at, created_at, updated_at";
 
 function toFollowUpRow(r: {
   id: string;
@@ -200,6 +205,11 @@ function toFollowUpRow(r: {
   status: FollowUpStatus;
   note: string | null;
   source: string;
+  channel: string;
+  attempt_count: number;
+  last_error: string | null;
+  next_attempt_at: string | null;
+  completed_at: string | null;
   created_at: string;
   updated_at: string;
 }): FollowUpRow {
@@ -211,6 +221,11 @@ function toFollowUpRow(r: {
     status: r.status,
     note: r.note,
     source: r.source,
+    channel: r.channel,
+    attemptCount: typeof r.attempt_count === "number" ? r.attempt_count : 0,
+    lastError: r.last_error,
+    nextAttemptAt: r.next_attempt_at,
+    completedAt: r.completed_at,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -312,16 +327,34 @@ export async function getLeadDetail(
 
 // ── dashboard-overview aggregates ─────────────────────────────────────────
 
-export async function getPendingFollowUpCount(
+export interface FollowUpCounts {
+  pending: number;
+  dueNow: number;
+  failed: number;
+}
+
+/** Follow-up workload counts for the dashboard overview. Org-scoped. */
+export async function getFollowUpCounts(
   organizationId: string,
-): Promise<number> {
+): Promise<FollowUpCounts> {
   const supabase = await createClient();
-  const { count } = await supabase
-    .from("lead_follow_ups")
-    .select("id", { count: "exact", head: true })
-    .eq("organization_id", organizationId)
-    .eq("status", "pending");
-  return count ?? 0;
+  const base = () =>
+    supabase
+      .from("lead_follow_ups")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId);
+
+  const [pending, dueNow, failed] = await Promise.all([
+    base().eq("status", "pending"),
+    base().eq("status", "pending").lte("scheduled_at", new Date().toISOString()),
+    base().eq("status", "failed"),
+  ]);
+
+  return {
+    pending: pending.count ?? 0,
+    dueNow: dueNow.count ?? 0,
+    failed: failed.count ?? 0,
+  };
 }
 
 /** Distinct leads that have ever requested a human handoff. */

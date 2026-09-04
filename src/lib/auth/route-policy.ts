@@ -16,12 +16,17 @@ export const APP_HOME_PATH = "/dashboard";
  * - `/login`, `/signup`  auth entry points
  * - `/auth/*`      Supabase callbacks (email confirm, etc.)
  * - `/api/chat`    the chat endpoint — works signed-in *and* anonymous (demo)
+ * - `/api/internal/*`  server-to-server jobs (cron) — the routes enforce their
+ *   own secret; the proxy must not redirect them to `/login`.
  */
 export function isPublicPath(pathname: string): boolean {
   if (pathname === "/" || pathname === "/login" || pathname === "/signup") {
     return true;
   }
   if (pathname === "/api/chat" || pathname.startsWith("/api/chat/")) {
+    return true;
+  }
+  if (pathname === "/api/internal" || pathname.startsWith("/api/internal/")) {
     return true;
   }
   if (pathname === "/auth" || pathname.startsWith("/auth/")) return true;

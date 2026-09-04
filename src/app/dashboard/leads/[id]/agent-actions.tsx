@@ -94,12 +94,13 @@ export function FollowUpItem({
     INITIAL,
   );
 
-  const badge =
-    followUp.status === "pending"
-      ? "bg-amber-500/15 text-amber-300"
-      : followUp.status === "completed"
-        ? "bg-emerald-500/15 text-emerald-300"
-        : "bg-border/50 text-muted";
+  const badgeStyles: Record<string, string> = {
+    pending: "bg-amber-500/15 text-amber-300",
+    processing: "bg-sky-500/15 text-sky-300",
+    completed: "bg-emerald-500/15 text-emerald-300",
+    failed: "bg-rose-500/15 text-rose-300",
+  };
+  const badge = badgeStyles[followUp.status] ?? "bg-border/50 text-muted";
 
   return (
     <li className="rounded-lg border border-border bg-surface px-3 py-2">
@@ -112,8 +113,26 @@ export function FollowUpItem({
             <p className="mt-0.5 truncate text-xs text-muted">{followUp.note}</p>
           ) : null}
           <p className="mt-0.5 text-[10px] uppercase tracking-wide text-muted/60">
-            {followUp.source}
+            {followUp.source} · {followUp.channel}
+            {followUp.attemptCount > 0 ? ` · ${followUp.attemptCount} attempt${followUp.attemptCount > 1 ? "s" : ""}` : ""}
           </p>
+          {followUp.status === "completed" && followUp.completedAt ? (
+            <p className="mt-0.5 text-[11px] text-emerald-400/80">
+              Sent {formatDateTime(followUp.completedAt)}
+            </p>
+          ) : null}
+          {followUp.status === "failed" && followUp.lastError ? (
+            <p className="mt-0.5 text-[11px] text-rose-400/90">
+              {followUp.lastError}
+            </p>
+          ) : null}
+          {followUp.status === "pending" &&
+          followUp.attemptCount > 0 &&
+          followUp.nextAttemptAt ? (
+            <p className="mt-0.5 text-[11px] text-amber-400/80">
+              Retry {formatDateTime(followUp.nextAttemptAt)}
+            </p>
+          ) : null}
         </div>
         <span className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-medium ${badge}`}>
           {followUp.status}

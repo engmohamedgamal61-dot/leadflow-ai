@@ -1,5 +1,7 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
-import { getSupabaseServiceRoleKey, getSupabaseUrl } from "@/lib/supabase/env";
+// Relative so this module (and anything that imports it) can run under
+// `node --test`, which does not resolve the `@/` alias for value imports.
+import { getSupabaseServiceRoleKey, getSupabaseUrl } from "./env.ts";
 import type { Database } from "@/lib/supabase/types";
 
 /**

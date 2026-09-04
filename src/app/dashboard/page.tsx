@@ -5,7 +5,7 @@ import { getIndustryTemplate } from "@/lib/config";
 import {
   getLeadStats,
   getRecentLeads,
-  getPendingFollowUpCount,
+  getFollowUpCounts,
   getNeedsAttentionCount,
 } from "@/lib/leads/queries";
 import { StatCard } from "@/components/dashboard/stat-card";
@@ -19,10 +19,10 @@ export default async function DashboardOverviewPage() {
   const { membership } = await requireOrganizationContext();
   const template = getIndustryTemplate(membership.industryTemplateId);
 
-  const [stats, recent, pendingFollowUps, needsAttention] = await Promise.all([
+  const [stats, recent, followUps, needsAttention] = await Promise.all([
     getLeadStats(membership.organizationId),
     getRecentLeads(membership.organizationId, 6),
-    getPendingFollowUpCount(membership.organizationId),
+    getFollowUpCounts(membership.organizationId),
     getNeedsAttentionCount(membership.organizationId),
   ]);
 
@@ -59,8 +59,18 @@ export default async function DashboardOverviewPage() {
       </section>
 
       <section aria-label="Agent workload">
-        <div className="grid grid-cols-2 gap-3 sm:max-w-md">
-          <StatCard label="Pending follow-ups" value={pendingFollowUps} />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:max-w-2xl">
+          <StatCard label="Pending follow-ups" value={followUps.pending} />
+          <StatCard
+            label="Due now"
+            value={followUps.dueNow}
+            accent={followUps.dueNow > 0 ? "warm" : "default"}
+          />
+          <StatCard
+            label="Failed follow-ups"
+            value={followUps.failed}
+            accent={followUps.failed > 0 ? "hot" : "default"}
+          />
           <StatCard
             label="Needs attention"
             value={needsAttention}

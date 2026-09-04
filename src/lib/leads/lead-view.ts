@@ -219,6 +219,30 @@ export function describeEvent(event: LeadEventLike): TimelineEntry {
       return { at: event.created_at, title: "Follow-up completed", detail: null };
     case "follow_up_cancelled":
       return { at: event.created_at, title: "Follow-up cancelled", detail: null };
+    case "follow_up_executed":
+      return {
+        at: event.created_at,
+        title: "Follow-up sent",
+        detail:
+          typeof m.channel === "string"
+            ? `via ${m.channel}${m.attempt && Number(m.attempt) > 1 ? ` (attempt ${m.attempt})` : ""}`
+            : null,
+      };
+    case "follow_up_retry_scheduled":
+      return {
+        at: event.created_at,
+        title: "Follow-up retry scheduled",
+        detail:
+          typeof m.nextAttemptAt === "string"
+            ? `Next attempt ${m.nextAttemptAt}`
+            : null,
+      };
+    case "follow_up_failed":
+      return {
+        at: event.created_at,
+        title: "Follow-up failed",
+        detail: typeof m.error === "string" ? m.error : null,
+      };
     case "human_handoff_requested":
       return {
         at: event.created_at,

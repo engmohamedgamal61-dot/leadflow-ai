@@ -33,7 +33,12 @@ export type LeadStatus =
   | "archived";
 export type ConversationStatus = "active" | "closed" | "archived";
 export type MessageRole = "user" | "assistant" | "system";
-export type FollowUpStatus = "pending" | "completed" | "cancelled";
+export type FollowUpStatus =
+  | "pending"
+  | "processing"
+  | "completed"
+  | "cancelled"
+  | "failed";
 
 export interface Database {
   public: {
@@ -330,7 +335,14 @@ export interface Database {
           status: FollowUpStatus;
           note: string | null;
           source: string;
+          channel: string;
           creation_request_id: string | null;
+          attempt_count: number;
+          last_attempt_at: string | null;
+          last_error: string | null;
+          next_attempt_at: string | null;
+          claimed_at: string | null;
+          completed_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -343,7 +355,14 @@ export interface Database {
           status?: FollowUpStatus;
           note?: string | null;
           source?: string;
+          channel?: string;
           creation_request_id?: string | null;
+          attempt_count?: number;
+          last_attempt_at?: string | null;
+          last_error?: string | null;
+          next_attempt_at?: string | null;
+          claimed_at?: string | null;
+          completed_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -356,7 +375,14 @@ export interface Database {
           status?: FollowUpStatus;
           note?: string | null;
           source?: string;
+          channel?: string;
           creation_request_id?: string | null;
+          attempt_count?: number;
+          last_attempt_at?: string | null;
+          last_error?: string | null;
+          next_attempt_at?: string | null;
+          claimed_at?: string | null;
+          completed_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -394,6 +420,27 @@ export interface Database {
       create_organization_with_owner: {
         Args: { p_name: string; p_industry_template_id: string };
         Returns: Database["public"]["Tables"]["organizations"]["Row"];
+      };
+      /**
+       * Follow-up scheduler claim (service-role only). Atomically moves a
+       * bounded batch of due `pending` follow-ups (plus stuck `processing`
+       * rows) to `processing` via `FOR UPDATE SKIP LOCKED` and returns them.
+       * See `20260904160100_follow_up_scheduler.sql`.
+       */
+      claim_due_follow_ups: {
+        Args: { p_limit: number; p_stuck_after: string };
+        Returns: {
+          id: string;
+          organization_id: string;
+          lead_id: string;
+          conversation_id: string | null;
+          note: string | null;
+          source: string;
+          channel: string;
+          attempt_count: number;
+          org_has_members: boolean;
+          lead_name: string | null;
+        }[];
       };
     };
     Enums: {
