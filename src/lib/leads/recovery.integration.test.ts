@@ -263,3 +263,67 @@ test("real estate and clinic organizations use the identical table/constraints (
   assert.ok(dup.error);
   assert.equal(dup.error.code, "23505");
 });
+
+// Regression: a delivery that never actually happened (e.g. WhatsApp not
+// connected) must resolve as 'failed', not 'no_response' — and the DB must
+// accept that value (it originally only allowed converted/no_response).
+test("resolving an attempt as 'failed' (delivery never happened) is accepted and frees the lead", { skip }, async () => {
+  const open = await admin
+    .from("lead_recovery_attempts")
+    .select("id")
+    .eq("lead_id", aLeadId)
+    .is("resolved_at", null)
+    .single();
+  assert.equal(open.error, null);
+
+  const resolveFailed = await users.a.client
+    .from("lead_recovery_attempts")
+    .update({ resolved_as: "failed", resolved_at: new Date().toISOString() })
+    .eq("organization_id", orgA)
+    .eq("id", open.data.id)
+    .select("id");
+  assert.equal(resolveFailed.error, null);
+  assert.equal(resolveFailed.data.length, 1);
+
+  // Freed up: a brand new attempt on the same lead now succeeds.
+  const followUp7 = await newFollowUp(orgA, aLeadId);
+  const fresh = await users.a.client.from("lead_recovery_attempts").insert({
+    organization_id: orgA,
+    lead_id: aLeadId,
+    follow_up_id: followUp7,
+    reason_key: "recovery.reasons.lostHot",
+    priority: "high",
+  });
+  assert.equal(fresh.error, null);
+});
+
+test("resolved_as still rejects values outside converted/no_response/failed", { skip }, async () => {
+  // aLeadId currently has an open attempt (from the previous test) — insert
+  // against a fresh lead instead so this fails on the CHECK, not the unique index.
+  const otherLead = await admin
+    .from("leads")
+    .insert({ organization_id: orgA, name: "Bogus Resolution Lead", status: "lost", temperature: "warm" })
+    .select("id")
+    .single();
+  assert.equal(otherLead.error, null);
+  const followUpForOther = await newFollowUp(orgA, otherLead.data.id);
+  const attempt = await admin
+    .from("lead_recovery_attempts")
+    .insert({
+      organization_id: orgA,
+      lead_id: otherLead.data.id,
+      follow_up_id: followUpForOther,
+      reason_key: "recovery.reasons.lostGeneral",
+      priority: "medium",
+    })
+    .select("id")
+    .single();
+  assert.equal(attempt.error, null);
+
+  const bogus = await users.a.client
+    .from("lead_recovery_attempts")
+    .update({ resolved_as: "bogus_value", resolved_at: new Date().toISOString() })
+    .eq("organization_id", orgA)
+    .eq("id", attempt.data.id);
+  assert.ok(bogus.error, "expected a check-constraint violation");
+});

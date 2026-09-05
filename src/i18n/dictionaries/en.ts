@@ -586,6 +586,7 @@ export const en = {
       recovered: "Recovered",
       converted: "Converted",
       no_response: "No response",
+      failed: "Delivery failed",
     },
     reasons: {
       lostHot: "Marked lost, but this was a hot lead — worth one more attempt.",

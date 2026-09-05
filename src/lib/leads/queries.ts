@@ -15,6 +15,7 @@ import {
   type RecoveryCandidate,
   type RecoveryOutcome,
   type RecoveryPriority,
+  type RecoveryResolvedAs,
   type RecoverySignals,
 } from "@/lib/leads/recovery";
 import type {
@@ -880,9 +881,9 @@ export interface RecoveryAttemptRow {
  * LIVE-derived outcome (see `computeRecoveryAttemptOutcome` — pending/
  * contacted/recovered are never stored, only computed). The one side effect:
  * an attempt that has just crossed into a terminal state (converted /
- * no_response) gets that written back (`resolved_as`/`resolved_at`) so the
- * duplicate-attempt guard naturally frees up — best-effort, never blocks the
- * read.
+ * no_response / failed) gets that written back (`resolved_as`/`resolved_at`)
+ * so the duplicate-attempt guard naturally frees up — best-effort, never
+ * blocks the read.
  */
 export async function listRecoveryAttempts(
   organizationId: string,
@@ -932,7 +933,7 @@ export async function listRecoveryAttempts(
     }
   }
 
-  const toResolve: { id: string; resolvedAs: "converted" | "no_response" }[] = [];
+  const toResolve: { id: string; resolvedAs: RecoveryResolvedAs }[] = [];
   const result: RecoveryAttemptRow[] = rows.map((r) => {
     const leadRel = (r as { leads?: { name: string | null; status: string } | null }).leads;
     const followUpRel = (r as { lead_follow_ups?: { status: string; completed_at: string | null } | null })
@@ -943,10 +944,10 @@ export async function listRecoveryAttempts(
       followUpStatus: followUpRel?.status ?? "pending",
       followUpCompletedAt: followUpRel?.completed_at ?? null,
       lastInboundAt: lastInboundByLead.get(r.lead_id) ?? null,
-      resolvedAs: (r.resolved_as as "converted" | "no_response" | null) ?? null,
+      resolvedAs: (r.resolved_as as RecoveryResolvedAs | null) ?? null,
     };
     const outcome = computeRecoveryAttemptOutcome(signals, now);
-    if (!r.resolved_at && (outcome === "converted" || outcome === "no_response")) {
+    if (!r.resolved_at && (outcome === "converted" || outcome === "no_response" || outcome === "failed")) {
       toResolve.push({ id: r.id, resolvedAs: outcome });
     }
 
@@ -990,6 +991,8 @@ export interface RecoverySummary {
   recovered: number;
   converted: number;
   noResponse: number;
+  /** Outreach that was never actually delivered (e.g. WhatsApp not connected) — distinct from noResponse. */
+  failed: number;
 }
 
 /** Aggregate counts for the dashboard — see {@link listRecoveryAttempts} for the scan bound. */
@@ -1001,12 +1004,14 @@ export async function getRecoverySummary(organizationId: string): Promise<Recove
     recovered: 0,
     converted: 0,
     noResponse: 0,
+    failed: 0,
   };
   for (const a of attempts) {
     if (a.outcome === "pending") summary.pending++;
     else if (a.outcome === "contacted") summary.contacted++;
     else if (a.outcome === "recovered") summary.recovered++;
     else if (a.outcome === "converted") summary.converted++;
+    else if (a.outcome === "failed") summary.failed++;
     else summary.noResponse++;
   }
   return summary;

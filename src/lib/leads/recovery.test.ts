@@ -37,7 +37,7 @@ test("registries: exactly the required priority + outcome vocabularies", () => {
   assert.deepEqual([...RECOVERY_PRIORITIES], ["high", "medium", "low"]);
   assert.deepEqual(
     [...RECOVERY_OUTCOMES],
-    ["pending", "contacted", "recovered", "converted", "no_response"],
+    ["pending", "contacted", "recovered", "converted", "no_response", "failed"],
   );
 });
 
@@ -292,9 +292,37 @@ test("attempt outcome: no_response after the silence window with no reply", () =
   );
 });
 
-test("attempt outcome: delivery failure or cancellation is immediately no_response", () => {
+// Regression: a recovery attempt whose outreach was never actually delivered
+// (WhatsApp not connected, send failed, or the follow-up was cancelled) must
+// never be reported as "no_response" — that value means "delivered, but no
+// reply within the window", a very different signal from "never reached them".
+test("attempt outcome: delivery failure or cancellation is 'failed', never 'no_response'", () => {
   for (const followUpStatus of ["failed", "cancelled"]) {
-    assert.equal(computeRecoveryAttemptOutcome(baseAttempt({ followUpStatus }), NOW), "no_response");
+    const outcome = computeRecoveryAttemptOutcome(baseAttempt({ followUpStatus }), NOW);
+    assert.equal(outcome, "failed");
+    assert.notEqual(outcome, "no_response");
+  }
+});
+
+test("attempt outcome: a failed delivery stays 'failed' even long after the send attempt", () => {
+  // No followUpCompletedAt (delivery never succeeded) — must not fall through
+  // to the silence-window check and get mislabeled as no_response.
+  const outcome = computeRecoveryAttemptOutcome(
+    baseAttempt({ followUpStatus: "failed", followUpCompletedAt: null }),
+    new Date(NOW.getTime() + 365 * 86_400_000),
+  );
+  assert.equal(outcome, "failed");
+});
+
+test("attempt outcome: no_response only ever follows a successful (completed) delivery", () => {
+  // Every path that reaches "no_response" must have gone through
+  // followUpStatus === "completed" first — failed/cancelled/pending never do.
+  for (const followUpStatus of ["pending", "processing", "failed", "cancelled"]) {
+    const outcome = computeRecoveryAttemptOutcome(
+      baseAttempt({ followUpStatus, followUpCompletedAt: daysAgo(RECOVERY_NO_RESPONSE_DAYS + 5) }),
+      NOW,
+    );
+    assert.notEqual(outcome, "no_response");
   }
 });
 
@@ -317,6 +345,27 @@ test("attempt outcome: a manually resolved outcome always wins", () => {
     computeRecoveryAttemptOutcome(baseAttempt({ resolvedAs: "converted" }), NOW),
     "converted",
   );
+  assert.equal(
+    computeRecoveryAttemptOutcome(baseAttempt({ resolvedAs: "failed" }), NOW),
+    "failed",
+  );
+});
+
+test("a resolved 'failed' attempt frees the lead for a new one after the same cooldown as no_response", () => {
+  // computeRecoveryCandidate only cares about the resolution TIMESTAMP, not
+  // why it resolved — a failed-delivery close-out must behave identically to
+  // a no_response close-out for re-attempt eligibility.
+  const stillCoolingDown = computeRecoveryCandidate(
+    baseSignals({ status: "lost", lastRecoveryResolvedAt: daysAgo(RECOVERY_REATTEMPT_COOLDOWN_DAYS - 1) }),
+    NOW,
+  );
+  assert.equal(stillCoolingDown, null);
+
+  const cooldownExpired = computeRecoveryCandidate(
+    baseSignals({ status: "lost", lastRecoveryResolvedAt: daysAgo(RECOVERY_REATTEMPT_COOLDOWN_DAYS + 1) }),
+    NOW,
+  );
+  assert.ok(cooldownExpired);
 });
 
 // ── resolveRecoveryChannel ───────────────────────────────────────────────────

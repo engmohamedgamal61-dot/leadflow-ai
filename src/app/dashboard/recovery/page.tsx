@@ -44,7 +44,7 @@ export default async function RecoveryPage() {
 
       <section aria-label={t("recovery.ariaResults")} className="space-y-3">
         <h2 className="text-sm font-semibold text-foreground">{t("recovery.resultsTitle")}</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <StatCard label={t("recovery.outcomes.pending")} value={summary.pending} />
           <StatCard label={t("recovery.outcomes.contacted")} value={summary.contacted} />
           <StatCard
@@ -61,6 +61,11 @@ export default async function RecoveryPage() {
             label={t("recovery.outcomes.no_response")}
             value={summary.noResponse}
             accent={summary.noResponse > 0 ? "hot" : "default"}
+          />
+          <StatCard
+            label={t("recovery.outcomes.failed")}
+            value={summary.failed}
+            accent={summary.failed > 0 ? "hot" : "default"}
           />
         </div>
       </section>

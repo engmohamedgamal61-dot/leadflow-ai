@@ -25,6 +25,7 @@ export const RECOVERY_OUTCOMES = [
   "recovered",
   "converted",
   "no_response",
+  "failed",
 ] as const;
 export type RecoveryOutcome = (typeof RECOVERY_OUTCOMES)[number];
 
@@ -155,9 +156,12 @@ export function computeRecoveryCandidate(
   return null;
 }
 
+/** Terminal outcomes that get persisted to `lead_recovery_attempts.resolved_as`. */
+export type RecoveryResolvedAs = "converted" | "no_response" | "failed";
+
 /**
  * Live-derived state of one existing recovery attempt, for display. Only
- * `converted`/`no_response` are ever persisted (see
+ * `converted`/`no_response`/`failed` are ever persisted (see
  * `lead_recovery_attempts.resolved_as`) — `pending`/`contacted`/`recovered`
  * are computed fresh every time from the linked follow-up + message history,
  * never stored, so there is nothing to keep in sync.
@@ -168,7 +172,7 @@ export interface RecoveryAttemptSignals {
   followUpCompletedAt: string | null;
   /** Most recent inbound message for this lead, across every conversation. */
   lastInboundAt: string | null;
-  resolvedAs: "converted" | "no_response" | null;
+  resolvedAs: RecoveryResolvedAs | null;
 }
 
 export function computeRecoveryAttemptOutcome(
@@ -178,9 +182,12 @@ export function computeRecoveryAttemptOutcome(
   if (signals.resolvedAs) return signals.resolvedAs;
   if (signals.leadStatus === "won") return "converted";
 
-  // Delivery never happened, or was called off — this attempt didn't reach them.
+  // The outreach was never actually delivered — non-retryable send failure
+  // (e.g. WhatsApp not connected) or the follow-up was called off. This is
+  // NOT "no_response": that value means "delivered, but no reply in the
+  // window" — a very different signal from "we never reached them at all".
   if (signals.followUpStatus === "failed" || signals.followUpStatus === "cancelled") {
-    return "no_response";
+    return "failed";
   }
 
   if (signals.followUpStatus === "completed") {

@@ -107,6 +107,7 @@ const OUTCOME_STYLE: Record<string, string> = {
   recovered: "bg-violet-500/15 text-violet-700",
   converted: "bg-emerald-500/15 text-emerald-700",
   no_response: "bg-rose-500/10 text-rose-700",
+  failed: "bg-amber-500/15 text-amber-700",
 };
 
 /** Renders a `RecoveryOutcome` from `lib/leads/recovery.ts`. */

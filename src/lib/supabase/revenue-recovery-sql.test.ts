@@ -7,6 +7,10 @@ const SQL = readFileSync(
   join(process.cwd(), "supabase", "migrations", "20260905190000_revenue_recovery.sql"),
   "utf8",
 );
+const FAILED_OUTCOME_SQL = readFileSync(
+  join(process.cwd(), "supabase", "migrations", "20260905193000_recovery_failed_outcome.sql"),
+  "utf8",
+);
 
 test("lead_recovery_attempts: correct FKs, RLS enabled", () => {
   assert.match(SQL, /create table public\.lead_recovery_attempts/);
@@ -16,12 +20,28 @@ test("lead_recovery_attempts: correct FKs, RLS enabled", () => {
   assert.match(SQL, /alter table public\.lead_recovery_attempts enable row level security/);
 });
 
-test("priority and resolved_as are constrained to the expected vocabularies", () => {
+test("priority is constrained to the expected vocabulary", () => {
   assert.match(SQL, /priority\s+text not null check \(priority in \('high', 'medium', 'low'\)\)/);
+});
+
+test("resolved_as originally allowed only converted/no_response", () => {
   assert.match(
     SQL,
     /resolved_as\s+text check \(resolved_as in \('converted', 'no_response'\)\)/,
   );
+});
+
+test("a companion migration widens resolved_as to also allow 'failed' (a delivery that never happened)", () => {
+  assert.match(FAILED_OUTCOME_SQL, /drop constraint lead_recovery_attempts_resolved_as_check/);
+  assert.match(
+    FAILED_OUTCOME_SQL,
+    /add constraint lead_recovery_attempts_resolved_as_check\s+check \(resolved_as in \('converted', 'no_response', 'failed'\)\)/,
+  );
+});
+
+test("the failed-outcome migration touches nothing but the one constraint", () => {
+  assert.doesNotMatch(FAILED_OUTCOME_SQL, /drop (table|policy|column)/i);
+  assert.doesNotMatch(FAILED_OUTCOME_SQL, /create (table|index|policy)/i);
 });
 
 test("duplicate-attempt guard: unique index on lead_id where still open (resolved_at is null)", () => {

@@ -569,6 +569,7 @@ export const ar: Dictionary = {
       recovered: "تمت الاستعادة",
       converted: "تم التحويل",
       no_response: "لا رد",
+      failed: "فشل الإرسال",
     },
     reasons: {
       lostHot: "مُعلَّم كمفقود، لكنه كان عميلاً ساخنًا — يستحق محاولة أخرى.",
