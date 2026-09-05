@@ -9,7 +9,7 @@ import {
   type WhatsAppFormState,
 } from "@/lib/whatsapp/connection-actions";
 import { useI18n } from "@/i18n/client";
-import type { WhatsAppConnectionView } from "./page";
+import type { WhatsAppConnectionView } from "@/lib/whatsapp/connections";
 
 const INITIAL: WhatsAppFormState = {};
 

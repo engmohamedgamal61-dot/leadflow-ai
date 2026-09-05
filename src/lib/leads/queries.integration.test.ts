@@ -461,3 +461,70 @@ test("insight signal tables (follow-ups, appointments, handoff events) joined by
     .eq("event_type", "human_handoff_requested");
   assert.deepEqual(bOwnHandoffs.data.map((r: { lead_id: string }) => r.lead_id), [bLeadId]);
 });
+
+// ── Phase M: executive dashboard data sources ──────────────────────────────
+
+test("recent-activity feed reads only the caller's org events, joined to its own leads", { skip }, async () => {
+  // Mirrors getRecentActivity's query shape (org-scoped select + leads join).
+  const a = await users.a.client
+    .from("lead_events")
+    .select("id, lead_id, event_type, metadata, created_at, leads ( name )")
+    .eq("organization_id", orgA)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  assert.equal(a.error, null);
+  assert.ok(a.data.length >= 2);
+  // Never references org B's lead, and the joined lead name is never org B's.
+  assert.ok(!a.data.some((r: { lead_id: string }) => r.lead_id === bLeadId));
+  assert.ok(
+    !a.data.some((r: { leads: { name: string | null } | null }) => r.leads?.name === "Omar B"),
+  );
+
+  // Org B's client, running the same query scoped to org A, sees nothing.
+  const bAcrossTenant = await users.b.client
+    .from("lead_events")
+    .select("id")
+    .eq("organization_id", orgA)
+    .limit(20);
+  assert.deepEqual(bAcrossTenant.data, []);
+
+  // Org B's own feed is exactly its own event.
+  const bOwn = await users.b.client
+    .from("lead_events")
+    .select("lead_id")
+    .eq("organization_id", orgB)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  assert.ok(bOwn.data.every((r: { lead_id: string }) => r.lead_id === bLeadId));
+});
+
+test("upcoming-appointment count is organization-scoped", { skip }, async () => {
+  const future = new Date(Date.now() + 3 * 86_400_000).toISOString();
+  const ends = new Date(Date.now() + 3 * 86_400_000 + 1_800_000).toISOString();
+  const appt = await admin.from("appointments").insert({
+    organization_id: orgA,
+    lead_id: aHotLeadId,
+    starts_at: future,
+    ends_at: ends,
+    timezone: "Asia/Riyadh",
+    status: "scheduled",
+    source: "manual",
+  });
+  assert.equal(appt.error, null);
+
+  const aCount = await users.a.client
+    .from("appointments")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", orgA)
+    .in("status", ["scheduled", "rescheduled"])
+    .gt("starts_at", new Date().toISOString());
+  assert.ok((aCount.count ?? 0) >= 1);
+
+  const bCount = await users.b.client
+    .from("appointments")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", orgA)
+    .in("status", ["scheduled", "rescheduled"])
+    .gt("starts_at", new Date().toISOString());
+  assert.equal(bCount.count ?? 0, 0);
+});

@@ -370,6 +370,8 @@ export function describeEventKey(event: LeadEventLike): TimelineDescriptor {
         titleKey: "events.humanHandoffRequested",
         detail: typeof m.reason === "string" ? { kind: "text", text: m.reason } : null,
       };
+    case "recovery_attempt_started":
+      return { at, titleKey: "events.recoveryAttemptStarted", detail: null };
     case "appointment_booked":
       return {
         at,
@@ -487,6 +489,7 @@ function resolveEnglish(d: TimelineDescriptor): TimelineEntry {
     "events.followUpRetryScheduled": "Follow-up retry scheduled",
     "events.followUpFailed": "Follow-up failed",
     "events.humanHandoffRequested": "Human handoff requested",
+    "events.recoveryAttemptStarted": "Recovery attempt started",
     "events.appointmentBooked": "Appointment booked",
     "events.appointmentRescheduled": "Appointment rescheduled",
     "events.appointmentCancelled": "Appointment cancelled",

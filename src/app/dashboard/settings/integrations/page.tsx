@@ -4,22 +4,13 @@ import { createClient } from "@/lib/supabase/server";
 import { formatDateTime } from "@/lib/leads/format";
 import { getI18n } from "@/i18n/server";
 import { getConnectionView } from "@/lib/calendar/connections";
+import { getWhatsAppConnectionView } from "@/lib/whatsapp/connections";
 import { WhatsAppSettings } from "./whatsapp-form";
 import { GoogleCalendarSettings } from "./calendar-form";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { dict } = await getI18n();
   return { title: dict.meta.integrations };
-}
-
-export interface WhatsAppConnectionView {
-  status: string;
-  phoneNumberId: string;
-  wabaId: string | null;
-  displayPhoneNumber: string | null;
-  lastError: string | null;
-  followUpTemplate: { name: string; language: string } | null;
-  updatedAt: string;
 }
 
 export default async function IntegrationsPage({
@@ -33,35 +24,10 @@ export default async function IntegrationsPage({
   const { calendar: calendarParam } = await searchParams;
 
   const supabase = await createClient();
-  // Never selects `access_token_encrypted` — and the column is revoked from
-  // `authenticated` at the database level anyway.
-  const { data } = await supabase
-    .from("whatsapp_connections")
-    .select(
-      "status, phone_number_id, waba_id, display_phone_number, last_error, metadata, updated_at",
-    )
-    .eq("organization_id", membership.organizationId)
-    .maybeSingle();
-
-  const tpl = (data?.metadata as { followUpTemplate?: { name?: string; language?: string } } | null)
-    ?.followUpTemplate;
-
-  const connection: WhatsAppConnectionView | null = data
-    ? {
-        status: data.status,
-        phoneNumberId: data.phone_number_id,
-        wabaId: data.waba_id,
-        displayPhoneNumber: data.display_phone_number,
-        lastError: data.last_error,
-        followUpTemplate:
-          tpl && tpl.name
-            ? { name: tpl.name, language: tpl.language ?? "en_US" }
-            : null,
-        updatedAt: data.updated_at,
-      }
-    : null;
-
-  const calendarConnection = await getConnectionView(supabase, membership.organizationId);
+  const [connection, calendarConnection] = await Promise.all([
+    getWhatsAppConnectionView(supabase, membership.organizationId),
+    getConnectionView(supabase, membership.organizationId),
+  ]);
 
   const calendarBanner = calendarParam
     ? calendarParam === "connected"

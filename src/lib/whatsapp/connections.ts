@@ -111,6 +111,49 @@ export async function getSendCredentials(
   };
 }
 
+export interface WhatsAppConnectionView {
+  status: "connected" | "disconnected" | "error" | "pending";
+  phoneNumberId: string;
+  wabaId: string | null;
+  displayPhoneNumber: string | null;
+  lastError: string | null;
+  followUpTemplate: { name: string; language: string } | null;
+  updatedAt: string;
+}
+
+/**
+ * Dashboard-safe read — never selects `access_token_encrypted` (which is also
+ * revoked from `authenticated` at the database level). Mirrors
+ * `calendar/connections.ts`'s `getConnectionView`.
+ */
+export async function getWhatsAppConnectionView(
+  db: Db,
+  organizationId: string,
+): Promise<WhatsAppConnectionView | null> {
+  const { data } = await db
+    .from("whatsapp_connections")
+    .select(
+      "status, phone_number_id, waba_id, display_phone_number, last_error, metadata, updated_at",
+    )
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (!data) return null;
+
+  const tpl = (data.metadata as { followUpTemplate?: { name?: string; language?: string } } | null)
+    ?.followUpTemplate;
+
+  return {
+    status: data.status as WhatsAppConnectionView["status"],
+    phoneNumberId: data.phone_number_id,
+    wabaId: data.waba_id,
+    displayPhoneNumber: data.display_phone_number,
+    lastError: data.last_error,
+    followUpTemplate:
+      tpl && tpl.name ? { name: tpl.name, language: tpl.language ?? "en_US" } : null,
+    updatedAt: data.updated_at,
+  };
+}
+
 /** Recipient WhatsApp number for a lead/conversation, from persisted data. */
 export async function resolveRecipientWaId(
   db: Db,

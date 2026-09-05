@@ -48,6 +48,9 @@ export interface LeadStats {
   warm: number;
   cold: number;
   qualified: number;
+  won: number;
+  /** Leads created since the start of the current UTC day. */
+  createdToday: number;
 }
 
 export interface LeadListRow {
@@ -112,12 +115,17 @@ export async function getLeadStats(organizationId: string): Promise<LeadStats> {
       .select("id", { count: "exact", head: true })
       .eq("organization_id", organizationId);
 
-  const [total, hot, warm, cold, qualified] = await Promise.all([
+  const startOfDay = new Date();
+  startOfDay.setUTCHours(0, 0, 0, 0);
+
+  const [total, hot, warm, cold, qualified, won, createdToday] = await Promise.all([
     base(),
     base().eq("temperature", "hot"),
     base().eq("temperature", "warm"),
     base().eq("temperature", "cold"),
     base().eq("status", "qualified"),
+    base().eq("status", "won"),
+    base().gte("created_at", startOfDay.toISOString()),
   ]);
 
   return {
@@ -126,6 +134,8 @@ export async function getLeadStats(organizationId: string): Promise<LeadStats> {
     warm: warm.count ?? 0,
     cold: cold.count ?? 0,
     qualified: qualified.count ?? 0,
+    won: won.count ?? 0,
+    createdToday: createdToday.count ?? 0,
   };
 }
 
@@ -765,6 +775,60 @@ export async function getUpcomingAppointments(
     const lead = (r as { leads?: { name: string | null } | null }).leads;
     return { ...row, leadName: lead?.name ?? null };
   });
+}
+
+/** How many active appointments are still upcoming — for the executive summary card. */
+export async function getUpcomingAppointmentCount(
+  organizationId: string,
+): Promise<number> {
+  const supabase = await createClient();
+  const { count } = await supabase
+    .from("appointments")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId)
+    .in("status", ["scheduled", "rescheduled"])
+    .gt("starts_at", new Date().toISOString());
+  return count ?? 0;
+}
+
+export interface ActivityEvent {
+  id: string;
+  leadId: string;
+  leadName: string | null;
+  eventType: string;
+  metadata: unknown;
+  createdAt: string;
+}
+
+const ACTIVITY_FEED_LIMIT = 20;
+
+/**
+ * The organization's most recent `lead_events`, across every lead — the raw
+ * material for the dashboard's Live Activity feed. Org-scoped (defence in
+ * depth on top of RLS); the `leads` join is RLS-scoped too. Rendering
+ * (localization) is done by `describeEventKey` + `resolveTimelineEntry`, the
+ * same pipeline the per-lead timeline uses.
+ */
+export async function getRecentActivity(
+  organizationId: string,
+  limit = ACTIVITY_FEED_LIMIT,
+): Promise<ActivityEvent[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("lead_events")
+    .select("id, lead_id, event_type, metadata, created_at, leads ( name )")
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: false })
+    .limit(Math.min(limit, ACTIVITY_FEED_LIMIT));
+  if (error) throw error;
+  return (data ?? []).map((r) => ({
+    id: r.id,
+    leadId: r.lead_id,
+    leadName: (r as { leads?: { name: string | null } | null }).leads?.name ?? null,
+    eventType: r.event_type,
+    metadata: r.metadata,
+    createdAt: r.created_at,
+  }));
 }
 
 /** Distinct leads that have ever requested a human handoff. */

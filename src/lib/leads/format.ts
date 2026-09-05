@@ -9,4 +9,6 @@ export {
   formatDateTime,
   formatNumber,
   formatPercent,
+  relativeTimeBucket,
+  type RelativeTimeBucket,
 } from "../../i18n/format.ts";

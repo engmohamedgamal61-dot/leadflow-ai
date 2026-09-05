@@ -5,6 +5,7 @@ import {
   formatDateTime,
   formatNumber,
   formatPercent,
+  relativeTimeBucket,
 } from "./format.ts";
 
 const ISO = "2026-09-04T10:30:00Z";
@@ -41,4 +42,16 @@ test("formatPercent renders a whole-number percent, Latin digits", () => {
 
 test("default locale is English", () => {
   assert.equal(formatNumber(1000), "1,000");
+});
+
+test("relativeTimeBucket: buckets a past timestamp, falls back to a date past a week", () => {
+  const now = new Date("2026-09-10T12:00:00Z");
+  const ago = (ms: number) => new Date(now.getTime() - ms).toISOString();
+  assert.deepEqual(relativeTimeBucket(ago(30_000), now), { unit: "now" });
+  assert.deepEqual(relativeTimeBucket(ago(5 * 60_000), now), { unit: "minutes", value: 5 });
+  assert.deepEqual(relativeTimeBucket(ago(3 * 3_600_000), now), { unit: "hours", value: 3 });
+  assert.deepEqual(relativeTimeBucket(ago(2 * 86_400_000), now), { unit: "days", value: 2 });
+  assert.deepEqual(relativeTimeBucket(ago(30 * 86_400_000), now), { unit: "date" });
+  assert.deepEqual(relativeTimeBucket(null, now), { unit: "date" });
+  assert.deepEqual(relativeTimeBucket("not-a-date", now), { unit: "date" });
 });
