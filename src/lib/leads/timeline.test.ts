@@ -57,9 +57,9 @@ test("resolveTimelineEntry localizes titles + transitions in both locales", () =
     metadata: { score: 55, temperature: "warm" },
     created_at: "t",
   });
-  assert.match(resolveTimelineEntry(created, enCtx).detail ?? "", /Initial score 55 · Warm/);
+  assert.match(resolveTimelineEntry(created, enCtx).detail ?? "", /Initial score 55 · Promising/);
   assert.match(resolveTimelineEntry(created, arCtx).detail ?? "", /55/);
-  assert.match(resolveTimelineEntry(created, arCtx).detail ?? "", /دافئ/);
+  assert.match(resolveTimelineEntry(created, arCtx).detail ?? "", /فرصة واعدة/);
 });
 
 test("resolveTimelineEntry passes raw model/user text straight through", () => {

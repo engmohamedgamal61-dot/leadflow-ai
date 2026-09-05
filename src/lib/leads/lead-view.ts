@@ -477,7 +477,7 @@ function resolveEnglish(d: TimelineDescriptor): TimelineEntry {
     "events.leadCreated": "Lead created",
     "events.messageReceived": "Message received",
     "events.scoreChanged": "Score changed",
-    "events.temperatureChanged": "Temperature changed",
+    "events.temperatureChanged": "Potential changed",
     "events.statusChanged": "Status changed",
     "events.leadQualified": "Lead qualified",
     "events.leadQualifiedAuto": "Automatically — qualification complete",
