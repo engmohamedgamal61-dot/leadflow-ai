@@ -12,7 +12,7 @@ export default function DashboardError({
   const { t } = useI18n();
   return (
     <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 px-6 py-12 text-center">
-      <p className="text-sm font-medium text-rose-300">
+      <p className="text-sm font-medium text-rose-700">
         {t("errors.dashboard.title")}
       </p>
       <p className="mt-1 text-xs text-muted">

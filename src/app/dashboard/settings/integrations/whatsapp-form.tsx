@@ -17,10 +17,10 @@ function Feedback({ state }: { state: WhatsAppFormState }) {
   const { t } = useI18n();
   if (state.errorCode) {
     return (
-      <div role="alert" className="space-y-1 text-xs text-rose-400">
+      <div role="alert" className="space-y-1 text-xs text-rose-600">
         <p>{t(state.errorCode, state.params)}</p>
         {state.details?.length ? (
-          <ul className="list-inside list-disc text-rose-400/80">
+          <ul className="list-inside list-disc text-rose-600/80">
             {state.details.map((d, i) => (
               <li key={i}>{t(d)}</li>
             ))}
@@ -31,7 +31,7 @@ function Feedback({ state }: { state: WhatsAppFormState }) {
   }
   if (state.ok) {
     return (
-      <p role="status" className="text-xs text-emerald-400">
+      <p role="status" className="text-xs text-emerald-600">
         {state.messageCode ? t(state.messageCode, state.params) : t("settings.saved")}
       </p>
     );
@@ -74,10 +74,10 @@ function Field({
 }
 
 const STATUS_STYLE: Record<string, string> = {
-  connected: "bg-emerald-500/15 text-emerald-300",
+  connected: "bg-emerald-500/15 text-emerald-700",
   disconnected: "bg-border/50 text-muted",
-  error: "bg-rose-500/15 text-rose-300",
-  pending: "bg-amber-500/15 text-amber-300",
+  error: "bg-rose-500/15 text-rose-700",
+  pending: "bg-amber-500/15 text-amber-700",
 };
 
 export function WhatsAppSettings({
@@ -145,7 +145,7 @@ export function WhatsAppSettings({
           {connection.lastError ? (
             <div className="sm:col-span-2">
               <dt className="text-muted">{t("whatsapp.fields.lastError")}</dt>
-              <dd className="mt-0.5 text-rose-400/90">{connection.lastError}</dd>
+              <dd className="mt-0.5 text-rose-600/90">{connection.lastError}</dd>
             </div>
           ) : null}
         </dl>
@@ -227,7 +227,7 @@ export function WhatsAppSettings({
                         await disconnectWhatsAppAction();
                       })
                     }
-                    className="rounded-lg border border-border px-3 py-2 text-xs text-rose-400/80 hover:text-rose-400 disabled:opacity-50"
+                    className="rounded-lg border border-border px-3 py-2 text-xs text-rose-600/80 hover:text-rose-600 disabled:opacity-50"
                   >
                     {t("whatsapp.connect.disconnect")}
                   </button>

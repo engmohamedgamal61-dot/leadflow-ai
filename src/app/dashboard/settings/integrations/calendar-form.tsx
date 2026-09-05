@@ -17,10 +17,10 @@ function Feedback({ state }: { state: CalendarFormState }) {
   const { t } = useI18n();
   if (state.errorCode) {
     return (
-      <div role="alert" className="space-y-1 text-xs text-rose-400">
+      <div role="alert" className="space-y-1 text-xs text-rose-600">
         <p>{t(state.errorCode)}</p>
         {state.details?.length ? (
-          <ul className="list-inside list-disc text-rose-400/80">
+          <ul className="list-inside list-disc text-rose-600/80">
             {state.details.map((d, i) => (
               <li key={i}>{t(d)}</li>
             ))}
@@ -31,7 +31,7 @@ function Feedback({ state }: { state: CalendarFormState }) {
   }
   if (state.ok) {
     return (
-      <p role="status" className="text-xs text-emerald-400">
+      <p role="status" className="text-xs text-emerald-600">
         {state.messageCode ? t(state.messageCode) : t("settings.saved")}
       </p>
     );
@@ -48,10 +48,10 @@ function minutesToLabel(minutes: number): string {
 }
 
 const STATUS_STYLE: Record<string, string> = {
-  connected: "bg-emerald-500/15 text-emerald-300",
+  connected: "bg-emerald-500/15 text-emerald-700",
   disconnected: "bg-border/50 text-muted",
-  error: "bg-rose-500/15 text-rose-300",
-  pending: "bg-amber-500/15 text-amber-300",
+  error: "bg-rose-500/15 text-rose-700",
+  pending: "bg-amber-500/15 text-amber-700",
 };
 
 export function GoogleCalendarSettings({
@@ -101,8 +101,8 @@ export function GoogleCalendarSettings({
           role={banner.kind === "error" ? "alert" : "status"}
           className={`rounded-lg border px-3 py-2 text-xs ${
             banner.kind === "error"
-              ? "border-rose-500/30 bg-rose-500/5 text-rose-300"
-              : "border-emerald-500/30 bg-emerald-500/5 text-emerald-300"
+              ? "border-rose-500/30 bg-rose-500/5 text-rose-700"
+              : "border-emerald-500/30 bg-emerald-500/5 text-emerald-700"
           }`}
         >
           {t(banner.code)}
@@ -126,7 +126,7 @@ export function GoogleCalendarSettings({
           {connection.lastError ? (
             <div className="sm:col-span-2">
               <dt className="text-muted">{t("calendar.fields.lastError")}</dt>
-              <dd className="mt-0.5 text-rose-400/90">{connection.lastError}</dd>
+              <dd className="mt-0.5 text-rose-600/90">{connection.lastError}</dd>
             </div>
           ) : null}
         </dl>
@@ -152,7 +152,7 @@ export function GoogleCalendarSettings({
                     setDisconnectState(await disconnectCalendarAction());
                   })
                 }
-                className="rounded-lg border border-border px-3 py-2 text-xs text-rose-400/80 hover:text-rose-400 disabled:opacity-50"
+                className="rounded-lg border border-border px-3 py-2 text-xs text-rose-600/80 hover:text-rose-600 disabled:opacity-50"
               >
                 {disconnecting ? t("calendar.connect.disconnecting") : t("calendar.connect.disconnect")}
               </button>

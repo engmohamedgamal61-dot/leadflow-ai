@@ -10,6 +10,37 @@
   --accent-foreground: #ffffff;
 }
 
+/*
+ * Dashboard-only "premium black + off-white" theme. Scoped to `.dashboard-shell`
+ * so the chat/auth/landing pages (which stay on the dark theme above) are
+ * untouched — every `bg-surface` / `text-foreground` / `border-border` /
+ * `text-muted` utility already used throughout the dashboard resolves through
+ * these custom properties, so this is a pure re-theme: no component markup
+ * changes needed beyond adding the scope class itself.
+ */
+.dashboard-shell {
+  --background: #f6f4f0;
+  --surface: #fbfaf7;
+  --border: #e7e3da;
+  --foreground: #17150f;
+  --muted: #6f6a60;
+}
+
+/*
+ * The sidebar stays a dark charcoal rail regardless of the light theme around
+ * it — a second, nested scope re-overrides the same four properties back to
+ * dark values. The `<aside>` already uses `bg-surface`/`text-foreground`/
+ * `text-muted`/`border-border`/`hover:bg-surface` throughout, so nesting this
+ * class on it is the only change needed; nothing inside sidebar.tsx's nav
+ * items or brand link has to change.
+ */
+.dashboard-sidebar {
+  --surface: #17150f;
+  --border: #2b2822;
+  --foreground: #f5f3ee;
+  --muted: #9c968a;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-surface: var(--surface);

@@ -13,6 +13,7 @@ import {
   LEAD_WRITE_ROLES,
 } from "../lib/org/roles.ts";
 import { NEXT_BEST_ACTIONS, RISK_LEVELS } from "../lib/leads/insights.ts";
+import { RECOVERY_PRIORITIES, RECOVERY_OUTCOMES } from "../lib/leads/recovery.ts";
 
 const ALL_ROLES = new Set([
   ...LEAD_WRITE_ROLES,
@@ -70,4 +71,12 @@ test("every next-best-action is translated in both locales", () => {
 
 test("every risk level is translated in both locales", () => {
   for (const r of RISK_LEVELS) bothHave(`insights.riskLevels.${r}`);
+});
+
+test("every recovery priority is translated in both locales", () => {
+  for (const p of RECOVERY_PRIORITIES) bothHave(`recovery.priorities.${p}`);
+});
+
+test("every recovery outcome is translated in both locales", () => {
+  for (const o of RECOVERY_OUTCOMES) bothHave(`recovery.outcomes.${o}`);
 });

@@ -25,7 +25,7 @@ export function ErrorState({ message }: { message?: string }) {
   const { t } = useI18n();
   return (
     <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 px-6 py-10 text-center">
-      <p className="text-sm font-medium text-rose-300">{t("errors.somethingWrong")}</p>
+      <p className="text-sm font-medium text-rose-700">{t("errors.somethingWrong")}</p>
       {message ? <p className="mt-1 text-xs text-muted">{message}</p> : null}
     </div>
   );

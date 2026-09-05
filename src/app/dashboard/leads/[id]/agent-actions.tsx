@@ -19,14 +19,14 @@ function Msg({ state }: { state: AgentFormState }) {
   const { t } = useI18n();
   if (state.errorCode) {
     return (
-      <p role="alert" className="text-xs text-rose-400">
+      <p role="alert" className="text-xs text-rose-600">
         {t(state.errorCode, state.errorParams)}
       </p>
     );
   }
   if (state.ok) {
     return (
-      <p role="status" className="text-xs text-emerald-400">
+      <p role="status" className="text-xs text-emerald-600">
         {t("common.done")}
       </p>
     );
@@ -107,10 +107,10 @@ export function FollowUpItem({
   );
 
   const badgeStyles: Record<string, string> = {
-    pending: "bg-amber-500/15 text-amber-300",
-    processing: "bg-sky-500/15 text-sky-300",
-    completed: "bg-emerald-500/15 text-emerald-300",
-    failed: "bg-rose-500/15 text-rose-300",
+    pending: "bg-amber-500/15 text-amber-700",
+    processing: "bg-sky-500/15 text-sky-700",
+    completed: "bg-emerald-500/15 text-emerald-700",
+    failed: "bg-rose-500/15 text-rose-700",
   };
   const badge = badgeStyles[followUp.status] ?? "bg-border/50 text-muted";
 
@@ -136,21 +136,21 @@ export function FollowUpItem({
             {followUp.attemptCount > 0 ? ` · ${attemptsLabel}` : ""}
           </p>
           {followUp.status === "completed" && followUp.completedAt ? (
-            <p className="mt-0.5 text-[11px] text-emerald-400/80">
+            <p className="mt-0.5 text-[11px] text-emerald-600/90">
               {t("leadDetail.followUps.sent", {
                 date: formatDateTime(followUp.completedAt, locale),
               })}
             </p>
           ) : null}
           {followUp.status === "failed" && followUp.lastError ? (
-            <p className="mt-0.5 text-[11px] text-rose-400/90">
+            <p className="mt-0.5 text-[11px] text-rose-600/90">
               {followUp.lastError}
             </p>
           ) : null}
           {followUp.status === "pending" &&
           followUp.attemptCount > 0 &&
           followUp.nextAttemptAt ? (
-            <p className="mt-0.5 text-[11px] text-amber-400/80">
+            <p className="mt-0.5 text-[11px] text-amber-600/90">
               {t("leadDetail.followUps.retry", {
                 date: formatDateTime(followUp.nextAttemptAt, locale),
               })}

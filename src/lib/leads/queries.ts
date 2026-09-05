@@ -7,6 +7,16 @@ import {
   type LeadInsightSignals,
   type RiskLevel,
 } from "@/lib/leads/insights";
+import {
+  computeRecoveryCandidate,
+  computeRecoveryAttemptOutcome,
+  resolveRecoveryChannel,
+  type RecoveryAttemptSignals,
+  type RecoveryCandidate,
+  type RecoveryOutcome,
+  type RecoveryPriority,
+  type RecoverySignals,
+} from "@/lib/leads/recovery";
 import type {
   FollowUpStatus,
   LeadStatus,
@@ -19,6 +29,10 @@ const ACTIVE_APPOINTMENT_STATUSES = ["scheduled", "rescheduled"] as const;
 const INSIGHT_CANDIDATE_LEADS_LIMIT = 300;
 const INSIGHT_RECENT_MESSAGES_LIMIT = 1500;
 const INSIGHT_HANDOFF_EVENTS_LIMIT = 500;
+/** Revenue Recovery excludes only converted/archived leads — "lost" IS the primary target. */
+const RECOVERY_EXCLUDED_STATUSES = ["won", "archived"] as const;
+const RECOVERY_CANDIDATE_LEADS_LIMIT = 300;
+const RECOVERY_ATTEMPTS_LIST_LIMIT = 200;
 
 /**
  * All reads go through the request-scoped, RLS-enforced Supabase client. Every
@@ -462,18 +476,28 @@ export interface InsightedLead {
   insight: LeadInsight;
 }
 
+/** Everything `computeInsightsForLeads` derives for one lead. */
+interface LeadWithSignals {
+  lead: LeadListRow;
+  insight: LeadInsight;
+  /** Exposed so `getRecoveryCandidates` can reuse this same fetch — see below. */
+  signals: LeadInsightSignals;
+}
+
 /**
- * Shared by both the bounded candidate scan (dashboard summary + "focus"
- * filter) and single-page decoration (badges on an already-fetched, already
- * SQL-filtered/paginated page of leads) — one code path builds every
- * `LeadInsight`, just fed a different (and differently-sized) `leads` array.
+ * Shared by the bounded candidate scan (dashboard summary + "focus" filter),
+ * single-page decoration (badges on an already-fetched, already SQL-filtered/
+ * paginated page of leads), AND the Revenue Recovery candidate scan — one
+ * code path fetches conversations/messages/follow-ups/appointments/handoff
+ * events and builds every lead's signals once, just fed a different (and
+ * differently-sized/filtered) `leads` array by each caller.
  */
 async function computeInsightsForLeads(
   supabase: Awaited<ReturnType<typeof createClient>>,
   organizationId: string,
   leads: LeadListRow[],
   now: Date,
-): Promise<InsightedLead[]> {
+): Promise<LeadWithSignals[]> {
   if (leads.length === 0) return [];
   const leadIds = leads.map((l) => l.id);
 
@@ -589,7 +613,7 @@ async function computeInsightsForLeads(
       lastCancelledAppointment: cancelledList[0] ?? null,
     };
 
-    return { lead, insight: computeLeadInsight(signals, now) };
+    return { lead, insight: computeLeadInsight(signals, now), signals };
   });
 }
 
@@ -616,7 +640,8 @@ export async function getLeadInsightCandidates(
   if (leadsError) throw leadsError;
 
   const leads = (leadRows ?? []).map((r) => toListRow(r as Parameters<typeof toListRow>[0]));
-  return computeInsightsForLeads(supabase, organizationId, leads, now);
+  const withSignals = await computeInsightsForLeads(supabase, organizationId, leads, now);
+  return withSignals.map(({ lead, insight }) => ({ lead, insight }));
 }
 
 /**
@@ -753,4 +778,371 @@ export async function getNeedsAttentionCount(
     .eq("event_type", "human_handoff_requested")
     .limit(1000);
   return new Set((data ?? []).map((r) => r.lead_id)).size;
+}
+
+// ── Revenue Recovery (Phase L) ──────────────────────────────────────────────
+
+const PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
+
+export interface RecoveryCandidateLead {
+  lead: LeadListRow;
+  candidate: RecoveryCandidate;
+}
+
+/**
+ * Lost/inactive leads worth a recovery attempt, each paired with its
+ * deterministic priority + reason. Bounded to `RECOVERY_CANDIDATE_LEADS_LIMIT`
+ * least-recently-updated leads — an MVP-scale aggregate (same tradeoff as
+ * `getLeadInsightCandidates`'s cap), not a full-table scan. Reuses the exact
+ * same signal fetch as Next Best Action (`computeInsightsForLeads`) so
+ * conversations/messages/follow-ups/appointments are scanned once, not twice.
+ *
+ * Unlike Next Best Action, "lost" is INCLUDED (it's the primary target) —
+ * only "won" (converted) and "archived" leads are excluded.
+ */
+export async function getRecoveryCandidates(
+  organizationId: string,
+  now: Date = new Date(),
+): Promise<RecoveryCandidateLead[]> {
+  const supabase = await createClient();
+
+  const { data: leadRows, error: leadsError } = await supabase
+    .from("leads")
+    .select(LIST_COLUMNS)
+    .eq("organization_id", organizationId)
+    .not("status", "in", `(${RECOVERY_EXCLUDED_STATUSES.join(",")})`)
+    .order("updated_at", { ascending: true })
+    .limit(RECOVERY_CANDIDATE_LEADS_LIMIT);
+  if (leadsError) throw leadsError;
+
+  const leads = (leadRows ?? []).map((r) => toListRow(r as Parameters<typeof toListRow>[0]));
+  if (leads.length === 0) return [];
+  const leadIds = leads.map((l) => l.id);
+
+  const [withSignals, recoveryResult] = await Promise.all([
+    computeInsightsForLeads(supabase, organizationId, leads, now),
+    supabase
+      .from("lead_recovery_attempts")
+      .select("lead_id, resolved_at")
+      .eq("organization_id", organizationId)
+      .in("lead_id", leadIds),
+  ]);
+  if (recoveryResult.error) throw recoveryResult.error;
+
+  const openRecoveryLeadIds = new Set<string>();
+  const lastResolvedByLead = new Map<string, string>();
+  for (const r of recoveryResult.data ?? []) {
+    if (r.resolved_at === null) {
+      openRecoveryLeadIds.add(r.lead_id);
+    } else {
+      const existing = lastResolvedByLead.get(r.lead_id);
+      if (!existing || Date.parse(r.resolved_at) > Date.parse(existing)) {
+        lastResolvedByLead.set(r.lead_id, r.resolved_at);
+      }
+    }
+  }
+
+  const candidates: RecoveryCandidateLead[] = [];
+  for (const { lead, signals } of withSignals) {
+    const recoverySignals: RecoverySignals = {
+      status: signals.status,
+      temperature: signals.temperature,
+      createdAt: signals.createdAt,
+      updatedAt: signals.updatedAt,
+      lastInboundAt: signals.lastInboundAt,
+      lastOutboundAt: signals.lastOutboundAt,
+      hasPendingFollowUp: signals.pendingFollowUps.length > 0,
+      hasActiveAppointment: signals.activeAppointment !== null,
+      hasOpenRecoveryAttempt: openRecoveryLeadIds.has(lead.id),
+      lastRecoveryResolvedAt: lastResolvedByLead.get(lead.id) ?? null,
+    };
+    const candidate = computeRecoveryCandidate(recoverySignals, now);
+    if (candidate) candidates.push({ lead, candidate });
+  }
+
+  candidates.sort((a, b) => PRIORITY_RANK[a.candidate.priority] - PRIORITY_RANK[b.candidate.priority]);
+  return candidates;
+}
+
+export interface RecoveryAttemptRow {
+  id: string;
+  leadId: string;
+  leadName: string | null;
+  followUpId: string;
+  reasonKey: string;
+  priority: RecoveryPriority;
+  outcome: RecoveryOutcome;
+  createdAt: string;
+}
+
+/**
+ * Every recovery attempt for the org (most recent first), each with its
+ * LIVE-derived outcome (see `computeRecoveryAttemptOutcome` — pending/
+ * contacted/recovered are never stored, only computed). The one side effect:
+ * an attempt that has just crossed into a terminal state (converted /
+ * no_response) gets that written back (`resolved_as`/`resolved_at`) so the
+ * duplicate-attempt guard naturally frees up — best-effort, never blocks the
+ * read.
+ */
+export async function listRecoveryAttempts(
+  organizationId: string,
+  now: Date = new Date(),
+): Promise<RecoveryAttemptRow[]> {
+  const supabase = await createClient();
+
+  const { data: attemptRows, error } = await supabase
+    .from("lead_recovery_attempts")
+    .select(
+      "id, lead_id, follow_up_id, reason_key, priority, resolved_as, resolved_at, created_at, leads ( name, status ), lead_follow_ups ( status, completed_at )",
+    )
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: false })
+    .limit(RECOVERY_ATTEMPTS_LIST_LIMIT);
+  if (error) throw error;
+
+  const rows = attemptRows ?? [];
+  if (rows.length === 0) return [];
+  const leadIds = [...new Set(rows.map((r) => r.lead_id))];
+
+  const { data: conversations, error: convError } = await supabase
+    .from("conversations")
+    .select("id, lead_id")
+    .eq("organization_id", organizationId)
+    .in("lead_id", leadIds);
+  if (convError) throw convError;
+
+  const conversationLead = new Map((conversations ?? []).map((c) => [c.id, c.lead_id]));
+  const lastInboundByLead = new Map<string, string>();
+  if ((conversations ?? []).length > 0) {
+    const { data: recentInbound, error: msgError } = await supabase
+      .from("messages")
+      .select("conversation_id, created_at")
+      .eq("role", "user")
+      .in(
+        "conversation_id",
+        (conversations ?? []).map((c) => c.id),
+      )
+      .order("created_at", { ascending: false })
+      .limit(INSIGHT_RECENT_MESSAGES_LIMIT);
+    if (msgError) throw msgError;
+    for (const m of recentInbound ?? []) {
+      const leadId = conversationLead.get(m.conversation_id);
+      if (!leadId) continue;
+      if (!lastInboundByLead.has(leadId)) lastInboundByLead.set(leadId, m.created_at);
+    }
+  }
+
+  const toResolve: { id: string; resolvedAs: "converted" | "no_response" }[] = [];
+  const result: RecoveryAttemptRow[] = rows.map((r) => {
+    const leadRel = (r as { leads?: { name: string | null; status: string } | null }).leads;
+    const followUpRel = (r as { lead_follow_ups?: { status: string; completed_at: string | null } | null })
+      .lead_follow_ups;
+
+    const signals: RecoveryAttemptSignals = {
+      leadStatus: leadRel?.status ?? "new",
+      followUpStatus: followUpRel?.status ?? "pending",
+      followUpCompletedAt: followUpRel?.completed_at ?? null,
+      lastInboundAt: lastInboundByLead.get(r.lead_id) ?? null,
+      resolvedAs: (r.resolved_as as "converted" | "no_response" | null) ?? null,
+    };
+    const outcome = computeRecoveryAttemptOutcome(signals, now);
+    if (!r.resolved_at && (outcome === "converted" || outcome === "no_response")) {
+      toResolve.push({ id: r.id, resolvedAs: outcome });
+    }
+
+    return {
+      id: r.id,
+      leadId: r.lead_id,
+      leadName: leadRel?.name ?? null,
+      followUpId: r.follow_up_id,
+      reasonKey: r.reason_key,
+      priority: r.priority as RecoveryPriority,
+      outcome,
+      createdAt: r.created_at,
+    };
+  });
+
+  if (toResolve.length > 0) {
+    const nowIso = now.toISOString();
+    await Promise.all(
+      toResolve.map(({ id, resolvedAs }) =>
+        supabase
+          .from("lead_recovery_attempts")
+          .update({ resolved_as: resolvedAs, resolved_at: nowIso })
+          .eq("organization_id", organizationId)
+          .eq("id", id)
+          .is("resolved_at", null)
+          .then(({ error: resolveError }) => {
+            if (resolveError) {
+              console.error("recovery attempt resolve write-back failed:", resolveError.message);
+            }
+          }),
+      ),
+    );
+  }
+
+  return result;
+}
+
+export interface RecoverySummary {
+  pending: number;
+  contacted: number;
+  recovered: number;
+  converted: number;
+  noResponse: number;
+}
+
+/** Aggregate counts for the dashboard — see {@link listRecoveryAttempts} for the scan bound. */
+export async function getRecoverySummary(organizationId: string): Promise<RecoverySummary> {
+  const attempts = await listRecoveryAttempts(organizationId);
+  const summary: RecoverySummary = {
+    pending: 0,
+    contacted: 0,
+    recovered: 0,
+    converted: 0,
+    noResponse: 0,
+  };
+  for (const a of attempts) {
+    if (a.outcome === "pending") summary.pending++;
+    else if (a.outcome === "contacted") summary.contacted++;
+    else if (a.outcome === "recovered") summary.recovered++;
+    else if (a.outcome === "converted") summary.converted++;
+    else summary.noResponse++;
+  }
+  return summary;
+}
+
+export interface StartRecoveryResult {
+  status: "started" | "already_in_progress" | "not_eligible" | "failed";
+  followUpId?: string;
+  attemptId?: string;
+}
+
+/**
+ * Deterministic, template-based outreach — no Claude call, matching
+ * `follow-ups/message.ts`'s existing philosophy exactly. The `lead_follow_ups`
+ * row this creates flows through the SAME scheduler/executor/channel
+ * architecture as every other follow-up (Phase F/G/H) — nothing new to run it.
+ */
+const RECOVERY_MESSAGE =
+  "We wanted to check back in — is this still something you're looking for? Happy to help whenever you're ready.";
+
+/**
+ * Starts a recovery attempt for one lead: re-validates eligibility
+ * server-side (never trusts the candidate list the client was shown), then
+ * creates a normal `lead_follow_ups` row (source='recovery') plus the
+ * `lead_recovery_attempts` record that links to it. The DB's
+ * `lead_recovery_attempts_open_per_lead` unique index is the hard duplicate
+ * guard — a concurrent second call loses the race with a friendly outcome,
+ * not a second attempt.
+ */
+export async function startRecoveryAttempt(
+  organizationId: string,
+  leadId: string,
+  now: Date = new Date(),
+): Promise<StartRecoveryResult> {
+  const supabase = await createClient();
+
+  const { data: leadRow, error: leadError } = await supabase
+    .from("leads")
+    .select(LIST_COLUMNS)
+    .eq("organization_id", organizationId)
+    .eq("id", leadId)
+    .maybeSingle();
+  if (leadError) return { status: "failed" };
+  if (!leadRow) return { status: "failed" };
+  const lead = toListRow(leadRow as Parameters<typeof toListRow>[0]);
+
+  const [withSignals, recoveryResult] = await Promise.all([
+    computeInsightsForLeads(supabase, organizationId, [lead], now),
+    supabase
+      .from("lead_recovery_attempts")
+      .select("resolved_at")
+      .eq("organization_id", organizationId)
+      .eq("lead_id", leadId),
+  ]);
+  if (recoveryResult.error) return { status: "failed" };
+  const signals = withSignals[0]?.signals;
+  if (!signals) return { status: "failed" };
+
+  const rows = recoveryResult.data ?? [];
+  const hasOpen = rows.some((r) => r.resolved_at === null);
+  const lastResolvedAt =
+    rows
+      .map((r) => r.resolved_at)
+      .filter((v): v is string => v !== null)
+      .sort()
+      .at(-1) ?? null;
+
+  const recoverySignals: RecoverySignals = {
+    status: signals.status,
+    temperature: signals.temperature,
+    createdAt: signals.createdAt,
+    updatedAt: signals.updatedAt,
+    lastInboundAt: signals.lastInboundAt,
+    lastOutboundAt: signals.lastOutboundAt,
+    hasPendingFollowUp: signals.pendingFollowUps.length > 0,
+    hasActiveAppointment: signals.activeAppointment !== null,
+    hasOpenRecoveryAttempt: hasOpen,
+    lastRecoveryResolvedAt: lastResolvedAt,
+  };
+
+  const candidate = computeRecoveryCandidate(recoverySignals, now);
+  if (!candidate) {
+    return { status: hasOpen ? "already_in_progress" : "not_eligible" };
+  }
+
+  const channel = resolveRecoveryChannel({ phone: lead.phone });
+
+  const { data: followUp, error: followUpError } = await supabase
+    .from("lead_follow_ups")
+    .insert({
+      organization_id: organizationId,
+      lead_id: leadId,
+      conversation_id: null,
+      scheduled_at: now.toISOString(),
+      status: "pending",
+      note: RECOVERY_MESSAGE,
+      source: "recovery",
+      channel,
+    })
+    .select("id")
+    .single();
+  if (followUpError || !followUp) return { status: "failed" };
+
+  const { data: attempt, error: attemptError } = await supabase
+    .from("lead_recovery_attempts")
+    .insert({
+      organization_id: organizationId,
+      lead_id: leadId,
+      follow_up_id: followUp.id,
+      reason_key: candidate.reasonKey,
+      priority: candidate.priority,
+    })
+    .select("id")
+    .single();
+  if (attemptError || !attempt) {
+    // 23505 = the unique-open-per-lead index — lost a genuine race against
+    // another attempt started concurrently. The follow-up row above is a
+    // rare, harmless leftover (one extra outreach message), not a
+    // data-integrity issue.
+    if ((attemptError as { code?: string } | null)?.code === "23505") {
+      return { status: "already_in_progress", followUpId: followUp.id };
+    }
+    return { status: "failed", followUpId: followUp.id };
+  }
+
+  await supabase.from("lead_events").insert({
+    organization_id: organizationId,
+    lead_id: leadId,
+    event_type: "recovery_attempt_started",
+    metadata: {
+      followUpId: followUp.id,
+      attemptId: attempt.id,
+      reasonKey: candidate.reasonKey,
+      priority: candidate.priority,
+    },
+  });
+
+  return { status: "started", followUpId: followUp.id, attemptId: attempt.id };
 }

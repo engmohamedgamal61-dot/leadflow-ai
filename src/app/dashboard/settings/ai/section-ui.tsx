@@ -30,17 +30,17 @@ export function Feedback({ state }: { state: SettingsFormState }) {
   const { t } = useI18n();
   if (state.ok) {
     return (
-      <p role="status" className="text-xs text-emerald-400">
+      <p role="status" className="text-xs text-emerald-600">
         {t("settings.saved")}
       </p>
     );
   }
   if (state.errorCode) {
     return (
-      <div role="alert" className="space-y-1 text-xs text-rose-400">
+      <div role="alert" className="space-y-1 text-xs text-rose-600">
         <p>{t(state.errorCode, state.errorParams)}</p>
         {state.details?.length ? (
-          <ul className="list-inside list-disc text-rose-400/80">
+          <ul className="list-inside list-disc text-rose-600/80">
             {state.details.slice(0, 6).map((d, i) => (
               <li key={i}>{d}</li>
             ))}

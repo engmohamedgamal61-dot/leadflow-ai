@@ -123,8 +123,8 @@ export default async function LeadDetailPage({
         <div
           className={`rounded-xl border px-4 py-3 text-sm ${
             insight.riskLevel === "needs_attention"
-              ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
-              : "border-rose-500/40 bg-rose-500/10 text-rose-200"
+              ? "border-amber-500/40 bg-amber-500/10 text-amber-800"
+              : "border-rose-500/40 bg-rose-500/10 text-rose-800"
           }`}
         >
           <div className="flex flex-wrap items-center gap-2">
@@ -166,7 +166,7 @@ export default async function LeadDetailPage({
             <h2 className="text-sm font-semibold text-foreground">
               {t("leadDetail.sections.followUps")}
               {pendingFollowUps.length > 0 ? (
-                <span className="ms-2 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">
+                <span className="ms-2 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
                   {t("leadDetail.followUps.pendingBadge", {
                     count: pendingFollowUps.length,
                   })}

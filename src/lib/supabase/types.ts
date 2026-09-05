@@ -644,6 +644,64 @@ export interface Database {
           },
         ];
       };
+      lead_recovery_attempts: {
+        Row: {
+          id: string;
+          organization_id: string;
+          lead_id: string;
+          follow_up_id: string;
+          reason_key: string;
+          priority: string;
+          resolved_as: string | null;
+          resolved_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          lead_id: string;
+          follow_up_id: string;
+          reason_key: string;
+          priority: string;
+          resolved_as?: string | null;
+          resolved_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          lead_id?: string;
+          follow_up_id?: string;
+          reason_key?: string;
+          priority?: string;
+          resolved_as?: string | null;
+          resolved_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "lead_recovery_attempts_organization_id_fkey";
+            columns: ["organization_id"];
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "lead_recovery_attempts_lead_id_fkey";
+            columns: ["lead_id"];
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "lead_recovery_attempts_follow_up_id_fkey";
+            columns: ["follow_up_id"];
+            referencedRelation: "lead_follow_ups";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<never, never>;
     Functions: {

@@ -135,7 +135,7 @@ export function QualificationForm({
         </div>
 
         {enabledCount === 0 ? (
-          <p className="text-xs text-rose-400">
+          <p className="text-xs text-rose-600">
             {t("settingsAi.qualification.minOneField")}
           </p>
         ) : null}

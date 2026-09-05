@@ -6,9 +6,9 @@ interface StatCardProps {
 
 const ACCENT: Record<string, string> = {
   default: "text-foreground",
-  hot: "text-rose-300",
-  warm: "text-amber-300",
-  cold: "text-sky-300",
+  hot: "text-rose-700",
+  warm: "text-amber-700",
+  cold: "text-sky-700",
 };
 
 export function StatCard({ label, value, accent = "default" }: StatCardProps) {

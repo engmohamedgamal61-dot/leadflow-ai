@@ -16,6 +16,7 @@ interface NavLink {
 const TOP_LINKS: NavLink[] = [
   { href: "/dashboard", labelKey: "navigation.dashboard", exact: true },
   { href: "/dashboard/leads", labelKey: "navigation.leads", exact: false },
+  { href: "/dashboard/recovery", labelKey: "navigation.recovery", exact: false },
 ];
 
 const SETTINGS_LINKS: NavLink[] = [
@@ -173,7 +174,7 @@ export function DashboardShell({
   );
 
   return (
-    <div className="flex min-h-[100dvh] flex-col md:flex-row">
+    <div className="dashboard-shell flex min-h-[100dvh] flex-col bg-background text-foreground md:flex-row">
       {/* Mobile backdrop */}
       {open ? (
         <div
@@ -191,7 +192,7 @@ export function DashboardShell({
           source order, override) `md:translate-x-0` — hiding the sidebar on
           desktop in Arabic while English rendered correctly. */}
       <aside
-        className={`fixed inset-y-0 start-0 z-50 flex w-64 shrink-0 flex-col border-e border-border bg-surface transition-transform duration-200 ease-out md:sticky md:top-0 md:z-0 md:h-[100dvh] md:translate-x-0 ${
+        className={`dashboard-sidebar fixed inset-y-0 start-0 z-50 flex w-64 shrink-0 flex-col border-e border-border bg-surface transition-transform duration-200 ease-out md:sticky md:top-0 md:z-0 md:h-[100dvh] md:translate-x-0 ${
           open ? "translate-x-0" : "max-md:-translate-x-full max-md:rtl:translate-x-full"
         }`}
       >

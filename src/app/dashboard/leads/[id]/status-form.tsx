@@ -56,11 +56,11 @@ export function StatusForm({
       </button>
 
       {state.errorCode ? (
-        <p role="alert" className="text-xs text-rose-400">
+        <p role="alert" className="text-xs text-rose-600">
           {t(state.errorCode)}
         </p>
       ) : state.ok ? (
-        <p role="status" className="text-xs text-emerald-400">
+        <p role="status" className="text-xs text-emerald-600">
           {t("leadDetail.status.updated")}
         </p>
       ) : null}

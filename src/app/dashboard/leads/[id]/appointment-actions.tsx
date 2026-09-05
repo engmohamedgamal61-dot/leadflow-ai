@@ -19,14 +19,14 @@ function Msg({ state }: { state: AppointmentFormState }) {
   const { t } = useI18n();
   if (state.errorCode) {
     return (
-      <p role="alert" className="text-xs text-rose-400">
+      <p role="alert" className="text-xs text-rose-600">
         {t(state.errorCode)}
       </p>
     );
   }
   if (state.ok) {
     return (
-      <p role="status" className="text-xs text-emerald-400">
+      <p role="status" className="text-xs text-emerald-600">
         {t("common.done")}
       </p>
     );
@@ -134,11 +134,11 @@ export function AppointmentItem({
   const [mode, setMode] = useState<"view" | "reschedule" | "cancel">("view");
 
   const badgeStyles: Record<string, string> = {
-    scheduled: "bg-emerald-500/15 text-emerald-300",
-    rescheduled: "bg-sky-500/15 text-sky-300",
-    cancelled: "bg-rose-500/15 text-rose-300",
+    scheduled: "bg-emerald-500/15 text-emerald-700",
+    rescheduled: "bg-sky-500/15 text-sky-700",
+    cancelled: "bg-rose-500/15 text-rose-700",
     completed: "bg-border/50 text-muted",
-    no_show: "bg-amber-500/15 text-amber-300",
+    no_show: "bg-amber-500/15 text-amber-700",
   };
   const badge = badgeStyles[appointment.status] ?? "bg-border/50 text-muted";
   const isActive = ACTIVE_STATUSES.has(appointment.status);
@@ -154,7 +154,7 @@ export function AppointmentItem({
           ) : null}
           <p className="mt-0.5 text-[10px] uppercase tracking-wide text-muted/60">{sourceLabel}</p>
           {appointment.status === "cancelled" && appointment.cancelledReason ? (
-            <p className="mt-0.5 text-[11px] text-rose-400/90">{appointment.cancelledReason}</p>
+            <p className="mt-0.5 text-[11px] text-rose-600/90">{appointment.cancelledReason}</p>
           ) : null}
         </div>
         <span className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-medium ${badge}`}>
@@ -176,7 +176,7 @@ export function AppointmentItem({
               <button
                 type="button"
                 onClick={() => setMode("cancel")}
-                className="rounded-md border border-border px-2 py-1 text-[11px] text-rose-400/80 hover:text-rose-400"
+                className="rounded-md border border-border px-2 py-1 text-[11px] text-rose-600/80 hover:text-rose-600"
               >
                 {t("leadDetail.appointments.cancel")}
               </button>
