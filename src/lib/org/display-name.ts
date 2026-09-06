@@ -1,10 +1,64 @@
 import type { User } from "@supabase/supabase-js";
 
+/** Generic mailbox names that aren't a person — never greet with these. */
+const GENERIC_LOCAL_PARTS = new Set([
+  "admin",
+  "info",
+  "hello",
+  "hi",
+  "team",
+  "sales",
+  "support",
+  "contact",
+  "office",
+  "billing",
+  "accounts",
+  "no-reply",
+  "noreply",
+  "mail",
+  "email",
+  "user",
+  "users",
+  "test",
+  "testing",
+  "qa",
+  "demo",
+  "owner",
+  "admin",
+  "administrator",
+  "manager",
+  "member",
+  "viewer",
+  "staff",
+  "agent",
+  "dev",
+  "developer",
+  "help",
+  "service",
+  "root",
+  "me",
+  "you",
+]);
+
+function titleCase(token: string): string {
+  return token.charAt(0).toUpperCase() + token.slice(1).toLowerCase();
+}
+
+/** A single clean name token, or "" if the source doesn't yield a real name. */
+function nameFromToken(raw: string): string {
+  const token = raw.trim();
+  // Reject anything with digits, too short/long, or a generic mailbox word.
+  if (!/^[\p{L}]{2,20}$/u.test(token)) return "";
+  if (GENERIC_LOCAL_PARTS.has(token.toLowerCase())) return "";
+  return titleCase(token);
+}
+
 /**
- * A friendly name for the dashboard greeting. Prefers a real name from the
- * user's auth metadata; falls back to a tidied first token of the email local
- * part. Never returns a full email address. May be `""` — the caller should
- * greet without a name in that case.
+ * A friendly first name for the dashboard greeting. Prefers a real name from
+ * the user's auth metadata; falls back to the first token of the email local
+ * part *only* when it looks like an actual name. Returns "" when there's
+ * nothing sensible — the caller then greets without a name rather than showing
+ * something like "Engmohamedgamal61" or "Qa".
  */
 export function resolveDisplayName(
   user: Pick<User, "email" | "user_metadata">,
@@ -15,14 +69,21 @@ export function resolveDisplayName(
       ? meta.full_name
       : typeof meta.name === "string"
         ? meta.name
-        : "";
-  const firstOfFull = full.trim().split(/\s+/).filter(Boolean)[0];
-  if (firstOfFull) return firstOfFull;
+        : typeof meta.first_name === "string"
+          ? meta.first_name
+          : "";
+  const fromMeta = full.trim().split(/\s+/).filter(Boolean)[0];
+  if (fromMeta) {
+    const clean = nameFromToken(fromMeta);
+    if (clean) return clean;
+  }
 
   const local = (user.email ?? "").split("@")[0] ?? "";
-  const token = local.split(/[._+-]+/).filter(Boolean)[0] ?? "";
-  if (!token) return "";
-  return token.charAt(0).toUpperCase() + token.slice(1).toLowerCase();
+  for (const token of local.split(/[._+-]+/).filter(Boolean)) {
+    const clean = nameFromToken(token);
+    if (clean) return clean;
+  }
+  return "";
 }
 
 export type GreetingPeriod = "morning" | "afternoon" | "evening";

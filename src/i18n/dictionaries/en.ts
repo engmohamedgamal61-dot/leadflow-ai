@@ -185,7 +185,7 @@ export const en = {
       appointments: "Appointments",
       conversion: "Conversion rate",
       conversionSub: "{won} of {total} won",
-      trendLabel: "vs previous 7 days",
+      trendLabel: "vs last week",
     },
     statusCard: {
       title: "Your AI sales engine is working",
@@ -247,6 +247,9 @@ export const en = {
       aiActive: "AI Active",
       inProgress: "In progress",
       needsAttention: "Needs attention",
+      atRisk: "{count} at risk",
+      dueNow: "{count} due now",
+      takeAction: "Take action",
       nodes: {
         source: "Lead source",
         sourceSub: "{count} new today",

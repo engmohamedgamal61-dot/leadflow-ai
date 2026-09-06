@@ -58,13 +58,15 @@ export function RecentLeadsTable({ rows }: { rows: RecentLeadRow[] }) {
                   <TemperatureBadge value={lead.temperature} />
                 </td>
                 <td className="px-4 py-2.5">
-                  {lead.riskLevel && lead.action ? (
+                  {lead.action && lead.action !== "none" ? (
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <RiskBadge value={lead.riskLevel} />
+                      {lead.riskLevel && lead.riskLevel !== "none" ? (
+                        <RiskBadge value={lead.riskLevel} />
+                      ) : null}
                       <ActionBadge value={lead.action} />
                     </div>
                   ) : (
-                    "—"
+                    <span className="text-muted/60">—</span>
                   )}
                 </td>
                 <td className="px-4 py-2.5 text-muted">
@@ -95,11 +97,11 @@ export function RecentLeadsTable({ rows }: { rows: RecentLeadRow[] }) {
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                 <StatusBadge value={lead.status} />
                 <TemperatureBadge value={lead.temperature} />
-                {lead.riskLevel && lead.action ? (
-                  <>
-                    <RiskBadge value={lead.riskLevel} />
-                    <ActionBadge value={lead.action} />
-                  </>
+                {lead.riskLevel && lead.riskLevel !== "none" ? (
+                  <RiskBadge value={lead.riskLevel} />
+                ) : null}
+                {lead.action && lead.action !== "none" ? (
+                  <ActionBadge value={lead.action} />
                 ) : null}
               </div>
             </Link>

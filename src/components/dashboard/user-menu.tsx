@@ -51,13 +51,18 @@ export function UserMenu({
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex items-center gap-2 rounded-lg border border-border bg-surface px-1.5 py-1 text-xs text-foreground transition-colors hover:border-accent/40"
+        className="flex items-center gap-2 rounded-xl border border-border bg-surface py-1 ps-1 pe-1.5 text-xs transition-colors hover:border-accent/40"
       >
-        <span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent/12 text-[11px] font-semibold text-accent">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent/12 text-[11px] font-semibold text-accent">
           {initials(name, email)}
         </span>
-        <span className="hidden max-w-[9rem] truncate font-medium sm:inline">
-          {displayName}
+        <span className="hidden min-w-0 flex-col items-start leading-tight sm:flex">
+          <span className="max-w-[9rem] truncate font-medium text-foreground">
+            {displayName}
+          </span>
+          <span className="max-w-[9rem] truncate text-[10px] text-muted">
+            {roleLabel}
+          </span>
         </span>
         <ChevronDownIcon className="hidden h-3.5 w-3.5 text-muted sm:block" />
       </button>

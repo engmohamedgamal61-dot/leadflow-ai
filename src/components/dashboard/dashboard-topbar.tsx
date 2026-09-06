@@ -41,7 +41,7 @@ export function DashboardTopbar({
   };
 
   return (
-    <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-border bg-background/85 px-3 py-2.5 backdrop-blur sm:px-4">
+    <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-border bg-background/90 px-3 py-2 backdrop-blur sm:px-5">
       <button
         type="button"
         onClick={onOpenMenu}
@@ -51,19 +51,19 @@ export function DashboardTopbar({
         <MenuGlyph />
       </button>
 
-      <form onSubmit={submit} className="relative min-w-0 flex-1 sm:max-w-sm">
-        <SearchIcon className="pointer-events-none absolute start-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+      <form onSubmit={submit} className="relative min-w-0 flex-1 sm:max-w-md">
+        <SearchIcon className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted/70" />
         <input
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t("dashboard.topbar.searchPlaceholder")}
           aria-label={t("dashboard.topbar.searchLabel")}
-          className="w-full rounded-lg border border-border bg-surface py-1.5 ps-8 pe-3 text-sm text-foreground placeholder:text-muted/60 outline-none focus:border-accent/50"
+          className="w-full rounded-xl border border-transparent bg-foreground/[0.04] py-2 ps-9 pe-3 text-[13px] text-foreground placeholder:text-muted/70 outline-none focus:border-accent/40 focus:bg-surface"
         />
       </form>
 
-      <span className="hidden items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-muted lg:flex">
+      <span className="hidden items-center gap-1.5 rounded-xl border border-border bg-surface px-2.5 py-1.5 text-xs text-muted lg:flex">
         <CalendarDateIcon className="h-4 w-4" />
         <span className="whitespace-nowrap tabular-nums">{todayLabel}</span>
       </span>
@@ -73,7 +73,7 @@ export function DashboardTopbar({
         <Link
           href="/dashboard/activity"
           aria-label={t("dashboard.topbar.notifications")}
-          className="rounded-lg border border-border bg-surface p-1.5 text-muted transition-colors hover:text-foreground"
+          className="rounded-xl border border-border bg-surface p-2 text-muted transition-colors hover:text-foreground"
         >
           <BellIcon className="h-4 w-4" />
         </Link>

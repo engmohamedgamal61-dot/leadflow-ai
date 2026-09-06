@@ -179,7 +179,7 @@ export const ar: Dictionary = {
       appointments: "المواعيد",
       conversion: "معدل التحويل",
       conversionSub: "{won} من {total} مكتمل",
-      trendLabel: "مقارنةً بالأيام السبعة السابقة",
+      trendLabel: "مقارنةً بالأسبوع الماضي",
     },
     statusCard: {
       title: "محرك المبيعات الذكي يعمل",
@@ -240,6 +240,9 @@ export const ar: Dictionary = {
       aiActive: "الذكاء الاصطناعي نشط",
       inProgress: "قيد التنفيذ",
       needsAttention: "بحاجة إلى انتباه",
+      atRisk: "{count} في خطر",
+      dueNow: "{count} مستحقة الآن",
+      takeAction: "يتطلّب إجراءً",
       nodes: {
         source: "مصدر العميل",
         sourceSub: "{count} جديد اليوم",

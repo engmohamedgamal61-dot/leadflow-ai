@@ -8,6 +8,7 @@ import {
   ActivityIcon,
   AiAgentIcon,
   AppointmentIcon,
+  BoltIcon,
   DashboardIcon,
   FollowUpIcon,
   HealthIcon,
@@ -15,6 +16,7 @@ import {
   LeadsIcon,
   ReadinessIcon,
   RecoveryIcon,
+  SettingsIcon,
   TeamIcon,
   WidgetIcon,
   type IconProps,
@@ -29,27 +31,40 @@ interface NavLink {
   exact?: boolean;
 }
 
-const MAIN_LINKS: NavLink[] = [
+/** Always visible. */
+const PRIMARY_LINKS: NavLink[] = [
   { href: "/dashboard", labelKey: "navigation.dashboard", icon: DashboardIcon, exact: true },
   { href: "/dashboard/leads", labelKey: "navigation.leads", icon: LeadsIcon },
   { href: "/dashboard/follow-ups", labelKey: "navigation.followUps", icon: FollowUpIcon },
   { href: "/dashboard/appointments", labelKey: "navigation.appointments", icon: AppointmentIcon },
   { href: "/dashboard/recovery", labelKey: "navigation.recovery", icon: RecoveryIcon },
-  { href: "/dashboard/activity", labelKey: "navigation.activity", icon: ActivityIcon },
 ];
 
-/** Jump links to owner/admin dashboard sections. */
-const STATUS_LINKS: NavLink[] = [
-  { href: "/dashboard#go-live-readiness", labelKey: "navigation.readiness", icon: ReadinessIcon },
-  { href: "/dashboard#integration-health", labelKey: "navigation.integrationHealth", icon: HealthIcon },
-];
-
-const SETTINGS_LINKS: NavLink[] = [
+/** Owner/admin only — configuration surfaces. */
+const CONFIG_LINKS: NavLink[] = [
   { href: "/dashboard/settings/ai", labelKey: "navigation.aiAgent", icon: AiAgentIcon, exact: true },
   { href: "/dashboard/settings/integrations", labelKey: "navigation.integrations", icon: IntegrationsIcon },
   { href: "/dashboard/settings/team", labelKey: "navigation.team", icon: TeamIcon, exact: true },
   { href: "/dashboard/settings/widget", labelKey: "navigation.widget", icon: WidgetIcon, exact: true },
 ];
+
+const ACTIVITY_LINK: NavLink = {
+  href: "/dashboard/activity",
+  labelKey: "navigation.activity",
+  icon: ActivityIcon,
+};
+
+/** Owner/admin — jump links to dashboard sections. */
+const STATUS_LINKS: NavLink[] = [
+  { href: "/dashboard#go-live-readiness", labelKey: "navigation.readiness", icon: ReadinessIcon },
+  { href: "/dashboard#integration-health", labelKey: "navigation.integrationHealth", icon: HealthIcon },
+];
+
+const SETTINGS_LINK: NavLink = {
+  href: "/dashboard/settings/ai",
+  labelKey: "navigation.settings",
+  icon: SettingsIcon,
+};
 
 function isActive(pathname: string, link: NavLink): boolean {
   if (link.href.includes("#")) return false;
@@ -67,26 +82,15 @@ function NavItem({ link, onNavigate }: { link: NavLink; onNavigate: () => void }
       href={link.href}
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
-      className={`relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
+      className={`relative flex items-center gap-3 rounded-lg px-3 py-[7px] text-[13px] transition-colors ${
         active
-          ? "bg-accent/10 font-medium text-accent before:absolute before:inset-y-1.5 before:start-0 before:w-0.5 before:rounded-full before:bg-accent before:content-['']"
+          ? "bg-accent/10 font-medium text-accent before:absolute before:inset-y-1.5 before:start-0 before:w-[3px] before:rounded-full before:bg-accent before:content-['']"
           : "text-muted hover:bg-accent/5 hover:text-foreground"
       }`}
     >
       <Icon className="h-[18px] w-[18px] shrink-0" />
       <span className="truncate">{t(link.labelKey)}</span>
     </Link>
-  );
-}
-
-function NavGroup({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="pt-3">
-      <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted/60">
-        {label}
-      </p>
-      <div className="space-y-0.5">{children}</div>
-    </div>
   );
 }
 
@@ -98,27 +102,28 @@ function SidebarNav({
   onNavigate: () => void;
 }) {
   const { t } = useI18n();
+  const item = (link: NavLink) => (
+    <NavItem key={link.href} link={link} onNavigate={onNavigate} />
+  );
 
   return (
-    <nav aria-label={t("navigation.dashboard")} className="space-y-0.5 px-3">
-      {MAIN_LINKS.map((link) => (
-        <NavItem key={link.href} link={link} onNavigate={onNavigate} />
-      ))}
+    <nav
+      aria-label={t("navigation.dashboard")}
+      className="flex flex-1 flex-col gap-0.5 px-3"
+    >
+      {PRIMARY_LINKS.map(item)}
+      {canManageSettings ? CONFIG_LINKS.map(item) : null}
+      {item(ACTIVITY_LINK)}
 
       {canManageSettings ? (
         <>
-          <div className="my-3 border-t border-border" />
-          <div className="space-y-0.5">
-            {STATUS_LINKS.map((link) => (
-              <NavItem key={link.href} link={link} onNavigate={onNavigate} />
-            ))}
-          </div>
-          <NavGroup label={t("navigation.settings")}>
-            {SETTINGS_LINKS.map((link) => (
-              <NavItem key={link.href} link={link} onNavigate={onNavigate} />
-            ))}
-          </NavGroup>
+          <div className="my-2.5 border-t border-border" />
+          {STATUS_LINKS.map(item)}
         </>
+      ) : null}
+
+      {canManageSettings ? (
+        <div className="mt-auto pt-2">{item(SETTINGS_LINK)}</div>
       ) : null}
     </nav>
   );
@@ -127,17 +132,19 @@ function SidebarNav({
 function StatusCard({ syncedLabel }: { syncedLabel: string }) {
   const { t } = useI18n();
   return (
-    <div className="mx-3 mt-2 rounded-xl border border-border bg-background/60 p-3">
-      <div className="flex items-center gap-2">
+    <div className="mx-3 mb-3 mt-2 rounded-xl border border-border bg-background/70 p-3">
+      <div className="flex items-start gap-2">
         <span
           aria-hidden
-          className="h-2 w-2 shrink-0 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20"
+          className="mt-1 h-2 w-2 shrink-0 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20"
         />
-        <p className="text-xs font-medium text-foreground">
-          {t("dashboard.statusCard.title")}
-        </p>
+        <div className="min-w-0">
+          <p className="text-xs font-medium leading-snug text-foreground">
+            {t("dashboard.statusCard.title")}
+          </p>
+          <p className="mt-0.5 text-[11px] text-muted">{syncedLabel}</p>
+        </div>
       </div>
-      <p className="mt-1 ps-4 text-[11px] text-muted">{syncedLabel}</p>
     </div>
   );
 }
@@ -165,7 +172,6 @@ export function DashboardShell({
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
-  // Close the mobile drawer on navigation (adjust state during render).
   const [lastPathname, setLastPathname] = useState(pathname);
   if (pathname !== lastPathname) {
     setLastPathname(pathname);
@@ -182,17 +188,19 @@ export function DashboardShell({
   }, [open]);
 
   const brand = (
-    <div className="flex items-center justify-between gap-2 px-4 py-4">
+    <div className="flex items-center justify-between gap-2 px-4 pb-3 pt-4">
       <Link
         href="/dashboard"
-        className="flex min-w-0 items-center gap-2 text-sm font-semibold tracking-tight text-foreground"
+        className="flex min-w-0 items-center gap-2 text-foreground"
       >
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent text-xs font-bold text-accent-foreground">
-          LF
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+          <BoltIcon className="h-[18px] w-[18px]" />
         </span>
         <span className="flex min-w-0 flex-col leading-tight">
-          <span className="truncate">{t("brand.name")}</span>
-          <span className="truncate text-[11px] font-normal text-muted">
+          <span className="truncate text-sm font-semibold tracking-tight">
+            {t("brand.name")}
+          </span>
+          <span className="truncate text-[10px] font-normal text-muted">
             {organizationName}
           </span>
         </span>
@@ -225,27 +233,21 @@ export function DashboardShell({
         />
       ) : null}
 
-      {/* Sidebar: fixed drawer on mobile, sticky column on desktop. The
-          closed-state offset is scoped to `max-md:` (both directions) so it
-          never competes with `md:translate-x-0`. */}
       <aside
-        className={`dashboard-sidebar fixed inset-y-0 start-0 z-50 flex w-64 shrink-0 flex-col border-e border-border bg-surface transition-transform duration-200 ease-out md:sticky md:top-0 md:z-0 md:h-[100dvh] md:translate-x-0 ${
+        className={`dashboard-sidebar fixed inset-y-0 start-0 z-50 flex w-60 shrink-0 flex-col border-e border-border bg-surface transition-transform duration-200 ease-out md:sticky md:top-0 md:z-0 md:h-[100dvh] md:translate-x-0 ${
           open ? "translate-x-0" : "max-md:-translate-x-full max-md:rtl:translate-x-full"
         }`}
       >
         {brand}
-        <div className="flex-1 overflow-y-auto pb-2">
+        <div className="flex flex-1 flex-col overflow-y-auto">
           <SidebarNav
             canManageSettings={canManageSettings}
             onNavigate={() => setOpen(false)}
           />
         </div>
-        <div className="pb-3">
-          <StatusCard syncedLabel={syncedLabel} />
-        </div>
+        <StatusCard syncedLabel={syncedLabel} />
       </aside>
 
-      {/* Content column */}
       <div className="flex min-w-0 flex-1 flex-col">
         <DashboardTopbar
           displayName={displayName}
@@ -254,7 +256,7 @@ export function DashboardShell({
           todayLabel={todayLabel}
           onOpenMenu={() => setOpen(true)}
         />
-        <main className="mx-auto w-full max-w-6xl flex-1 px-3 py-5 sm:px-5 sm:py-6">
+        <main className="mx-auto w-full max-w-[1180px] flex-1 px-3 py-4 sm:px-5 sm:py-5">
           {children}
         </main>
       </div>

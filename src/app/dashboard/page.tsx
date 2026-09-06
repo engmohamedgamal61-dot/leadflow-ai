@@ -23,10 +23,11 @@ import {
   getRecentLeads,
   getRecoveryCandidates,
   getUpcomingAppointmentCount,
+  type TrendValue,
 } from "@/lib/leads/queries";
 import { GreetingHeader } from "@/components/dashboard/greeting-header";
 import { KpiCard } from "@/components/dashboard/kpi-card";
-import { Panel } from "@/components/dashboard/panel";
+import { Panel, PanelAction } from "@/components/dashboard/panel";
 import { WorkflowMap, type WorkflowNode } from "@/components/dashboard/workflow-map";
 import { ActivityFeed } from "@/components/dashboard/activity-feed";
 import { GoLiveReadinessPanel } from "@/components/dashboard/readiness";
@@ -57,9 +58,14 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: dict.meta.overview };
 }
 
+/** This week's new items minus last week's. */
+function delta(t: TrendValue): number {
+  return t.current - t.previous;
+}
+
 export default async function DashboardOverviewPage() {
   const { user, membership } = await requireOrganizationContext();
-  const { t, tOptional, locale } = await getI18n();
+  const { t, locale } = await getI18n();
   const template = getIndustryTemplate(membership.industryTemplateId);
   const canManage = canManageConfig(membership.role);
 
@@ -118,15 +124,13 @@ export default async function DashboardOverviewPage() {
   const isEmptyWorkspace = stats.total === 0;
   const conversion =
     stats.total > 0 ? formatPercent(stats.won / stats.total, locale) : "—";
-
   const trendLabel = t("dashboard.kpi.trendLabel");
-  const opp = (key: "hot" | "warm" | "cold") =>
-    tOptional(`temperatures.${key}`) ?? key;
 
   const workflowNodes: WorkflowNode[] = [
     {
       key: "source",
       icon: SourceIcon,
+      iconTone: "sky",
       label: t("dashboard.workflow.nodes.source"),
       value: stats.total,
       caption: t("dashboard.workflow.nodes.sourceSub", { count: stats.createdToday }),
@@ -136,6 +140,7 @@ export default async function DashboardOverviewPage() {
     {
       key: "qualify",
       icon: QualifyIcon,
+      iconTone: "emerald",
       label: t("dashboard.workflow.nodes.qualify"),
       value: stats.qualified,
       caption: t("dashboard.workflow.nodes.qualifySub", { count: stats.total }),
@@ -146,20 +151,24 @@ export default async function DashboardOverviewPage() {
     {
       key: "opportunity",
       icon: OpportunityIcon,
+      iconTone: "indigo",
       label: t("dashboard.workflow.nodes.opportunity"),
       value: stats.hot,
       caption: t("dashboard.workflow.nodes.opportunitySub"),
       href: "/dashboard/leads?temp=hot",
       tone: stats.hot > 0 ? "active" : "neutral",
-      breakdown: [
-        { label: opp("hot"), value: stats.hot },
-        { label: opp("warm"), value: stats.warm },
-        { label: opp("cold"), value: stats.cold },
-      ],
+      badge:
+        insightSummary.atRisk > 0
+          ? {
+              text: t("dashboard.workflow.atRisk", { count: insightSummary.atRisk }),
+              tone: "warn",
+            }
+          : undefined,
     },
     {
       key: "nextAction",
       icon: NextActionIcon,
+      iconTone: "violet",
       label: t("dashboard.workflow.nodes.nextAction"),
       value: insightSummary.needsAttention,
       caption: t("dashboard.workflow.nodes.nextActionSub"),
@@ -173,15 +182,21 @@ export default async function DashboardOverviewPage() {
     {
       key: "followUp",
       icon: AppointmentIcon,
+      iconTone: "indigo",
       label: t("dashboard.workflow.nodes.followUp"),
       value: appointmentCount,
       caption: t("dashboard.workflow.nodes.followUpSub", { count: followUps.pending }),
       href: "/dashboard/appointments",
       tone: followUps.dueNow > 0 ? "attention" : "neutral",
+      badge:
+        followUps.dueNow > 0
+          ? { text: t("dashboard.workflow.dueNow", { count: followUps.dueNow }), tone: "warn" }
+          : undefined,
     },
     {
       key: "handoff",
       icon: HandoffIcon,
+      iconTone: "rose",
       label: t("dashboard.workflow.nodes.handoff"),
       value: recoveryCount,
       caption: t("dashboard.workflow.nodes.handoffSub"),
@@ -189,7 +204,7 @@ export default async function DashboardOverviewPage() {
       tone: recoveryCount > 0 ? "attention" : "neutral",
       badge:
         recoveryCount > 0
-          ? { text: t("dashboard.workflow.needsAttention"), tone: "warn" }
+          ? { text: t("dashboard.workflow.takeAction"), tone: "danger" }
           : undefined,
     },
   ];
@@ -214,11 +229,12 @@ export default async function DashboardOverviewPage() {
     : t(`dashboard.greeting.${period}`);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <GreetingHeader
         greeting={greeting}
         subtitle={t("dashboard.greeting.subtitle")}
         quote={t("dashboard.greeting.quote")}
+        quoteAttribution={t("brand.name")}
       />
 
       {isEmptyWorkspace ? (
@@ -247,7 +263,7 @@ export default async function DashboardOverviewPage() {
           tone="indigo"
           title={t("dashboard.kpi.totalLeads")}
           value={stats.total}
-          trend={{ delta: trends.leads.current - trends.leads.previous, label: trendLabel }}
+          trend={{ delta: delta(trends.leads), label: trendLabel }}
           href="/dashboard/leads"
         />
         <KpiCard
@@ -255,10 +271,7 @@ export default async function DashboardOverviewPage() {
           tone="emerald"
           title={t("dashboard.kpi.qualifiedLeads")}
           value={stats.qualified}
-          trend={{
-            delta: trends.qualified.current - trends.qualified.previous,
-            label: trendLabel,
-          }}
+          trend={{ delta: delta(trends.qualified), label: trendLabel }}
           href="/dashboard/leads?status=qualified"
         />
         <KpiCard
@@ -266,10 +279,7 @@ export default async function DashboardOverviewPage() {
           tone="sky"
           title={t("dashboard.kpi.appointments")}
           value={appointmentCount}
-          trend={{
-            delta: trends.appointments.current - trends.appointments.previous,
-            label: trendLabel,
-          }}
+          trend={{ delta: delta(trends.appointments), label: trendLabel }}
           href="/dashboard/appointments"
         />
         <KpiCard
@@ -284,36 +294,21 @@ export default async function DashboardOverviewPage() {
         />
       </div>
 
-      {/* Automation Flow — centerpiece */}
+      {/* Automation Flow — the centerpiece */}
       <Panel
         icon={WorkflowIcon}
+        emphasis
         title={t("dashboard.workflow.title")}
         subtitle={t("dashboard.workflow.subtitle")}
-        bodyClassName="p-3.5"
+        bodyClassName="p-3"
         action={
-          <Link
-            href="/dashboard/leads"
-            className="text-accent hover:underline"
-          >
+          <PanelAction href="/dashboard/leads">
             {t("dashboard.workflow.viewDetails")}
-          </Link>
+          </PanelAction>
         }
       >
         <WorkflowMap nodes={workflowNodes} ariaLabel={t("dashboard.workflow.aria")} />
       </Panel>
-
-      {readiness ? (
-        <Panel
-          id="go-live-readiness"
-          icon={ReadinessIcon}
-          tone="emerald"
-          title={t("dashboard.readiness.title")}
-          subtitle={t("dashboard.readiness.subtitle")}
-          bodyClassName="p-0"
-        >
-          <GoLiveReadinessPanel readiness={readiness} canManage={canManage} />
-        </Panel>
-      ) : null}
 
       {/* Operational two-column (single column when there's no integration panel) */}
       <div
@@ -327,12 +322,9 @@ export default async function DashboardOverviewPage() {
           bodyClassName="p-0"
           action={
             activity.length > 0 ? (
-              <Link
-                href="/dashboard/activity"
-                className="text-accent hover:underline"
-              >
+              <PanelAction href="/dashboard/activity">
                 {t("common.viewAll")}
-              </Link>
+              </PanelAction>
             ) : undefined
           }
         >
@@ -344,7 +336,7 @@ export default async function DashboardOverviewPage() {
               />
             </div>
           ) : (
-            <ActivityFeed events={activity} max={8} />
+            <ActivityFeed events={activity} max={5} />
           )}
         </Panel>
 
@@ -377,9 +369,9 @@ export default async function DashboardOverviewPage() {
         subtitle={t("dashboard.recentLeadsSubtitle")}
         bodyClassName="p-0"
         action={
-          <Link href="/dashboard/leads" className="text-accent hover:underline">
+          <PanelAction href="/dashboard/leads">
             {t("dashboard.viewAllLeads")}
-          </Link>
+          </PanelAction>
         }
       >
         {recentRows.length === 0 ? (
@@ -401,6 +393,19 @@ export default async function DashboardOverviewPage() {
           <RecentLeadsTable rows={recentRows} />
         )}
       </Panel>
+
+      {readiness ? (
+        <Panel
+          id="go-live-readiness"
+          icon={ReadinessIcon}
+          tone="emerald"
+          title={t("dashboard.readiness.title")}
+          subtitle={t("dashboard.readiness.subtitle")}
+          bodyClassName="p-0"
+        >
+          <GoLiveReadinessPanel readiness={readiness} canManage={canManage} />
+        </Panel>
+      ) : null}
     </div>
   );
 }

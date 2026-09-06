@@ -260,7 +260,16 @@ export function ChatIcon(props: IconProps) {
 export function BoltIcon(props: IconProps) {
   return (
     <Icon {...props}>
-      <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" />
+      <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" fill="currentColor" stroke="none" />
+    </Icon>
+  );
+}
+
+export function SettingsIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2.5v2.2M12 19.3v2.2M4.2 7l1.9 1.1M17.9 15.9l1.9 1.1M4.2 17l1.9-1.1M17.9 8.1l1.9-1.1" />
     </Icon>
   );
 }

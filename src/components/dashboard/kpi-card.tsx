@@ -7,9 +7,9 @@ import {
 } from "@/components/icons";
 
 /**
- * One KPI card: a pastel icon chip, a large value, a small title, and an
- * optional compact trend chip (this period vs the previous period). Every
- * value is real data passed in by the page — this component only renders.
+ * One KPI card: a pastel icon chip beside the metric title, a large value, and
+ * either a compact trend line (this period vs the previous) or a plain
+ * sub-line. Values are real data passed in by the page — this only renders.
  */
 
 export type KpiTone = "indigo" | "emerald" | "amber" | "sky";
@@ -22,9 +22,12 @@ const CHIP: Record<KpiTone, string> = {
 };
 
 export interface KpiTrend {
-  /** Signed change vs the previous period (e.g. current - previous). */
+  /**
+   * Signed change vs the previous period (this week's new items minus last
+   * week's). An absolute count — clearer than a percentage at low volume.
+   */
   delta: number;
-  /** Localized descriptor, e.g. "vs last 7 days". */
+  /** Localized suffix, e.g. "vs last week". */
   label: string;
 }
 
@@ -47,61 +50,54 @@ export function KpiCard({
 }) {
   const body = (
     <>
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-center gap-2">
         <span
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${CHIP[tone]}`}
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${CHIP[tone]}`}
         >
-          <Icon className="h-[18px] w-[18px]" />
+          <Icon className="h-4 w-4" />
         </span>
-        {trend ? <TrendChip trend={trend} /> : null}
+        <p className="truncate text-xs font-medium text-muted">{title}</p>
       </div>
-      <p className="mt-3 text-2xl font-semibold tabular-nums text-foreground">
+      <p className="mt-2 text-[26px] font-semibold leading-none tabular-nums text-foreground">
         {value}
       </p>
-      <p className="mt-0.5 text-xs text-muted">{title}</p>
-      {sublabel ? (
-        <p className="mt-0.5 text-[11px] text-muted/80">{sublabel}</p>
-      ) : null}
+      <div className="mt-1.5 text-[11px]">
+        {trend ? <Trend trend={trend} /> : sublabel ? (
+          <span className="text-muted/80">{sublabel}</span>
+        ) : null}
+      </div>
     </>
   );
 
   const cls =
-    "block rounded-2xl border border-border bg-surface p-4 transition-colors";
-  if (href) {
-    return (
-      <Link href={href} className={`${cls} hover:border-accent/40`}>
-        {body}
-      </Link>
-    );
-  }
-  return <div className={cls}>{body}</div>;
+    "block rounded-xl border border-border bg-surface p-3.5 transition-colors";
+  return href ? (
+    <Link href={href} className={`${cls} hover:border-accent/40`}>
+      {body}
+    </Link>
+  ) : (
+    <div className={cls}>{body}</div>
+  );
 }
 
-function TrendChip({ trend }: { trend: KpiTrend }) {
+function Trend({ trend }: { trend: KpiTrend }) {
   if (trend.delta === 0) {
-    return (
-      <span
-        className="rounded-full bg-border/50 px-1.5 py-0.5 text-[11px] font-medium text-muted"
-        title={trend.label}
-      >
-        {"—"}
-      </span>
-    );
+    return <span className="text-muted/80">{trend.label}</span>;
   }
   const up = trend.delta > 0;
   const Arrow = up ? TrendUpIcon : TrendDownIcon;
   return (
     <span
-      className={`flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-medium ${
-        up ? "bg-emerald-500/10 text-emerald-700" : "bg-amber-500/10 text-amber-700"
+      className={`inline-flex items-center gap-1 ${
+        up ? "text-emerald-600" : "text-amber-600"
       }`}
-      title={trend.label}
     >
       <Arrow className="h-3 w-3" />
-      <span className="tabular-nums">
+      <span className="font-medium tabular-nums">
         {up ? "+" : "−"}
         {Math.abs(trend.delta)}
       </span>
+      <span className="text-muted/80">{trend.label}</span>
     </span>
   );
 }
