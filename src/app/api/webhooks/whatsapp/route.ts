@@ -6,6 +6,7 @@ import { parseWhatsAppWebhook } from "@/lib/whatsapp/payload";
 import { resolveOrgByPhoneNumberId } from "@/lib/whatsapp/connections";
 import { processInboundWhatsAppMessage } from "@/lib/whatsapp/inbound";
 import { applyStatusUpdate } from "@/lib/whatsapp/status";
+import { reportError } from "@/lib/observability/report";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -70,6 +71,7 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   // Ack immediately; process off the response path.
   after(async () => {
+   try {
     const started = Date.now();
     let db: ReturnType<typeof createAdminClient>;
     try {
@@ -114,6 +116,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     console.log(
       `[whatsapp] webhook processed=${processed} skipped=${skipped} duration=${Date.now() - started}ms`,
     );
+   } catch (err) {
+     await reportError(err, { scope: "whatsapp.webhook" });
+   }
   });
 
   return Response.json({ ok: true });

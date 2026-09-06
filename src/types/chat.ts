@@ -111,6 +111,8 @@ export interface SendOptions {
    * "clinic"). Omit to use the server default.
    */
   industry?: string;
+  /** Per-organization website widget key — set only for the embeddable widget. */
+  widgetKey?: string;
   /** Persisted conversation id from a previous turn, to continue the chat. */
   conversationId?: string;
   /**

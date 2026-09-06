@@ -37,6 +37,8 @@ interface UseChatOptions {
   client?: AssistantClient;
   /** Industry template slug (e.g. "clinic"); default = server default. */
   industry?: string;
+  /** Per-organization website widget key — set only for the embeddable widget. */
+  widgetKey?: string;
   /** Localized assistant greeting; the conversation opens with it and `reset` returns to it. */
   greeting?: string;
   /** Localized fallback shown when a send fails without a specific message. */
@@ -66,6 +68,7 @@ export function useChat({
   initialMessages,
   client = apiAssistant,
   industry,
+  widgetKey,
   greeting = ASSISTANT_GREETING,
   errorFallback = "Something went wrong. Please try sending that again.",
   resolveError = (raw) => raw,
@@ -161,6 +164,7 @@ export function useChat({
             awaitingConversationRef.current = false;
           },
           industry,
+          widgetKey,
           conversationId: conversationIdRef.current ?? undefined,
           requestId,
         });
@@ -189,7 +193,7 @@ export function useChat({
         setStatus("idle");
       }
     },
-    [client, industry, errorFallback, resolveError],
+    [client, industry, widgetKey, errorFallback, resolveError],
   );
 
   const setConversation = useCallback((next: ChatMessage[]) => {

@@ -18,10 +18,24 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ### Environment
 
-| Variable            | Required | Description                                                        |
-| ------------------- | -------- | ------------------------------------------------------------------ |
-| `ANTHROPIC_API_KEY` | Yes      | Anthropic API key. Without it, `/api/chat` returns a 503.          |
-| `ANTHROPIC_MODEL`   | No       | Chat model. Defaults to `claude-opus-5`; `claude-sonnet-5` or `claude-haiku-4-5` are cheaper for a high-volume widget. |
+`.env.example` is the full, commented list. The essentials:
+
+| Variable                        | Required | Description                                                        |
+| ------------------------------- | -------- | ------------------------------------------------------------------ |
+| `ANTHROPIC_API_KEY`             | Yes      | Anthropic API key. Without it, `/api/chat` returns a 503.          |
+| `ANTHROPIC_MODEL`               | No       | Chat model. Defaults to `claude-sonnet-5`.                         |
+| `NEXT_PUBLIC_SUPABASE_URL`      | Yes      | Supabase project URL (browser-safe; all access is RLS-gated).     |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes      | Supabase anon key.                                                 |
+| `SUPABASE_SERVICE_ROLE_KEY`     | Yes      | Server-only. Bypasses RLS — never expose to the client.            |
+| `APP_BASE_URL`                  | Yes      | This deployment's public origin. Builds OAuth + auth-email links.  |
+| `FOLLOW_UP_CRON_SECRET`         | Yes\*    | Bearer secret for the follow-up scheduler cron route.              |
+| `SIGNUP_INVITE_CODE`            | No       | When set, public `/signup` requires this code (team invites bypass it). |
+| `OPS_ALERT_WEBHOOK_URL`         | No       | `https://` webhook for operational error alerts (Slack/Discord-shaped). |
+| `CHAT_RATE_LIMIT_PER_IP`        | No       | Per-IP burst cap on `/api/chat` (default 20 / 60s).                |
+
+WhatsApp and Google Calendar have their own credential groups — see `.env.example`.
+
+**Deploying for a customer pilot?** Follow [`docs/PILOT-SETUP.md`](docs/PILOT-SETUP.md).
 
 ## Scripts
 

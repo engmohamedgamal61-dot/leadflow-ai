@@ -702,6 +702,89 @@ export interface Database {
           },
         ];
       };
+      organization_invitations: {
+        Row: {
+          id: string;
+          organization_id: string;
+          email: string;
+          role: OrganizationMemberRole;
+          token_hash: string;
+          invited_by: string;
+          expires_at: string;
+          accepted_at: string | null;
+          accepted_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          email: string;
+          role: OrganizationMemberRole;
+          token_hash: string;
+          invited_by: string;
+          expires_at: string;
+          accepted_at?: string | null;
+          accepted_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          email?: string;
+          role?: OrganizationMemberRole;
+          token_hash?: string;
+          invited_by?: string;
+          expires_at?: string;
+          accepted_at?: string | null;
+          accepted_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "organization_invitations_organization_id_fkey";
+            columns: ["organization_id"];
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      organization_widget_settings: {
+        Row: {
+          organization_id: string;
+          widget_key: string;
+          enabled: boolean;
+          allowed_origins: string[];
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          organization_id: string;
+          widget_key?: string;
+          enabled?: boolean;
+          allowed_origins?: string[];
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          organization_id?: string;
+          widget_key?: string;
+          enabled?: boolean;
+          allowed_origins?: string[];
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "organization_widget_settings_organization_id_fkey";
+            columns: ["organization_id"];
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<never, never>;
     Functions: {
@@ -736,6 +819,15 @@ export interface Database {
           org_has_members: boolean;
           lead_name: string | null;
         }[];
+      };
+      /**
+       * Atomic fixed-window rate-limit counter (service-role only). Records a
+       * hit for `p_key` and returns TRUE while the window count is <= p_max.
+       * See `20260905200000_pilot_hardening.sql`.
+       */
+      hit_rate_limit: {
+        Args: { p_key: string; p_max: number; p_window_seconds: number };
+        Returns: boolean;
       };
     };
     Enums: {

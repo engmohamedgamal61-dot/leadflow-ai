@@ -13,6 +13,10 @@ test("public paths are reachable without a session", () => {
     "/",
     "/login",
     "/signup",
+    "/forgot-password",
+    "/reset-password",
+    "/invite/abc123",
+    "/embed/00000000-0000-0000-0000-000000000000",
     "/auth/confirm",
     "/auth/callback",
     "/api/chat",
@@ -20,6 +24,13 @@ test("public paths are reachable without a session", () => {
     assert.equal(isPublicPath(p), true, p);
     assert.deepEqual(decideProxyAction(p, false), { type: "next" }, p);
   }
+});
+
+test("an invited user hitting /invite is NOT redirected to /login", () => {
+  // The invite page has its own token gate and must render for anonymous
+  // visitors so they can sign up / sign in from it.
+  assert.deepEqual(decideProxyAction("/invite/tok", false), { type: "next" });
+  assert.deepEqual(decideProxyAction("/invite/tok", true), { type: "next" });
 });
 
 test("protected paths redirect anonymous users to /login", () => {

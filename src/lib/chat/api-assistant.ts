@@ -92,6 +92,7 @@ export const apiAssistant: AssistantClient = {
       onLead,
       onConversation,
       industry,
+      widgetKey,
       conversationId,
       requestId,
     }: SendOptions = {},
@@ -136,6 +137,7 @@ export const apiAssistant: AssistantClient = {
           body: JSON.stringify({
             messages: messages.map(({ role, content }) => ({ role, content })),
             ...(industry ? { industry } : {}),
+            ...(widgetKey ? { widgetKey } : {}),
             ...(conversationId ? { conversationId } : {}),
             ...(requestId ? { requestId } : {}),
           }),

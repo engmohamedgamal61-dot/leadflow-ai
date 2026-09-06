@@ -26,6 +26,8 @@ const SETTINGS_LINKS: NavLink[] = [
     labelKey: "navigation.integrations",
     exact: false,
   },
+  { href: "/dashboard/settings/widget", labelKey: "navigation.widget", exact: true },
+  { href: "/dashboard/settings/team", labelKey: "navigation.team", exact: true },
 ];
 
 function isActive(pathname: string, link: NavLink): boolean {

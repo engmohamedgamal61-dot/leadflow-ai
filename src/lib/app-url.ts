@@ -12,3 +12,13 @@ export function appBaseUrl(): string {
   }
   return url.replace(/\/+$/, "");
 }
+
+/**
+ * Non-throwing variant — `null` when `APP_BASE_URL` isn't set. For flows that
+ * can still work off a provider's own configured default (e.g. Supabase Auth's
+ * Site URL) rather than requiring the env var.
+ */
+export function appBaseUrlOrNull(): string | null {
+  const url = process.env.APP_BASE_URL;
+  return url ? url.replace(/\/+$/, "") : null;
+}

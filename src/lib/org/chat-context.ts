@@ -4,7 +4,7 @@ export interface ChatOrganization {
   organizationId: string;
   industryTemplateId: string;
   /** How the organization was resolved. */
-  source: "member" | "dev-demo";
+  source: "member" | "widget" | "dev-demo";
 }
 
 export interface ChatContext {
@@ -39,6 +39,8 @@ export function buildChatContext(input: {
   membership:
     | Pick<UserMembership, "organizationId" | "industryTemplateId">
     | null;
+  /** Resolved from a per-org website widget key (anonymous, but a real tenant). */
+  widgetOrg: DemoOrg | null;
   demoOrg: DemoOrg | null;
 }): ChatContext {
   if (input.authenticated) {
@@ -50,6 +52,19 @@ export function buildChatContext(input: {
             source: "member",
           }
         : null,
+      industryHintAllowed: false,
+    };
+  }
+
+  // A widget key identifies a real customer org — the industry hint is inert
+  // here too (the org's template wins), exactly like the authenticated path.
+  if (input.widgetOrg) {
+    return {
+      organization: {
+        organizationId: input.widgetOrg.organizationId,
+        industryTemplateId: input.widgetOrg.industryTemplateId,
+        source: "widget",
+      },
       industryHintAllowed: false,
     };
   }

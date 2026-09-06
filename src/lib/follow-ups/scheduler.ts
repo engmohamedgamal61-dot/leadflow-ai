@@ -26,6 +26,7 @@ import {
 } from "./executor.ts";
 import { CHANNEL_ADAPTERS, type FollowUpChannelAdapter } from "./channels.ts";
 import { whatsAppFollowUpAdapter } from "../whatsapp/outbound-adapter.ts";
+import { reportError } from "../observability/report.ts";
 
 type Db = SupabaseClient<Database>;
 
@@ -113,7 +114,7 @@ export async function runFollowUpScheduler(
   });
 
   if (error) {
-    console.error(`[follow-up-scheduler] run=${runId} claim failed:`, error.message);
+    void reportError(error, { scope: "scheduler", phase: "claim", runId });
     return EMPTY(runId, Date.now() - started);
   }
 
@@ -143,10 +144,12 @@ export async function runFollowUpScheduler(
         adapters: opts.adapters ?? DEFAULT_ADAPTERS,
       });
     } catch (err) {
-      console.error(
-        `[follow-up-scheduler] run=${runId} follow-up ${row.id} threw:`,
-        err instanceof Error ? err.message : err,
-      );
+      void reportError(err, {
+        scope: "scheduler",
+        phase: "execute",
+        runId,
+        followUpId: row.id,
+      });
       disposition = "skipped";
     }
 

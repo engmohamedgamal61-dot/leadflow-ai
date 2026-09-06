@@ -14,6 +14,9 @@ import { getEffectiveConfig, hasIndustryTemplate } from "@/lib/config";
 import { loadEffectiveConfig } from "@/lib/config/organization-config.server";
 import { resolveChatContext } from "@/lib/org/chat-organization";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { clientIp } from "@/lib/security/client-ip";
+import { enforceRateLimit, chatIpRule, chatOrgRule } from "@/lib/security/rate-limit";
+import { reportError } from "@/lib/observability/report";
 import { LEAD_DELIMITER, type ChatTurn } from "@/types/chat";
 
 export const runtime = "nodejs";
@@ -36,6 +39,7 @@ interface ChatRequestBody {
   industry?: string;
   conversationId?: string;
   requestId?: string;
+  widgetKey?: string;
 }
 
 interface ParsedRequest {
@@ -46,6 +50,8 @@ interface ParsedRequest {
   conversationId: string | null;
   /** Per-turn idempotency key from the client. */
   requestId: string | null;
+  /** Per-organization website widget key, if the turn came from an embed. */
+  widgetKey: string | null;
 }
 
 function parseBody(body: unknown): ParsedRequest | null {
@@ -93,7 +99,13 @@ function parseBody(body: unknown): ParsedRequest | null {
       ? requestIdRaw
       : null;
 
-  return { turns, industry, conversationId, requestId };
+  const widgetKeyRaw = (body as ChatRequestBody).widgetKey;
+  const widgetKey =
+    typeof widgetKeyRaw === "string" && UUID_RE.test(widgetKeyRaw)
+      ? widgetKeyRaw
+      : null;
+
+  return { turns, industry, conversationId, requestId, widgetKey };
 }
 
 /** The Messages API requires the conversation to start with a user turn. */
@@ -149,6 +161,31 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Rate limiting — protects the Anthropic budget on this public endpoint.
+  // Per-IP burst + a coarser per-widget/per-demo hourly cap. Skipped only when
+  // Supabase isn't configured (no DB to persist against anyway). Fails open.
+  let admin: ReturnType<typeof createAdminClient> | null = null;
+  try {
+    admin = createAdminClient();
+  } catch {
+    admin = null;
+  }
+  if (admin) {
+    const ip = clientIp(request.headers);
+    const ipCheck = await enforceRateLimit(admin, chatIpRule(ip));
+    const scopeKey = parsed.widgetKey ?? `demo:${parsed.industry ?? "default"}`;
+    const orgCheck = ipCheck.allowed
+      ? await enforceRateLimit(admin, chatOrgRule(scopeKey))
+      : { allowed: false, retryAfterSeconds: ipCheck.retryAfterSeconds };
+    if (!ipCheck.allowed || !orgCheck.allowed) {
+      const retryAfter = Math.max(ipCheck.retryAfterSeconds, orgCheck.retryAfterSeconds, 1);
+      return Response.json(
+        { errorCode: "chat.errors.busy" },
+        { status: 429, headers: { "Retry-After": String(retryAfter) } },
+      );
+    }
+  }
+
   let client: Anthropic;
   try {
     client = getAnthropicClient();
@@ -160,13 +197,15 @@ export async function POST(request: NextRequest) {
   }
 
   // Resolve the organization this chat belongs to. Authenticated requests use
-  // the organization from the user's membership (the `industry` hint is
-  // ignored — it cannot override org or industry). Anonymous requests keep the
-  // dev/demo behavior: an `industry` hint selects a pre-seeded demo org.
-  // `null` organization → the chat runs config-only with no persistence.
-  const { organization, industryHintAllowed } = await resolveChatContext(
-    parsed.industry,
-  );
+  // the organization from the user's membership (the `industry`/`widgetKey`
+  // hints are ignored). A `widgetKey` from an embedded widget resolves the
+  // customer's own org server-side. Otherwise the dev/demo behavior stands: an
+  // `industry` hint selects a pre-seeded demo org. `null` organization → the
+  // chat runs config-only with no persistence.
+  const { organization, industryHintAllowed } = await resolveChatContext({
+    industryHint: parsed.industry,
+    widgetKey: parsed.widgetKey,
+  });
   const hintSlug = industryHintAllowed ? parsed.industry : null;
 
   // The AI engine runs on one EffectiveConfig. For an authenticated member it
@@ -200,7 +239,7 @@ export async function POST(request: NextRequest) {
   let availableSlots: Awaited<ReturnType<typeof getAvailabilityForPrompt>>;
   try {
     availableSlots = await getAvailabilityForPrompt(
-      createAdminClient(),
+      admin ?? createAdminClient(),
       organization?.organizationId ?? null,
     );
   } catch {
@@ -235,7 +274,11 @@ export async function POST(request: NextRequest) {
       }
     }
   } catch (error) {
-    console.error("chat stream error", error);
+    void reportError(error, {
+      scope: "chat.route",
+      channel: "web",
+      orgSource: organization?.source ?? "none",
+    });
     stream.abort();
     return errorResponse(error);
   }
@@ -268,7 +311,7 @@ export async function POST(request: NextRequest) {
           }
         }
       } catch (error) {
-        console.error("chat stream error", error);
+        void reportError(error, { scope: "chat.route", phase: "stream", channel: "web" });
         controller.error(error);
         return;
       }

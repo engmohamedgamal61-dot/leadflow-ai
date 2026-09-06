@@ -55,6 +55,8 @@ export const en = {
     recovery: "Revenue Recovery — LeadFlow AI",
     aiAgent: "AI agent — LeadFlow AI",
     integrations: "Integrations — LeadFlow AI",
+    widget: "Website widget — LeadFlow AI",
+    team: "Team — LeadFlow AI",
     signIn: "Sign in — LeadFlow AI",
     createAccount: "Create account — LeadFlow AI",
     onboarding: "Set up your organization — LeadFlow AI",
@@ -67,6 +69,8 @@ export const en = {
     recovery: "Recovery",
     aiAgent: "AI agent",
     integrations: "Integrations",
+    widget: "Website widget",
+    team: "Team",
     settings: "Settings",
     openMenu: "Open menu",
     closeMenu: "Close menu",
@@ -98,6 +102,26 @@ export const en = {
       passwordHint: "At least {min} characters.",
       checkEmail:
         "Check your email for a confirmation link, then sign in to continue.",
+      inviteCodeLabel: "Invite code",
+      inviteCodeHint: "Signup is currently invite-only for the pilot.",
+    },
+    forgotPassword: {
+      link: "Forgot password?",
+      title: "Reset your password",
+      subtitle: "Enter your email and we'll send a reset link.",
+      submit: "Send reset link",
+      submitting: "Sending…",
+      sent: "If that email has an account, a reset link is on its way.",
+      backToLogin: "Back to sign in",
+    },
+    resetPassword: {
+      title: "Choose a new password",
+      subtitle: "Enter a new password for your account.",
+      newPasswordLabel: "New password",
+      submit: "Update password",
+      submitting: "Updating…",
+      expired: "That reset link has expired or was already used.",
+      requestNew: "Request a new link",
     },
     errors: {
       invalidCredentials: "Incorrect email or password.",
@@ -684,6 +708,83 @@ export const en = {
     },
   },
 
+  team: {
+    title: "Team",
+    subtitle: "Invite teammates and manage their roles.",
+    readonly: "Read-only — an owner or admin can manage the team.",
+    inviteTitle: "Invite a teammate",
+    roleLabel: "Role",
+    sendInvite: "Create invite",
+    inviteCreated: "Invite created.",
+    inviteLinkHint:
+      "Send this link to your teammate. It works once and expires in 7 days.",
+    copyLink: "Copy link",
+    membersTitle: "Members",
+    you: "(you)",
+    joined: "Joined {date}",
+    pendingTitle: "Pending invites",
+    expires: "expires {date}",
+    revoke: "Revoke",
+    errors: {
+      notAllowed: "Only an owner or admin can manage the team.",
+      invalidRole: "Choose a valid role.",
+      alreadyInvited: "There's already a pending invite for that email.",
+      createFailed: "Could not create the invite. Please try again.",
+    },
+  },
+
+  invite: {
+    title: "Team invitation",
+    subtitle: "You've been invited to join {org} as {role}.",
+    accept: "Accept invitation",
+    accepting: "Joining…",
+    createAccount: "Create your account",
+    haveAccount: "Already have an account?",
+    wrongAccount:
+      "This invite is for {email}. Sign out and sign in with that account to accept it.",
+    alreadyAccepted: "This invitation has already been used.",
+    goToDashboard: "Go to the dashboard",
+    errors: {
+      notFound: "This invitation link is invalid.",
+      expired: "This invitation has expired. Ask for a new one.",
+      wrongEmail: "This invitation is for a different email address.",
+      inAnotherOrg: "You already belong to another organization.",
+      failed: "Could not accept the invitation. Please try again.",
+    },
+  },
+
+  widget: {
+    title: "Website widget",
+    subtitle:
+      "Embed the qualification chat on your own site so leads come straight into this workspace.",
+    readonly: "Read-only — an owner or admin can manage the widget.",
+    notConfigured: "The widget isn't set up yet.",
+    statusTitle: "Status",
+    enabledHint: "The widget is live. New chats are captured as leads here.",
+    disabledHint: "The widget is off. Turn it on to start capturing leads.",
+    enable: "Enable widget",
+    disable: "Disable widget",
+    embedTitle: "Embed code",
+    embedHint: "Paste this where you want the chat to appear on your site.",
+    copy: "Copy",
+    copySnippet: "Copy embed code",
+    previewHint: "Preview it:",
+    openPreview: "open the widget",
+    keyTitle: "Widget key",
+    rotateKey: "Rotate key",
+    copyKey: "Copy key",
+    rotateHint:
+      "Rotating the key immediately breaks the old embed code — update your site afterwards.",
+    originsTitle: "Allowed sites",
+    originsHint:
+      "One site per line (e.g. https://www.acme.com). Recorded for a future embed lock-down; not enforced during the pilot.",
+    errors: {
+      notAllowed: "Only an owner or admin can manage the widget.",
+      saveFailed: "Could not save. Please try again.",
+      invalidOrigins: "Some entries aren't valid site URLs",
+    },
+  },
+
   chat: {
     headerTitle: "LeadFlow AI",
     headerSubtitle: "Lead qualification assistant",
@@ -787,6 +888,9 @@ export const en = {
     industry: {
       required: "Choose an industry template.",
       invalid: "Choose a valid industry template.",
+    },
+    inviteCode: {
+      invalid: "That invite code isn't valid.",
     },
   },
 

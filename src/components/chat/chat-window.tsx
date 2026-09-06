@@ -27,9 +27,12 @@ function useIndustryFromUrl(): string | undefined {
   );
 }
 
-export function ChatWindow() {
+export function ChatWindow({ widgetKey }: { widgetKey?: string } = {}) {
   const { dict, tOptional } = useI18n();
-  const industry = useIndustryFromUrl();
+  // A widget conversation is bound to the customer org by its key; the
+  // `?industry=` demo switch does not apply.
+  const industryFromUrl = useIndustryFromUrl();
+  const industry = widgetKey ? undefined : industryFromUrl;
   const {
     messages,
     status,
@@ -42,6 +45,7 @@ export function ChatWindow() {
     reset,
   } = useChat({
     industry,
+    widgetKey,
     greeting: dict.chat.greeting,
     errorFallback: dict.chat.errorGeneric,
     resolveError: (raw) =>

@@ -13,16 +13,29 @@ export const APP_HOME_PATH = "/dashboard";
 /**
  * Paths reachable without a session. Everything else requires auth.
  * - `/`            public marketing + anonymous demo chat
- * - `/login`, `/signup`  auth entry points
- * - `/auth/*`      Supabase callbacks (email confirm, etc.)
- * - `/api/chat`    the chat endpoint — works signed-in *and* anonymous (demo)
+ * - `/login`, `/signup`, `/forgot-password`  auth entry points
+ * - `/reset-password`  the recovery-link landing page (a session is set first
+ *   by `/auth/confirm`; the page itself re-checks)
+ * - `/invite/*`    team-invite acceptance (its own token is the gate)
+ * - `/embed/*`     the per-org embeddable chat widget (its own widget key
+ *   routes leads; anonymous by design)
+ * - `/auth/*`      Supabase callbacks (email confirm, recovery, etc.)
+ * - `/api/chat`    the chat endpoint — works signed-in *and* anonymous
  * - `/api/internal/*`  server-to-server jobs (cron) — the routes enforce their
  *   own secret; the proxy must not redirect them to `/login`.
  */
 export function isPublicPath(pathname: string): boolean {
-  if (pathname === "/" || pathname === "/login" || pathname === "/signup") {
+  if (
+    pathname === "/" ||
+    pathname === "/login" ||
+    pathname === "/signup" ||
+    pathname === "/forgot-password" ||
+    pathname === "/reset-password"
+  ) {
     return true;
   }
+  if (pathname === "/invite" || pathname.startsWith("/invite/")) return true;
+  if (pathname === "/embed" || pathname.startsWith("/embed/")) return true;
   if (pathname === "/api/chat" || pathname.startsWith("/api/chat/")) {
     return true;
   }

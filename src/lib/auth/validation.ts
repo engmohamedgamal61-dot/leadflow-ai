@@ -20,6 +20,7 @@ export interface FieldErrors {
   password?: ValidationError;
   name?: ValidationError;
   industry?: ValidationError;
+  inviteCode?: ValidationError;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

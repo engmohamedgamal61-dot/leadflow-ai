@@ -9,19 +9,43 @@ import { useI18n } from "@/i18n/client";
 
 const INITIAL: AuthFormState = {};
 
-export function SignupForm() {
+export function SignupForm({
+  next,
+  gated = false,
+  emailDefault,
+}: {
+  next?: string;
+  gated?: boolean;
+  emailDefault?: string;
+}) {
   const { t } = useI18n();
   const [state, formAction, pending] = useActionState(signUpAction, INITIAL);
 
   const fieldError = (err?: ValidationError) =>
     err ? t(`validation.${err.code}`, err.params) : undefined;
 
+  // An invite link carries its own token — the signup gate doesn't apply.
+  const showInviteCode = gated && !next?.startsWith("/invite/");
+
   return (
     <form action={formAction} className="space-y-4" noValidate>
+      {next ? <input type="hidden" name="next" value={next} /> : null}
       <FormFeedback
         error={state.errorCode ? t(state.errorCode) : undefined}
         message={state.messageCode ? t(state.messageCode) : undefined}
       />
+
+      {showInviteCode ? (
+        <FormField
+          label={t("auth.signup.inviteCodeLabel")}
+          name="inviteCode"
+          type="text"
+          autoComplete="off"
+          required
+          error={fieldError(state.fieldErrors?.inviteCode)}
+          hint={t("auth.signup.inviteCodeHint")}
+        />
+      ) : null}
 
       <FormField
         label={t("auth.emailLabel")}
@@ -29,6 +53,7 @@ export function SignupForm() {
         type="email"
         autoComplete="email"
         placeholder={t("auth.emailPlaceholder")}
+        defaultValue={emailDefault}
         required
         error={fieldError(state.fieldErrors?.email)}
       />
