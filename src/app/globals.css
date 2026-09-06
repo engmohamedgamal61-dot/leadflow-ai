@@ -11,12 +11,17 @@
 }
 
 /*
- * Dashboard-only "premium black + off-white" theme. Scoped to `.dashboard-shell`
- * so the chat/auth/landing pages (which stay on the dark theme above) are
- * untouched — every `bg-surface` / `text-foreground` / `border-border` /
- * `text-muted` utility already used throughout the dashboard resolves through
- * these custom properties, so this is a pure re-theme: no component markup
- * changes needed beyond adding the scope class itself.
+ * Dashboard-only "warm off-white" theme. Scoped to `.dashboard-shell` so the
+ * chat/auth/landing pages (which stay on the dark theme above) are untouched —
+ * every `bg-surface` / `text-foreground` / `border-border` / `text-muted`
+ * utility already used throughout the dashboard resolves through these custom
+ * properties, so this is a pure re-theme: no component markup changes needed
+ * beyond adding the scope class itself.
+ *
+ * Hierarchy: content `--background` is the warm off-white ground; `--surface`
+ * (cards) sits a step lighter; the sidebar (below) a step calmer. Semantic
+ * colours (green/amber/red/blue) live only in component classes and carry
+ * meaning, never decoration.
  */
 .dashboard-shell {
   --background: #f6f4f0;
@@ -24,21 +29,22 @@
   --border: #e7e3da;
   --foreground: #17150f;
   --muted: #6f6a60;
+  /* Deep indigo — calmer than indigo-500 on a light ground, and AA-legible as
+     link / active-nav text. Used for the accent tint, focus rings and the
+     brand mark across the dashboard. */
+  --accent: #4f46e5;
 }
 
 /*
- * The sidebar stays a dark charcoal rail regardless of the light theme around
- * it — a second, nested scope re-overrides the same four properties back to
- * dark values. The `<aside>` already uses `bg-surface`/`text-foreground`/
- * `text-muted`/`border-border`/`hover:bg-surface` throughout, so nesting this
- * class on it is the only change needed; nothing inside sidebar.tsx's nav
- * items or brand link has to change.
+ * The sidebar is a calm, very light neutral rail — one step off the warm
+ * content ground and set apart by a hairline border, not a shadow. Charcoal
+ * text and icons inherit from `.dashboard-shell`; only the surface and the
+ * rail border are re-scoped here. Nav-item states (soft indigo tint + indigo
+ * text when active, faint indigo wash on hover) live in `sidebar.tsx`.
  */
 .dashboard-sidebar {
-  --surface: #17150f;
-  --border: #2b2822;
-  --foreground: #f5f3ee;
-  --muted: #9c968a;
+  --surface: #f3f1ec;
+  --border: #e3ded1;
 }
 
 @theme inline {

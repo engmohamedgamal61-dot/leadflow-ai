@@ -69,8 +69,8 @@ function NavItem({
         indent ? "ms-3" : ""
       } ${
         active
-          ? "bg-accent/15 font-medium text-foreground"
-          : "text-muted hover:bg-surface hover:text-foreground"
+          ? "bg-accent/12 font-medium text-accent"
+          : "text-muted hover:bg-accent/8 hover:text-foreground"
       }`}
     >
       <Icon className="h-4 w-4 shrink-0" />
