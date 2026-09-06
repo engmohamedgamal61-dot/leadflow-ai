@@ -55,6 +55,31 @@ export function formatDateTime(
   return Number.isNaN(d.getTime()) ? "—" : dateTimeFormatter(locale).format(d);
 }
 
+/** Short weekday + date, e.g. "Sat, Sep 6" — for the top-bar today chip. */
+export function formatWeekdayDate(
+  date: Date = new Date(),
+  locale: Locale = "en",
+): string {
+  return new Intl.DateTimeFormat(intlLocale(locale), {
+    ...BASE,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  }).format(date);
+}
+
+/** Time of day, e.g. "2:32 PM" / "14:32" — for the sidebar status card. */
+export function formatTime(
+  date: Date = new Date(),
+  locale: Locale = "en",
+): string {
+  return new Intl.DateTimeFormat(intlLocale(locale), {
+    ...BASE,
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
 export function formatNumber(
   value: number | null | undefined,
   locale: Locale = "en",

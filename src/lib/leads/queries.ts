@@ -751,6 +751,104 @@ export async function getFollowUpCounts(
   };
 }
 
+export interface FollowUpListRow extends FollowUpRow {
+  leadName: string | null;
+  /** `pending` and past its scheduled time. */
+  overdue: boolean;
+}
+
+/**
+ * Pending + failed follow-ups, joined to their lead, soonest first — the
+ * backing data for the `/dashboard/follow-ups` view. Bounded; a completed /
+ * cancelled follow-up is history and is left out.
+ */
+export async function listOpenFollowUps(
+  organizationId: string,
+  limit = 100,
+  now: Date = new Date(),
+): Promise<FollowUpListRow[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("lead_follow_ups")
+    .select(`${FOLLOW_UP_COLUMNS}, leads ( name )`)
+    .eq("organization_id", organizationId)
+    .in("status", ["pending", "failed"])
+    .order("scheduled_at", { ascending: true })
+    .limit(Math.min(limit, 200));
+  if (error) throw error;
+  const nowMs = now.getTime();
+  return (data ?? []).map((r) => {
+    const row = toFollowUpRow(r as Parameters<typeof toFollowUpRow>[0]);
+    const lead = (r as { leads?: { name: string | null } | null }).leads;
+    return {
+      ...row,
+      leadName: lead?.name ?? null,
+      overdue: row.status === "pending" && Date.parse(row.scheduledAt) < nowMs,
+    };
+  });
+}
+
+export interface TrendValue {
+  /** Count in the last 7 days. */
+  current: number;
+  /** Count in the 7 days before that. */
+  previous: number;
+}
+
+export interface DashboardTrends {
+  leads: TrendValue;
+  qualified: TrendValue;
+  appointments: TrendValue;
+}
+
+/**
+ * Week-over-week counts for the KPI cards: the last 7 days vs the 7 days
+ * before. Six bounded head-count queries. "Qualified" and "appointments" are
+ * driven by their `lead_events` (`lead_qualified` / `appointment_booked`), so
+ * they measure what happened in the window rather than the current snapshot.
+ */
+export async function getDashboardTrends(
+  organizationId: string,
+  now: Date = new Date(),
+): Promise<DashboardTrends> {
+  const supabase = await createClient();
+  const day = 86_400_000;
+  const start7 = new Date(now.getTime() - 7 * day).toISOString();
+  const start14 = new Date(now.getTime() - 14 * day).toISOString();
+  const nowIso = now.toISOString();
+
+  const leadsBetween = (from: string, to: string) =>
+    supabase
+      .from("leads")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .gte("created_at", from)
+      .lt("created_at", to);
+  const eventsBetween = (eventType: string, from: string, to: string) =>
+    supabase
+      .from("lead_events")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .eq("event_type", eventType)
+      .gte("created_at", from)
+      .lt("created_at", to);
+
+  const [lc, lp, qc, qp, ac, ap] = await Promise.all([
+    leadsBetween(start7, nowIso),
+    leadsBetween(start14, start7),
+    eventsBetween("lead_qualified", start7, nowIso),
+    eventsBetween("lead_qualified", start14, start7),
+    eventsBetween("appointment_booked", start7, nowIso),
+    eventsBetween("appointment_booked", start14, start7),
+  ]);
+
+  return {
+    leads: { current: lc.count ?? 0, previous: lp.count ?? 0 },
+    qualified: { current: qc.count ?? 0, previous: qp.count ?? 0 },
+    appointments: { current: ac.count ?? 0, previous: ap.count ?? 0 },
+  };
+}
+
 export interface UpcomingAppointmentRow extends AppointmentRow {
   leadName: string | null;
 }
@@ -775,6 +873,56 @@ export async function getUpcomingAppointments(
     const lead = (r as { leads?: { name: string | null } | null }).leads;
     return { ...row, leadName: lead?.name ?? null };
   });
+}
+
+/**
+ * Appointments for the `/dashboard/appointments` view — every status, soonest
+ * upcoming first then the most recent past ones. Bounded.
+ */
+export interface AppointmentListRow extends UpcomingAppointmentRow {
+  /** Its scheduled start time is in the past. */
+  past: boolean;
+}
+
+export async function listAppointments(
+  organizationId: string,
+  limit = 60,
+  now: Date = new Date(),
+): Promise<AppointmentListRow[]> {
+  const supabase = await createClient();
+  const nowIso = now.toISOString();
+  const [upcoming, past] = await Promise.all([
+    supabase
+      .from("appointments")
+      .select(`${APPOINTMENT_COLUMNS}, leads ( name )`)
+      .eq("organization_id", organizationId)
+      .gte("starts_at", nowIso)
+      .order("starts_at", { ascending: true })
+      .limit(limit),
+    supabase
+      .from("appointments")
+      .select(`${APPOINTMENT_COLUMNS}, leads ( name )`)
+      .eq("organization_id", organizationId)
+      .lt("starts_at", nowIso)
+      .order("starts_at", { ascending: false })
+      .limit(limit),
+  ]);
+  if (upcoming.error) throw upcoming.error;
+  if (past.error) throw past.error;
+  const nowMs = now.getTime();
+  const shape = (r: unknown): AppointmentListRow => {
+    const row = toAppointmentRow(r as Parameters<typeof toAppointmentRow>[0]);
+    const lead = (r as { leads?: { name: string | null } | null }).leads;
+    return {
+      ...row,
+      leadName: lead?.name ?? null,
+      past: Date.parse(row.startsAt) < nowMs,
+    };
+  };
+  return [
+    ...(upcoming.data ?? []).map(shape),
+    ...(past.data ?? []).map(shape),
+  ].slice(0, limit);
 }
 
 /** How many active appointments are still upcoming — for the executive summary card. */

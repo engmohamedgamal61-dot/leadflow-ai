@@ -3,13 +3,17 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
-import { SignOutButton } from "@/components/auth/sign-out-button";
-import { LanguageSwitcher } from "@/components/i18n/language-switcher";
+import { DashboardTopbar } from "@/components/dashboard/dashboard-topbar";
 import {
+  ActivityIcon,
   AiAgentIcon,
+  AppointmentIcon,
   DashboardIcon,
+  FollowUpIcon,
+  HealthIcon,
   IntegrationsIcon,
   LeadsIcon,
+  ReadinessIcon,
   RecoveryIcon,
   TeamIcon,
   WidgetIcon,
@@ -20,41 +24,39 @@ import { useI18n } from "@/i18n/client";
 interface NavLink {
   href: string;
   labelKey: string;
-  exact: boolean;
   icon: ComponentType<IconProps>;
+  /** Match `pathname` exactly (else prefix-match). Hash links are never active. */
+  exact?: boolean;
 }
 
-const TOP_LINKS: NavLink[] = [
-  { href: "/dashboard", labelKey: "navigation.dashboard", exact: true, icon: DashboardIcon },
-  { href: "/dashboard/leads", labelKey: "navigation.leads", exact: false, icon: LeadsIcon },
-  { href: "/dashboard/recovery", labelKey: "navigation.recovery", exact: false, icon: RecoveryIcon },
+const MAIN_LINKS: NavLink[] = [
+  { href: "/dashboard", labelKey: "navigation.dashboard", icon: DashboardIcon, exact: true },
+  { href: "/dashboard/leads", labelKey: "navigation.leads", icon: LeadsIcon },
+  { href: "/dashboard/follow-ups", labelKey: "navigation.followUps", icon: FollowUpIcon },
+  { href: "/dashboard/appointments", labelKey: "navigation.appointments", icon: AppointmentIcon },
+  { href: "/dashboard/recovery", labelKey: "navigation.recovery", icon: RecoveryIcon },
+  { href: "/dashboard/activity", labelKey: "navigation.activity", icon: ActivityIcon },
+];
+
+/** Jump links to owner/admin dashboard sections. */
+const STATUS_LINKS: NavLink[] = [
+  { href: "/dashboard#go-live-readiness", labelKey: "navigation.readiness", icon: ReadinessIcon },
+  { href: "/dashboard#integration-health", labelKey: "navigation.integrationHealth", icon: HealthIcon },
 ];
 
 const SETTINGS_LINKS: NavLink[] = [
-  { href: "/dashboard/settings/ai", labelKey: "navigation.aiAgent", exact: true, icon: AiAgentIcon },
-  {
-    href: "/dashboard/settings/integrations",
-    labelKey: "navigation.integrations",
-    exact: false,
-    icon: IntegrationsIcon,
-  },
-  { href: "/dashboard/settings/widget", labelKey: "navigation.widget", exact: true, icon: WidgetIcon },
-  { href: "/dashboard/settings/team", labelKey: "navigation.team", exact: true, icon: TeamIcon },
+  { href: "/dashboard/settings/ai", labelKey: "navigation.aiAgent", icon: AiAgentIcon, exact: true },
+  { href: "/dashboard/settings/integrations", labelKey: "navigation.integrations", icon: IntegrationsIcon },
+  { href: "/dashboard/settings/team", labelKey: "navigation.team", icon: TeamIcon, exact: true },
+  { href: "/dashboard/settings/widget", labelKey: "navigation.widget", icon: WidgetIcon, exact: true },
 ];
 
 function isActive(pathname: string, link: NavLink): boolean {
+  if (link.href.includes("#")) return false;
   return link.exact ? pathname === link.href : pathname.startsWith(link.href);
 }
 
-function NavItem({
-  link,
-  onNavigate,
-  indent = false,
-}: {
-  link: NavLink;
-  onNavigate: () => void;
-  indent?: boolean;
-}) {
+function NavItem({ link, onNavigate }: { link: NavLink; onNavigate: () => void }) {
   const pathname = usePathname();
   const { t } = useI18n();
   const active = isActive(pathname, link);
@@ -65,17 +67,26 @@ function NavItem({
       href={link.href}
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
-      className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
-        indent ? "ms-3" : ""
-      } ${
+      className={`relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
         active
-          ? "bg-accent/12 font-medium text-accent"
-          : "text-muted hover:bg-accent/8 hover:text-foreground"
+          ? "bg-accent/10 font-medium text-accent before:absolute before:inset-y-1.5 before:start-0 before:w-0.5 before:rounded-full before:bg-accent before:content-['']"
+          : "text-muted hover:bg-accent/5 hover:text-foreground"
       }`}
     >
-      <Icon className="h-4 w-4 shrink-0" />
+      <Icon className="h-[18px] w-[18px] shrink-0" />
       <span className="truncate">{t(link.labelKey)}</span>
     </Link>
+  );
+}
+
+function NavGroup({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="pt-3">
+      <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted/60">
+        {label}
+      </p>
+      <div className="space-y-0.5">{children}</div>
+    </div>
   );
 }
 
@@ -89,75 +100,78 @@ function SidebarNav({
   const { t } = useI18n();
 
   return (
-    <nav aria-label={t("navigation.dashboard")} className="space-y-1 px-3">
-      {TOP_LINKS.map((link) => (
+    <nav aria-label={t("navigation.dashboard")} className="space-y-0.5 px-3">
+      {MAIN_LINKS.map((link) => (
         <NavItem key={link.href} link={link} onNavigate={onNavigate} />
       ))}
 
       {canManageSettings ? (
-        <div className="pt-3">
-          <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted/70">
-            {t("navigation.settings")}
-          </p>
-          <div className="space-y-1">
-            {SETTINGS_LINKS.map((link) => (
-              <NavItem key={link.href} link={link} onNavigate={onNavigate} indent />
+        <>
+          <div className="my-3 border-t border-border" />
+          <div className="space-y-0.5">
+            {STATUS_LINKS.map((link) => (
+              <NavItem key={link.href} link={link} onNavigate={onNavigate} />
             ))}
           </div>
-        </div>
+          <NavGroup label={t("navigation.settings")}>
+            {SETTINGS_LINKS.map((link) => (
+              <NavItem key={link.href} link={link} onNavigate={onNavigate} />
+            ))}
+          </NavGroup>
+        </>
       ) : null}
     </nav>
   );
 }
 
-function MenuIcon({ open }: { open: boolean }) {
+function StatusCard({ syncedLabel }: { syncedLabel: string }) {
+  const { t } = useI18n();
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-      {open ? (
-        <path
-          d="M6 6l12 12M18 6L6 18"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
+    <div className="mx-3 mt-2 rounded-xl border border-border bg-background/60 p-3">
+      <div className="flex items-center gap-2">
+        <span
+          aria-hidden
+          className="h-2 w-2 shrink-0 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20"
         />
-      ) : (
-        <path
-          d="M4 6h16M4 12h16M4 18h16"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-        />
-      )}
-    </svg>
+        <p className="text-xs font-medium text-foreground">
+          {t("dashboard.statusCard.title")}
+        </p>
+      </div>
+      <p className="mt-1 ps-4 text-[11px] text-muted">{syncedLabel}</p>
+    </div>
   );
 }
 
 export function DashboardShell({
   organizationName,
+  displayName,
   roleLabel,
   userEmail,
   canManageSettings,
+  syncedLabel,
+  todayLabel,
   children,
 }: {
   organizationName: string;
+  displayName: string;
   roleLabel: string;
   userEmail: string;
   canManageSettings: boolean;
+  syncedLabel: string;
+  todayLabel: string;
   children: ReactNode;
 }) {
   const { t } = useI18n();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
-  // Close the mobile drawer on navigation. Adjusting state during render
-  // (rather than in an effect) per https://react.dev/learn/you-might-not-need-an-effect.
+  // Close the mobile drawer on navigation (adjust state during render).
   const [lastPathname, setLastPathname] = useState(pathname);
   if (pathname !== lastPathname) {
     setLastPathname(pathname);
     setOpen(false);
   }
 
-  // Close on Escape.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -168,7 +182,7 @@ export function DashboardShell({
   }, [open]);
 
   const brand = (
-    <div className="flex items-center justify-between gap-2 px-3 py-4">
+    <div className="flex items-center justify-between gap-2 px-4 py-4">
       <Link
         href="/dashboard"
         className="flex min-w-0 items-center gap-2 text-sm font-semibold tracking-tight text-foreground"
@@ -176,7 +190,12 @@ export function DashboardShell({
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent text-xs font-bold text-accent-foreground">
           LF
         </span>
-        <span className="truncate">{organizationName}</span>
+        <span className="flex min-w-0 flex-col leading-tight">
+          <span className="truncate">{t("brand.name")}</span>
+          <span className="truncate text-[11px] font-normal text-muted">
+            {organizationName}
+          </span>
+        </span>
       </Link>
       <button
         type="button"
@@ -184,61 +203,58 @@ export function DashboardShell({
         aria-label={t("navigation.closeMenu")}
         className="shrink-0 rounded-lg p-1.5 text-muted hover:text-foreground md:hidden"
       >
-        <MenuIcon open />
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <path
+            d="M6 6l12 12M18 6L6 18"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+        </svg>
       </button>
     </div>
   );
 
   return (
     <div className="dashboard-shell flex min-h-[100dvh] flex-col bg-background text-foreground md:flex-row">
-      {/* Mobile backdrop */}
       {open ? (
         <div
           role="presentation"
           onClick={() => setOpen(false)}
-          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          className="fixed inset-0 z-40 bg-black/40 md:hidden"
         />
       ) : null}
 
-      {/* Sidebar: fixed drawer on mobile, sticky column on desktop.
-          The closed-state offset is scoped to `max-md:` (both directions) so
-          it never competes with `md:translate-x-0`: `rtl:` alone is
-          direction-scoped, not viewport-scoped, so an unscoped
-          `rtl:translate-x-full` would have equal specificity to (and, by
-          source order, override) `md:translate-x-0` — hiding the sidebar on
-          desktop in Arabic while English rendered correctly. */}
+      {/* Sidebar: fixed drawer on mobile, sticky column on desktop. The
+          closed-state offset is scoped to `max-md:` (both directions) so it
+          never competes with `md:translate-x-0`. */}
       <aside
         className={`dashboard-sidebar fixed inset-y-0 start-0 z-50 flex w-64 shrink-0 flex-col border-e border-border bg-surface transition-transform duration-200 ease-out md:sticky md:top-0 md:z-0 md:h-[100dvh] md:translate-x-0 ${
           open ? "translate-x-0" : "max-md:-translate-x-full max-md:rtl:translate-x-full"
         }`}
       >
         {brand}
-        <div className="flex-1 overflow-y-auto pb-4">
-          <SidebarNav canManageSettings={canManageSettings} onNavigate={() => setOpen(false)} />
+        <div className="flex-1 overflow-y-auto pb-2">
+          <SidebarNav
+            canManageSettings={canManageSettings}
+            onNavigate={() => setOpen(false)}
+          />
+        </div>
+        <div className="pb-3">
+          <StatusCard syncedLabel={syncedLabel} />
         </div>
       </aside>
 
       {/* Content column */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-3 border-b border-border px-4 py-3">
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            aria-label={t("navigation.openMenu")}
-            className="rounded-lg border border-border p-1.5 text-muted hover:text-foreground md:hidden"
-          >
-            <MenuIcon open={false} />
-          </button>
-
-          <div className="flex items-center gap-3 text-xs text-muted md:ms-auto">
-            <span className="hidden sm:inline">{roleLabel}</span>
-            <span className="hidden max-w-[12rem] truncate sm:inline">{userEmail}</span>
-            <LanguageSwitcher size="compact" />
-            <SignOutButton />
-          </div>
-        </header>
-
-        <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:py-8">
+        <DashboardTopbar
+          displayName={displayName}
+          userEmail={userEmail}
+          roleLabel={roleLabel}
+          todayLabel={todayLabel}
+          onOpenMenu={() => setOpen(true)}
+        />
+        <main className="mx-auto w-full max-w-6xl flex-1 px-3 py-5 sm:px-5 sm:py-6">
           {children}
         </main>
       </div>

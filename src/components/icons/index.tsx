@@ -219,3 +219,83 @@ export function ArrowIcon(props: IconProps) {
     </Icon>
   );
 }
+
+/* ── Chrome (top bar, menus, misc) ─────────────────────────────────────── */
+
+export function SearchIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="M20 20l-3.6-3.6" />
+    </Icon>
+  );
+}
+
+export function BellIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M6 9a6 6 0 0 1 12 0c0 5 1.5 6.5 2 7H4c.5-.5 2-2 2-7Z" />
+      <path d="M9.5 20a2.5 2.5 0 0 0 5 0" />
+    </Icon>
+  );
+}
+
+export function ChevronDownIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M6 9l6 6 6-6" />
+    </Icon>
+  );
+}
+
+export function ChatIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4 5h16v11H8l-4 4V5Z" />
+      <path d="M8 9.5h8M8 12.5h5" />
+    </Icon>
+  );
+}
+
+export function BoltIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" />
+    </Icon>
+  );
+}
+
+export function CalendarDateIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="3" y="4.5" width="18" height="16.5" rx="2" />
+      <path d="M8 2.5v4M16 2.5v4M3 10h18" />
+      <path d="M7.5 14h2v2h-2z" fill="currentColor" stroke="none" />
+    </Icon>
+  );
+}
+
+export function ExternalLinkIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M14 4h6v6M20 4l-9 9" />
+      <path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
+    </Icon>
+  );
+}
+
+export function TrendUpIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 5l6 8H6l6-8Z" fill="currentColor" stroke="none" />
+    </Icon>
+  );
+}
+
+export function TrendDownIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 19l6-8H6l6 8Z" fill="currentColor" stroke="none" />
+    </Icon>
+  );
+}
