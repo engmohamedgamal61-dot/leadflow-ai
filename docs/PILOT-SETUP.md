@@ -79,12 +79,19 @@ secrets redacted. Without it, the same reports still go to stderr as structured
 
 1. **Settings → Widget** — enable the widget. Copy the `<iframe>` snippet; it
    embeds `/embed/<widget_key>`.
-2. The customer pastes the snippet into their site. Chats there resolve to the
+2. **Add every site under "Allowed sites"** (one origin per line, e.g.
+   `https://www.acme.com`). The widget only runs on these origins — the
+   `/embed` page refuses to render when framed by any other site, and every
+   `/api/chat` turn is re-checked against the same list. An empty list blocks
+   the widget **everywhere**, so this step is required, not optional.
+   - Localhost is allowed automatically outside production (or with
+     `WIDGET_ALLOW_DEV_ORIGINS=1`); in production add `http://localhost:PORT`
+     explicitly if the customer needs to test locally.
+3. The customer pastes the snippet into their site. Chats there resolve to the
    customer's organization server-side via the widget key — leads never land in
-   the demo org, and tenant data stays RLS-isolated.
-3. Rotate the key from the same screen if it's ever mishandled. The optional
-   allowed-origins list is recorded for a future embed lock-down; today any site
-   may host the iframe (the key only routes leads, it grants no data access).
+   the demo org (an invalid, disabled, suspended, or origin-blocked key never
+   falls back to it), and tenant data stays RLS-isolated.
+4. Rotate the key from the same screen if it's ever mishandled.
 
 ## 8. Pre-pilot checklist
 
@@ -102,5 +109,10 @@ secrets redacted. Without it, the same reports still go to stderr as structured
 
 - CSP allows `'unsafe-inline'` / `'unsafe-eval'` (Next/Turbopack bootstrap); a
   nonce pipeline is post-pilot.
-- Widget embedding is not yet origin-restricted (see §7).
+- The widget origin check relies on browser-set headers (`Referer`,
+  `Sec-Fetch-Site`) plus the widget script's self-reported parent origin. This
+  stops a copied key from working on an unauthorized site from a real browser;
+  it is not a defense against a hand-crafted non-browser request (true of any
+  origin check). Tenant isolation still rests on RLS + the server-side key
+  resolution, not on the origin check.
 - Owner transfer is not exposed — provision the correct owner at signup.

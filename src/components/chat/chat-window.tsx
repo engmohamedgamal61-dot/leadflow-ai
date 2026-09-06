@@ -27,12 +27,42 @@ function useIndustryFromUrl(): string | undefined {
   );
 }
 
+/**
+ * The origin of the page that framed this widget. `ancestorOrigins` is the
+ * exact parent-chain origin (Chromium/WebKit); `document.referrer` is the
+ * cross-browser fallback. Used only to tell the server which site the widget
+ * is embedded on so it can enforce the org's allowed-origins list. SSR-safe.
+ */
+const readEmbeddingOrigin = (): string | undefined => {
+  try {
+    const ancestors = window.location.ancestorOrigins;
+    if (ancestors && ancestors.length > 0 && ancestors[0]) return ancestors[0];
+  } catch {
+    /* not supported — fall through */
+  }
+  try {
+    if (document.referrer) return new URL(document.referrer).origin;
+  } catch {
+    /* malformed referrer */
+  }
+  return undefined;
+};
+
+function useEmbeddingOrigin(enabled: boolean): string | undefined {
+  return useSyncExternalStore(
+    NO_SUBSCRIBE,
+    () => (enabled ? readEmbeddingOrigin() : undefined),
+    () => undefined,
+  );
+}
+
 export function ChatWindow({ widgetKey }: { widgetKey?: string } = {}) {
   const { dict, tOptional } = useI18n();
   // A widget conversation is bound to the customer org by its key; the
   // `?industry=` demo switch does not apply.
   const industryFromUrl = useIndustryFromUrl();
   const industry = widgetKey ? undefined : industryFromUrl;
+  const pageOrigin = useEmbeddingOrigin(Boolean(widgetKey));
   const {
     messages,
     status,
@@ -46,6 +76,7 @@ export function ChatWindow({ widgetKey }: { widgetKey?: string } = {}) {
   } = useChat({
     industry,
     widgetKey,
+    pageOrigin,
     greeting: dict.chat.greeting,
     errorFallback: dict.chat.errorGeneric,
     resolveError: (raw) =>

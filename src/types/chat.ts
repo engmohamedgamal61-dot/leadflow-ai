@@ -113,6 +113,13 @@ export interface SendOptions {
   industry?: string;
   /** Per-organization website widget key — set only for the embeddable widget. */
   widgetKey?: string;
+  /**
+   * The origin of the page embedding the widget, as seen by the widget script
+   * (`window.location.ancestorOrigins` / `document.referrer`). Sent only for
+   * the embeddable widget so the server can check it against the organization's
+   * allowed-origins list.
+   */
+  pageOrigin?: string;
   /** Persisted conversation id from a previous turn, to continue the chat. */
   conversationId?: string;
   /**

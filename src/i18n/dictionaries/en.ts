@@ -777,7 +777,9 @@ export const en = {
       "Rotating the key immediately breaks the old embed code — update your site afterwards.",
     originsTitle: "Allowed sites",
     originsHint:
-      "One site per line (e.g. https://www.acme.com). Recorded for a future embed lock-down; not enforced during the pilot.",
+      "One site per line (e.g. https://www.acme.com). The widget only runs on these origins — leave it empty and the widget is blocked everywhere.",
+    originsRequired:
+      "The widget is on but no sites are allowed, so it's currently blocked everywhere. Add the site you're embedding it on.",
     errors: {
       notAllowed: "Only an owner or admin can manage the widget.",
       saveFailed: "Could not save. Please try again.",
@@ -810,6 +812,7 @@ export const en = {
       serverError: "Unexpected server error.",
       invalidRequest: "That message could not be sent. Please try again.",
       notConfigured: "The assistant is not configured yet.",
+      originBlocked: "This chat isn't available on this website.",
     },
     suggestedPrompts: [
       "I'm looking for an apartment in Riyadh.",

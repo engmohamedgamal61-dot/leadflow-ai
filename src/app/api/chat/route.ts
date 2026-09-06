@@ -13,6 +13,8 @@ import {
 import { getEffectiveConfig, hasIndustryTemplate } from "@/lib/config";
 import { loadEffectiveConfig } from "@/lib/config/organization-config.server";
 import { resolveChatContext } from "@/lib/org/chat-organization";
+import { widgetOriginCandidate } from "@/lib/org/widget-origin";
+import { appBaseUrlOrNull } from "@/lib/app-url";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { clientIp } from "@/lib/security/client-ip";
 import { enforceRateLimit, chatIpRule, chatOrgRule } from "@/lib/security/rate-limit";
@@ -40,6 +42,7 @@ interface ChatRequestBody {
   conversationId?: string;
   requestId?: string;
   widgetKey?: string;
+  pageOrigin?: string;
 }
 
 interface ParsedRequest {
@@ -52,6 +55,8 @@ interface ParsedRequest {
   requestId: string | null;
   /** Per-organization website widget key, if the turn came from an embed. */
   widgetKey: string | null;
+  /** The embedding page origin the widget script reported (best-effort). */
+  pageOrigin: string | null;
 }
 
 function parseBody(body: unknown): ParsedRequest | null {
@@ -105,7 +110,13 @@ function parseBody(body: unknown): ParsedRequest | null {
       ? widgetKeyRaw
       : null;
 
-  return { turns, industry, conversationId, requestId, widgetKey };
+  const pageOriginRaw = (body as ChatRequestBody).pageOrigin;
+  const pageOrigin =
+    typeof pageOriginRaw === "string" && pageOriginRaw.length <= 2048
+      ? pageOriginRaw
+      : null;
+
+  return { turns, industry, conversationId, requestId, widgetKey, pageOrigin };
 }
 
 /** The Messages API requires the conversation to start with a user turn. */
@@ -202,10 +213,29 @@ export async function POST(request: NextRequest) {
   // customer's own org server-side. Otherwise the dev/demo behavior stands: an
   // `industry` hint selects a pre-seeded demo org. `null` organization → the
   // chat runs config-only with no persistence.
-  const { organization, industryHintAllowed } = await resolveChatContext({
-    industryHint: parsed.industry,
-    widgetKey: parsed.widgetKey,
-  });
+  const { organization, industryHintAllowed, widgetOriginBlocked } =
+    await resolveChatContext({
+      industryHint: parsed.industry,
+      widgetKey: parsed.widgetKey,
+      widgetOrigin: parsed.widgetKey
+        ? widgetOriginCandidate({
+            originHeader: request.headers.get("origin"),
+            refererHeader: request.headers.get("referer"),
+            declared: parsed.pageOrigin,
+            appOrigin: appBaseUrlOrNull(),
+          })
+        : null,
+    });
+
+  // A widget key that resolved to a real org, but from a site the org hasn't
+  // authorized: reject. Never fall through to the demo org or a config-only chat.
+  if (widgetOriginBlocked) {
+    return Response.json(
+      { errorCode: "chat.errors.originBlocked" },
+      { status: 403 },
+    );
+  }
+
   const hintSlug = industryHintAllowed ? parsed.industry : null;
 
   // The AI engine runs on one EffectiveConfig. For an authenticated member it

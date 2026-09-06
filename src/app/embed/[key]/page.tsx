@@ -1,7 +1,12 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveOrgByWidgetKey } from "@/lib/org/widget";
+import {
+  devOriginsAllowed,
+  evaluateWidgetOrigin,
+} from "@/lib/org/widget-origin";
 import { ChatWindow } from "@/components/chat/chat-window";
 
 export const dynamic = "force-dynamic";
@@ -29,13 +34,31 @@ export default async function EmbedWidgetPage({
   const { key } = await params;
   if (!UUID_RE.test(key)) notFound();
 
-  let ok = false;
+  let resolved: Awaited<ReturnType<typeof resolveOrgByWidgetKey>> = null;
   try {
-    ok = (await resolveOrgByWidgetKey(createAdminClient(), key)) !== null;
+    resolved = await resolveOrgByWidgetKey(createAdminClient(), key);
   } catch {
-    ok = false;
+    resolved = null;
   }
-  if (!ok) notFound();
+  if (!resolved) notFound();
+
+  // When another site frames this page, the browser sends the parent page as
+  // `Referer` and marks the fetch cross-site. Require that origin to be on the
+  // organization's allowlist. A direct visit (`same-origin` / `none` / a
+  // browser too old to send `Sec-Fetch-Site`) is first-party and allowed — the
+  // `/api/chat` turn is still origin-checked on every message.
+  const h = await headers();
+  const secFetchSite = h.get("sec-fetch-site");
+  const framedExternally =
+    secFetchSite === "cross-site" || secFetchSite === "same-site";
+  if (framedExternally) {
+    const decision = evaluateWidgetOrigin(
+      h.get("referer"),
+      resolved.allowedOrigins,
+      { allowDevOrigins: devOriginsAllowed() },
+    );
+    if (!decision.allowed) notFound();
+  }
 
   return (
     <main className="flex min-h-[100dvh] flex-col bg-background">

@@ -7,6 +7,10 @@ import {
   getInvitationByToken,
 } from "./invitations.server.ts";
 import { resolveOrgByWidgetKey } from "./widget.ts";
+import {
+  evaluateWidgetOrigin,
+  widgetOriginCandidate,
+} from "./widget-origin.ts";
 
 /**
  * Real-Postgres tests for the pilot-hardening migration
@@ -339,12 +343,19 @@ test("resolveOrgByWidgetKey: null while disabled, resolves to the right org once
 
   const enable = await users.a.client
     .from("organization_widget_settings")
-    .update({ enabled: true })
+    .update({
+      enabled: true,
+      allowed_origins: ["https://shop.acme.example"],
+    })
     .eq("organization_id", orgA);
   assert.equal(enable.error, null);
 
   const resolved = await resolveOrgByWidgetKey(admin, key);
-  assert.deepEqual(resolved, { organizationId: orgA, industryTemplateId: "real-estate" });
+  assert.deepEqual(resolved, {
+    organizationId: orgA,
+    industryTemplateId: "real-estate",
+    allowedOrigins: ["https://shop.acme.example"],
+  });
 });
 
 test("a suspended organization's widget key stops resolving", { skip }, async () => {
@@ -358,4 +369,68 @@ test("a suspended organization's widget key stops resolving", { skip }, async ()
   await admin.from("organizations").update({ status: "suspended" }).eq("id", orgA);
   assert.equal(await resolveOrgByWidgetKey(admin, key), null);
   await admin.from("organizations").update({ status: "active" }).eq("id", orgA);
+});
+
+test("widget origin allowlist: what /api/chat enforces, end to end from the DB", { skip }, async () => {
+  const row = await admin
+    .from("organization_widget_settings")
+    .select("widget_key")
+    .eq("organization_id", orgA)
+    .single();
+  const key = row.data.widget_key as string;
+
+  await admin
+    .from("organization_widget_settings")
+    .update({ enabled: true, allowed_origins: ["https://shop.acme.example"] })
+    .eq("organization_id", orgA);
+
+  const resolved = await resolveOrgByWidgetKey(admin, key);
+  assert.ok(resolved);
+  const appOrigin = "https://app.leadflow.example";
+
+  // The widget iframe posts with our own Origin/Referer; the parent origin
+  // arrives as the declared `pageOrigin`.
+  const allowedCandidate = widgetOriginCandidate({
+    originHeader: appOrigin,
+    refererHeader: `${appOrigin}/embed/${key}`,
+    declared: "https://shop.acme.example",
+    appOrigin,
+  });
+  assert.equal(
+    evaluateWidgetOrigin(allowedCandidate, resolved!.allowedOrigins).allowed,
+    true,
+  );
+
+  // A different site (cross-org / not authorized) is blocked.
+  const blockedCandidate = widgetOriginCandidate({
+    originHeader: appOrigin,
+    refererHeader: `${appOrigin}/embed/${key}`,
+    declared: "https://evil.example",
+    appOrigin,
+  });
+  const blocked = evaluateWidgetOrigin(blockedCandidate, resolved!.allowedOrigins);
+  assert.equal(blocked.allowed, false);
+  assert.equal(blocked.reason, "not-allowed");
+
+  // No parent origin reported at all → missing → blocked.
+  const missingCandidate = widgetOriginCandidate({
+    originHeader: appOrigin,
+    refererHeader: `${appOrigin}/embed/${key}`,
+    declared: null,
+    appOrigin,
+  });
+  assert.equal(missingCandidate, null);
+  assert.equal(evaluateWidgetOrigin(missingCandidate, resolved!.allowedOrigins).reason, "missing");
+
+  // Empty allowlist → even a real origin is blocked (closed by default).
+  await admin
+    .from("organization_widget_settings")
+    .update({ allowed_origins: [] })
+    .eq("organization_id", orgA);
+  const clearedOrigins = (await resolveOrgByWidgetKey(admin, key))!.allowedOrigins;
+  assert.deepEqual(clearedOrigins, []);
+  assert.equal(
+    evaluateWidgetOrigin("https://shop.acme.example", clearedOrigins).allowed,
+    false,
+  );
 });

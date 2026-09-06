@@ -3,6 +3,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveDevOrganization } from "@/lib/org/resolve";
 import { getUserMembership } from "@/lib/org/membership.server";
 import { resolveOrgByWidgetKey } from "@/lib/org/widget";
+import {
+  devOriginsAllowed,
+  evaluateWidgetOrigin,
+} from "@/lib/org/widget-origin";
 import { buildChatContext, type ChatContext } from "@/lib/org/chat-context";
 
 export type { ChatContext, ChatOrganization } from "@/lib/org/chat-context";
@@ -11,6 +15,12 @@ export interface ChatContextInput {
   industryHint: string | null;
   /** Per-org website widget key, if the turn came from an embedded widget. */
   widgetKey: string | null;
+  /**
+   * The request's embedding-origin candidate (from headers + the widget
+   * script's self-report), already picked by the caller. Only consulted on the
+   * anonymous widget-key path.
+   */
+  widgetOrigin: string | null;
 }
 
 /**
@@ -52,6 +62,21 @@ export async function resolveChatContext(
     try {
       const widgetOrg = await resolveOrgByWidgetKey(createAdminClient(), input.widgetKey);
       if (widgetOrg) {
+        // Origin allowlist: the embedding site must be one the organization
+        // authorized. A blocked origin is rejected outright — it never falls
+        // through to the demo org or to a config-only chat.
+        const decision = evaluateWidgetOrigin(
+          input.widgetOrigin,
+          widgetOrg.allowedOrigins,
+          { allowDevOrigins: devOriginsAllowed() },
+        );
+        if (!decision.allowed) {
+          return {
+            organization: null,
+            industryHintAllowed: false,
+            widgetOriginBlocked: true,
+          };
+        }
         return buildChatContext({
           authenticated: false,
           membership: null,

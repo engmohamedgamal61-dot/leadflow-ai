@@ -17,6 +17,12 @@ export interface ChatContext {
    * overridden by a query/body parameter.
    */
   industryHintAllowed: boolean;
+  /**
+   * Set when a widget key resolved to a real organization but the request's
+   * embedding origin is not on that organization's allowlist. The caller must
+   * reject the request (403) — it never falls through to the demo org.
+   */
+  widgetOriginBlocked?: boolean;
 }
 
 export interface DemoOrg {

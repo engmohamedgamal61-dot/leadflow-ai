@@ -130,6 +130,11 @@ export function WidgetForm({
       <section className="space-y-3 rounded-xl border border-border bg-surface p-4">
         <h2 className="text-sm font-semibold text-foreground">{t("widget.originsTitle")}</h2>
         <p className="text-xs text-muted">{t("widget.originsHint")}</p>
+        {enabled && !originsText.trim() ? (
+          <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+            {t("widget.originsRequired")}
+          </p>
+        ) : null}
         <form action={originsAction} className="space-y-2">
           <textarea
             name="origins"

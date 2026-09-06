@@ -26,6 +26,8 @@ export interface WidgetSettingsView {
 export interface ResolvedWidgetOrg {
   organizationId: string;
   industryTemplateId: string;
+  /** Origins the organization has authorized to embed this widget. */
+  allowedOrigins: string[];
 }
 
 /** Normalize an origin list from a textarea: one per line, `scheme://host[:port]`, deduped. */
@@ -125,12 +127,17 @@ export async function resolveOrgByWidgetKey(
   if (!UUID_RE.test(widgetKey)) return null;
   const { data, error } = await db
     .from("organization_widget_settings")
-    .select("enabled, organizations ( id, industry_template_id, status )")
+    .select("enabled, allowed_origins, organizations ( id, industry_template_id, status )")
     .eq("widget_key", widgetKey)
     .maybeSingle();
   if (error || !data || !data.enabled) return null;
   const org = (data as { organizations?: { id: string; industry_template_id: string; status: string } | null })
     .organizations;
   if (!org || org.status !== "active") return null;
-  return { organizationId: org.id, industryTemplateId: org.industry_template_id };
+  return {
+    organizationId: org.id,
+    industryTemplateId: org.industry_template_id,
+    allowedOrigins:
+      (data as { allowed_origins?: string[] | null }).allowed_origins ?? [],
+  };
 }
