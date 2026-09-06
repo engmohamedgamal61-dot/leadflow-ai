@@ -43,6 +43,7 @@ export const ar: Dictionary = {
   brand: {
     name: "LeadFlow AI",
     initials: "LF",
+    tagline: "عملاء أكثر. مبيعات أكثر. على الطيار الآلي.",
   },
 
   meta: {
@@ -191,6 +192,7 @@ export const ar: Dictionary = {
       notifications: "الإشعارات",
     },
     recentLeadsSubtitle: "أحدث عملائك وحالتهم.",
+    recentLeadsOpportunity: "الفرصة",
     viewAllLeads: "عرض كل العملاء",
     stats: {
       totalLeads: "إجمالي العملاء",
@@ -240,22 +242,23 @@ export const ar: Dictionary = {
       aiActive: "الذكاء الاصطناعي نشط",
       inProgress: "قيد التنفيذ",
       needsAttention: "بحاجة إلى انتباه",
+      needAttention: "{count} بحاجة إلى انتباه",
       atRisk: "{count} في خطر",
       dueNow: "{count} مستحقة الآن",
       takeAction: "يتطلّب إجراءً",
       nodes: {
         source: "مصدر العميل",
-        sourceSub: "{count} جديد اليوم",
+        sourceSub: "عملاء جدد اليوم",
         qualify: "تأهيل الذكاء الاصطناعي",
-        qualifySub: "من {count} عميل",
+        qualifySub: "عملاء مؤهّلون",
         opportunity: "مستوى الفرصة",
-        opportunitySub: "فرص قوية حاليًا",
+        opportunitySub: "فرص قوية",
         nextAction: "الإجراء التالي الأفضل",
-        nextActionSub: "عملاء بحاجة إلى إجراء",
+        nextActionSub: "جاهز للتواصل",
         followUp: "المتابعة والموعد",
-        followUpSub: "{count} متابعة معلّقة",
+        followUpSub: "المواعيد",
         handoff: "التحويل والاستعادة",
-        handoffSub: "عملاء للاستعادة",
+        handoffSub: "بحاجة إلى انتباه",
       },
     },
     activity: {

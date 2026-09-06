@@ -2,47 +2,71 @@
 
 import Link from "next/link";
 import { useI18n } from "@/i18n/client";
-import { formatDate } from "@/lib/leads/format";
-import {
-  ActionBadge,
-  RiskBadge,
-  StatusBadge,
-  TemperatureBadge,
-} from "@/components/dashboard/badges";
+import { formatDate, relativeTimeBucket } from "@/lib/leads/format";
+import { StatusBadge } from "@/components/dashboard/badges";
 
 export interface RecentLeadRow {
   id: string;
   name: string | null;
+  /** Phone or email — the closest real per-lead attribute to the mock's "Company". */
+  contact: string | null;
   source: string | null;
   status: string;
   temperature: string;
   createdAt: string;
-  riskLevel?: string;
-  action?: string;
+}
+
+const OPP: Record<string, string> = {
+  hot: "text-rose-600",
+  warm: "text-amber-600",
+  cold: "text-sky-600",
+};
+
+function Opportunity({ temperature }: { temperature: string }) {
+  const { tOptional } = useI18n();
+  const key = temperature.toLowerCase();
+  return (
+    <span className={`text-[13px] font-medium ${OPP[key] ?? "text-muted"}`}>
+      {tOptional(`temperatures.${key}`) ?? key}
+    </span>
+  );
+}
+
+function RelDate({ iso }: { iso: string }) {
+  const { t, locale } = useI18n();
+  const b = relativeTimeBucket(iso);
+  if (b.unit === "now") return <>{t("common.time.justNow")}</>;
+  if (b.unit === "minutes")
+    return <>{t("common.time.minutesAgo", { count: b.value })}</>;
+  if (b.unit === "hours")
+    return <>{t("common.time.hoursAgo", { count: b.value })}</>;
+  if (b.unit === "days")
+    return <>{t("common.time.daysAgo", { count: b.value })}</>;
+  return <>{formatDate(iso, locale)}</>;
 }
 
 export function RecentLeadsTable({ rows }: { rows: RecentLeadRow[] }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
 
   return (
     <>
       {/* Desktop table */}
       <div className="hidden overflow-x-auto md:block">
-        <table className="w-full text-sm">
+        <table className="w-full text-[13.5px]">
           <thead>
-            <tr className="border-b border-border text-start text-xs text-muted">
-              <th className="px-4 py-2.5 font-medium">{t("leads.columns.name")}</th>
-              <th className="px-4 py-2.5 font-medium">{t("leads.columns.source")}</th>
-              <th className="px-4 py-2.5 font-medium">{t("leads.columns.status")}</th>
-              <th className="px-4 py-2.5 font-medium">{t("leads.columns.temp")}</th>
-              <th className="px-4 py-2.5 font-medium">{t("insights.sectionTitle")}</th>
-              <th className="px-4 py-2.5 font-medium">{t("leads.columns.created")}</th>
+            <tr className="border-y border-border text-start text-[12px] text-muted">
+              <th className="px-5 py-2.5 font-medium">{t("leads.columns.name")}</th>
+              <th className="px-5 py-2.5 font-medium">{t("leads.columns.contact")}</th>
+              <th className="px-5 py-2.5 font-medium">{t("leads.columns.source")}</th>
+              <th className="px-5 py-2.5 font-medium">{t("leads.columns.status")}</th>
+              <th className="px-5 py-2.5 font-medium">{t("dashboard.recentLeadsOpportunity")}</th>
+              <th className="px-5 py-2.5 font-medium">{t("leads.columns.created")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/70">
             {rows.map((lead) => (
-              <tr key={lead.id} className="transition-colors hover:bg-background/50">
-                <td className="px-4 py-2.5">
+              <tr key={lead.id} className="transition-colors hover:bg-background">
+                <td className="px-5 py-3">
                   <Link
                     href={`/dashboard/leads/${lead.id}`}
                     className="font-medium text-foreground hover:text-accent"
@@ -50,27 +74,16 @@ export function RecentLeadsTable({ rows }: { rows: RecentLeadRow[] }) {
                     {lead.name ?? t("common.unnamedLead")}
                   </Link>
                 </td>
-                <td className="px-4 py-2.5 text-muted">{lead.source ?? "—"}</td>
-                <td className="px-4 py-2.5">
+                <td className="px-5 py-3 text-muted">{lead.contact ?? "—"}</td>
+                <td className="px-5 py-3 text-muted">{lead.source ?? "—"}</td>
+                <td className="px-5 py-3">
                   <StatusBadge value={lead.status} />
                 </td>
-                <td className="px-4 py-2.5">
-                  <TemperatureBadge value={lead.temperature} />
+                <td className="px-5 py-3">
+                  <Opportunity temperature={lead.temperature} />
                 </td>
-                <td className="px-4 py-2.5">
-                  {lead.action && lead.action !== "none" ? (
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {lead.riskLevel && lead.riskLevel !== "none" ? (
-                        <RiskBadge value={lead.riskLevel} />
-                      ) : null}
-                      <ActionBadge value={lead.action} />
-                    </div>
-                  ) : (
-                    <span className="text-muted/60">—</span>
-                  )}
-                </td>
-                <td className="px-4 py-2.5 text-muted">
-                  {formatDate(lead.createdAt, locale)}
+                <td className="px-5 py-3 text-muted">
+                  <RelDate iso={lead.createdAt} />
                 </td>
               </tr>
             ))}
@@ -84,24 +97,21 @@ export function RecentLeadsTable({ rows }: { rows: RecentLeadRow[] }) {
           <li key={lead.id}>
             <Link
               href={`/dashboard/leads/${lead.id}`}
-              className="block px-3 py-3 transition-colors hover:bg-background/50"
+              className="block px-5 py-3 transition-colors hover:bg-background"
             >
               <div className="flex items-center justify-between gap-2">
                 <p className="min-w-0 truncate text-sm font-medium text-foreground">
                   {lead.name ?? t("common.unnamedLead")}
                 </p>
                 <span className="shrink-0 text-[11px] text-muted">
-                  {formatDate(lead.createdAt, locale)}
+                  <RelDate iso={lead.createdAt} />
                 </span>
               </div>
-              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
                 <StatusBadge value={lead.status} />
-                <TemperatureBadge value={lead.temperature} />
-                {lead.riskLevel && lead.riskLevel !== "none" ? (
-                  <RiskBadge value={lead.riskLevel} />
-                ) : null}
-                {lead.action && lead.action !== "none" ? (
-                  <ActionBadge value={lead.action} />
+                <Opportunity temperature={lead.temperature} />
+                {lead.source ? (
+                  <span className="text-[11px] text-muted">{lead.source}</span>
                 ) : null}
               </div>
             </Link>

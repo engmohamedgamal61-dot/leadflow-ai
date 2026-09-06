@@ -1,19 +1,14 @@
 import Link from "next/link";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import { ArrowIcon, type IconProps } from "@/components/icons";
 
 /**
  * "Your Automation Flow" — the dashboard centerpiece. Six numbered, connected
- * nodes tracing a lead from first contact to a closed deal:
- *
- *   1 Lead Source → 2 AI Qualification → 3 Opportunity Level
- *     → 4 Next Best Action → 5 Follow-up & Appointment → 6 Handoff & Recovery
- *
- * Every node carries a live count from data the page already loads (no extra
- * queries) and deep-links to the closest real page or filtered view. Desktop:
- * a horizontal row joined by pill connectors. Arabic RTL flips the arrow
- * direction and the number stays at the reading start. Tablet / mobile: a
- * vertical stack with down connectors.
+ * nodes tracing a lead from first contact to a closed deal. Every node carries
+ * a live count from data the page already loads (no extra queries) and
+ * deep-links to the closest real page or filtered view. Desktop: a horizontal
+ * row joined by pale connector rails. Arabic RTL flips the flow direction.
+ * Tablet / mobile: a vertical stack with down connectors.
  */
 
 export type WorkflowTone = "neutral" | "active" | "attention";
@@ -24,20 +19,20 @@ const DOT: Record<WorkflowTone, string> = {
   attention: "bg-amber-500",
 };
 
-export type WorkflowIconTone = "indigo" | "sky" | "emerald" | "violet" | "rose";
+export type WorkflowIconTone = "blue" | "teal" | "violet" | "indigo" | "rose";
 
 const CHIP: Record<WorkflowIconTone, string> = {
-  indigo: "bg-indigo-500/10 text-indigo-600",
-  sky: "bg-sky-500/10 text-sky-600",
-  emerald: "bg-emerald-500/10 text-emerald-600",
+  blue: "bg-blue-500/10 text-blue-600",
+  teal: "bg-teal-500/10 text-teal-600",
   violet: "bg-violet-500/10 text-violet-600",
+  indigo: "bg-indigo-500/10 text-indigo-600",
   rose: "bg-rose-500/10 text-rose-600",
 };
 
 export type WorkflowBadgeTone = "info" | "ok" | "warn" | "danger";
 
 const BADGE: Record<WorkflowBadgeTone, string> = {
-  info: "bg-sky-500/10 text-sky-700",
+  info: "bg-blue-500/10 text-blue-700",
   ok: "bg-emerald-500/10 text-emerald-700",
   warn: "bg-amber-500/10 text-amber-700",
   danger: "bg-rose-500/10 text-rose-700",
@@ -53,6 +48,8 @@ export interface WorkflowNode {
   href: string;
   tone: WorkflowTone;
   badge?: { text: string; tone: WorkflowBadgeTone };
+  /** Optional custom footer content (e.g. channel chips) — replaces the badge. */
+  footer?: ReactNode;
 }
 
 export function WorkflowMap({
@@ -65,7 +62,7 @@ export function WorkflowMap({
   return (
     <ol
       aria-label={ariaLabel}
-      className="flex flex-col gap-1.5 xl:flex-row xl:items-stretch xl:gap-0"
+      className="flex flex-col gap-2 xl:flex-row xl:items-stretch xl:gap-0"
     >
       {nodes.map((node, i) => {
         const NodeIcon = node.icon;
@@ -73,36 +70,33 @@ export function WorkflowMap({
         return (
           <li
             key={node.key}
-            className="flex flex-col xl:min-w-0 xl:flex-1 xl:flex-row xl:items-center"
+            className="flex flex-col xl:min-w-0 xl:flex-1 xl:flex-row xl:items-stretch"
           >
             <Link
               href={node.href}
-              className="group flex flex-1 flex-col items-center gap-1.5 rounded-xl border border-border bg-surface p-3 text-center transition-colors hover:border-accent/50 hover:shadow-sm hover:shadow-black/[0.03]"
+              className="group flex flex-1 flex-col items-center gap-1 rounded-2xl border border-border bg-surface p-3 text-center transition-colors hover:border-accent/50 hover:shadow-sm hover:shadow-black/[0.03]"
             >
-              <span className="relative">
-                <span
-                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${CHIP[node.iconTone]}`}
-                >
-                  <NodeIcon className="h-5 w-5" />
-                </span>
-                <span
-                  aria-hidden
-                  className="absolute -start-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-border bg-surface text-[9px] font-semibold tabular-nums text-muted"
-                >
-                  {i + 1}
-                </span>
+              <span
+                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${CHIP[node.iconTone]}`}
+              >
+                <NodeIcon className="h-6 w-6" />
               </span>
-              <p className="text-xs font-medium leading-tight text-foreground">
-                {node.label}
-              </p>
-              <p className="text-2xl font-semibold leading-none tabular-nums text-foreground">
+              <span className="flex min-h-[2.4em] items-center justify-center gap-1 text-[12.5px] font-medium leading-tight text-foreground">
+                <span className="text-muted/70">{i + 1}.</span>
+                <span>{node.label}</span>
+              </span>
+              <span className="text-[21px] font-bold leading-none tabular-nums text-foreground">
                 {node.value}
-              </p>
-              <p className="text-[11px] text-muted/90">{node.caption}</p>
-              <span className="mt-auto pt-0.5">
-                {node.badge ? (
+              </span>
+              <span className="text-[11px] leading-tight text-muted">
+                {node.caption}
+              </span>
+              <span className="mt-auto flex min-h-[22px] items-center pt-1">
+                {node.footer ? (
+                  node.footer
+                ) : node.badge ? (
                   <span
-                    className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${BADGE[node.badge.tone]}`}
+                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${BADGE[node.badge.tone]}`}
                   >
                     {node.badge.text}
                   </span>
@@ -117,11 +111,11 @@ export function WorkflowMap({
 
             <span
               aria-hidden
-              className={`flex shrink-0 items-center justify-center py-0.5 xl:px-1 ${
-                isLast ? "hidden xl:invisible" : ""
+              className={`flex shrink-0 items-center justify-center py-0.5 xl:w-8 xl:py-0 ${
+                isLast ? "hidden xl:hidden" : ""
               }`}
             >
-              <span className="flex h-5 w-5 items-center justify-center rounded-md bg-background text-muted/50">
+              <span className="flex items-center justify-center rounded-lg bg-foreground/[0.045] text-muted/45 max-xl:h-5 max-xl:w-7 xl:h-24 xl:w-7">
                 <ArrowIcon className="h-3.5 w-3.5 rotate-90 xl:rotate-0 xl:rtl:-scale-x-100" />
               </span>
             </span>

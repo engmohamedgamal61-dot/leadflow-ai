@@ -7,25 +7,22 @@ import {
 } from "@/components/icons";
 
 /**
- * One KPI card: a pastel icon chip beside the metric title, a large value, and
- * either a compact trend line (this period vs the previous) or a plain
- * sub-line. Values are real data passed in by the page — this only renders.
+ * One KPI card, matching the reference: a large pastel icon chip on the left,
+ * the metric title and value stacked beside it, and a trend line below.
+ * Values are real data passed in by the page — this only renders.
  */
 
-export type KpiTone = "indigo" | "emerald" | "amber" | "sky";
+export type KpiTone = "blue" | "emerald" | "violet" | "amber";
 
 const CHIP: Record<KpiTone, string> = {
-  indigo: "bg-indigo-500/10 text-indigo-600",
+  blue: "bg-blue-500/10 text-blue-600",
   emerald: "bg-emerald-500/10 text-emerald-600",
+  violet: "bg-violet-500/10 text-violet-600",
   amber: "bg-amber-500/10 text-amber-600",
-  sky: "bg-sky-500/10 text-sky-600",
 };
 
 export interface KpiTrend {
-  /**
-   * Signed change vs the previous period (this week's new items minus last
-   * week's). An absolute count — clearer than a percentage at low volume.
-   */
+  /** Signed change vs the previous period — an absolute count. */
   delta: number;
   /** Localized suffix, e.g. "vs last week". */
   label: string;
@@ -37,7 +34,7 @@ export function KpiCard({
   value,
   sublabel,
   trend,
-  tone = "indigo",
+  tone = "blue",
   href,
 }: {
   icon: ComponentType<IconProps>;
@@ -50,27 +47,30 @@ export function KpiCard({
 }) {
   const body = (
     <>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3.5">
         <span
-          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${CHIP[tone]}`}
+          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${CHIP[tone]}`}
         >
-          <Icon className="h-4 w-4" />
+          <Icon className="h-6 w-6" />
         </span>
-        <p className="truncate text-xs font-medium text-muted">{title}</p>
+        <div className="min-w-0">
+          <p className="text-[13px] leading-tight text-muted">{title}</p>
+          <p className="mt-1 text-[27px] font-bold leading-none tracking-tight tabular-nums text-foreground">
+            {value}
+          </p>
+        </div>
       </div>
-      <p className="mt-2 text-[26px] font-semibold leading-none tabular-nums text-foreground">
-        {value}
-      </p>
-      <div className="mt-1.5 text-[11px]">
-        {trend ? <Trend trend={trend} /> : sublabel ? (
-          <span className="text-muted/80">{sublabel}</span>
+      <div className="mt-3 text-xs">
+        {trend ? (
+          <Trend trend={trend} />
+        ) : sublabel ? (
+          <span className="text-muted">{sublabel}</span>
         ) : null}
       </div>
     </>
   );
 
-  const cls =
-    "block rounded-xl border border-border bg-surface p-3.5 transition-colors";
+  const cls = "block rounded-2xl border border-border bg-surface p-5 transition-colors";
   return href ? (
     <Link href={href} className={`${cls} hover:border-accent/40`}>
       {body}
@@ -82,22 +82,22 @@ export function KpiCard({
 
 function Trend({ trend }: { trend: KpiTrend }) {
   if (trend.delta === 0) {
-    return <span className="text-muted/80">{trend.label}</span>;
+    return <span className="text-muted">{trend.label}</span>;
   }
   const up = trend.delta > 0;
   const Arrow = up ? TrendUpIcon : TrendDownIcon;
   return (
-    <span
-      className={`inline-flex items-center gap-1 ${
-        up ? "text-emerald-600" : "text-amber-600"
-      }`}
-    >
-      <Arrow className="h-3 w-3" />
-      <span className="font-medium tabular-nums">
+    <span className="inline-flex items-center gap-1">
+      <Arrow
+        className={`h-3.5 w-3.5 ${up ? "text-emerald-600" : "text-amber-600"}`}
+      />
+      <span
+        className={`font-semibold tabular-nums ${up ? "text-emerald-600" : "text-amber-600"}`}
+      >
         {up ? "+" : "−"}
         {Math.abs(trend.delta)}
       </span>
-      <span className="text-muted/80">{trend.label}</span>
+      <span className="text-muted">{trend.label}</span>
     </span>
   );
 }

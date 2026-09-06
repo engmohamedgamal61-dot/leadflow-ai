@@ -36,7 +36,6 @@ export default async function FollowUpsPage() {
 
       <Panel
         icon={FollowUpIcon}
-        tone="amber"
         title={t("followUpsPage.listTitle")}
         subtitle={t("followUpsPage.listSubtitle")}
         bodyClassName="p-0"

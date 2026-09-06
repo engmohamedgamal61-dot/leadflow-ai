@@ -27,11 +27,9 @@ interface NavLink {
   href: string;
   labelKey: string;
   icon: ComponentType<IconProps>;
-  /** Match `pathname` exactly (else prefix-match). Hash links are never active. */
   exact?: boolean;
 }
 
-/** Always visible. */
 const PRIMARY_LINKS: NavLink[] = [
   { href: "/dashboard", labelKey: "navigation.dashboard", icon: DashboardIcon, exact: true },
   { href: "/dashboard/leads", labelKey: "navigation.leads", icon: LeadsIcon },
@@ -40,7 +38,6 @@ const PRIMARY_LINKS: NavLink[] = [
   { href: "/dashboard/recovery", labelKey: "navigation.recovery", icon: RecoveryIcon },
 ];
 
-/** Owner/admin only — configuration surfaces. */
 const CONFIG_LINKS: NavLink[] = [
   { href: "/dashboard/settings/ai", labelKey: "navigation.aiAgent", icon: AiAgentIcon, exact: true },
   { href: "/dashboard/settings/integrations", labelKey: "navigation.integrations", icon: IntegrationsIcon },
@@ -54,7 +51,6 @@ const ACTIVITY_LINK: NavLink = {
   icon: ActivityIcon,
 };
 
-/** Owner/admin — jump links to dashboard sections. */
 const STATUS_LINKS: NavLink[] = [
   { href: "/dashboard#go-live-readiness", labelKey: "navigation.readiness", icon: ReadinessIcon },
   { href: "/dashboard#integration-health", labelKey: "navigation.integrationHealth", icon: HealthIcon },
@@ -82,10 +78,10 @@ function NavItem({ link, onNavigate }: { link: NavLink; onNavigate: () => void }
       href={link.href}
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
-      className={`relative flex items-center gap-3 rounded-lg px-3 py-[7px] text-[13px] transition-colors ${
+      className={`relative flex items-center gap-3 rounded-lg px-3 py-[9px] text-[13.5px] transition-colors ${
         active
-          ? "bg-accent/10 font-medium text-accent before:absolute before:inset-y-1.5 before:start-0 before:w-[3px] before:rounded-full before:bg-accent before:content-['']"
-          : "text-muted hover:bg-accent/5 hover:text-foreground"
+          ? "bg-accent/[0.09] font-medium text-accent before:absolute before:inset-y-1.5 before:start-0 before:w-[3px] before:rounded-e-full before:bg-accent before:content-['']"
+          : "text-muted hover:bg-accent/[0.05] hover:text-foreground"
       }`}
     >
       <Icon className="h-[18px] w-[18px] shrink-0" />
@@ -109,7 +105,7 @@ function SidebarNav({
   return (
     <nav
       aria-label={t("navigation.dashboard")}
-      className="flex flex-1 flex-col gap-0.5 px-3"
+      className="flex flex-1 flex-col gap-0.5 px-3 py-1"
     >
       {PRIMARY_LINKS.map(item)}
       {canManageSettings ? CONFIG_LINKS.map(item) : null}
@@ -117,13 +113,10 @@ function SidebarNav({
 
       {canManageSettings ? (
         <>
-          <div className="my-2.5 border-t border-border" />
+          <div className="my-3 h-px bg-border" />
           {STATUS_LINKS.map(item)}
+          <div className="mt-auto pt-3">{item(SETTINGS_LINK)}</div>
         </>
-      ) : null}
-
-      {canManageSettings ? (
-        <div className="mt-auto pt-2">{item(SETTINGS_LINK)}</div>
       ) : null}
     </nav>
   );
@@ -132,17 +125,19 @@ function SidebarNav({
 function StatusCard({ syncedLabel }: { syncedLabel: string }) {
   const { t } = useI18n();
   return (
-    <div className="mx-3 mb-3 mt-2 rounded-xl border border-border bg-background/70 p-3">
+    <div className="mx-3 mb-4 mt-3 rounded-xl border border-border bg-surface p-3.5">
       <div className="flex items-start gap-2">
         <span
           aria-hidden
           className="mt-1 h-2 w-2 shrink-0 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20"
         />
         <div className="min-w-0">
-          <p className="text-xs font-medium leading-snug text-foreground">
+          <p className="text-[12px] font-semibold leading-snug text-foreground">
             {t("dashboard.statusCard.title")}
           </p>
-          <p className="mt-0.5 text-[11px] text-muted">{syncedLabel}</p>
+          <p className="mt-1 text-[11px] leading-snug text-muted">
+            {syncedLabel}
+          </p>
         </div>
       </div>
     </div>
@@ -150,13 +145,13 @@ function StatusCard({ syncedLabel }: { syncedLabel: string }) {
 }
 
 export function DashboardShell({
-  organizationName,
   displayName,
   roleLabel,
   userEmail,
   canManageSettings,
   syncedLabel,
   todayLabel,
+  notify,
   children,
 }: {
   organizationName: string;
@@ -166,6 +161,7 @@ export function DashboardShell({
   canManageSettings: boolean;
   syncedLabel: string;
   todayLabel: string;
+  notify: boolean;
   children: ReactNode;
 }) {
   const { t } = useI18n();
@@ -188,20 +184,17 @@ export function DashboardShell({
   }, [open]);
 
   const brand = (
-    <div className="flex items-center justify-between gap-2 px-4 pb-3 pt-4">
-      <Link
-        href="/dashboard"
-        className="flex min-w-0 items-center gap-2 text-foreground"
-      >
+    <div className="flex items-start justify-between gap-2 px-4 pb-3 pt-5">
+      <Link href="/dashboard" className="flex min-w-0 items-center gap-2.5">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
           <BoltIcon className="h-[18px] w-[18px]" />
         </span>
         <span className="flex min-w-0 flex-col leading-tight">
-          <span className="truncate text-sm font-semibold tracking-tight">
+          <span className="truncate text-[16px] font-bold tracking-tight text-foreground">
             {t("brand.name")}
           </span>
-          <span className="truncate text-[10px] font-normal text-muted">
-            {organizationName}
+          <span className="text-[9px] leading-tight text-muted">
+            {t("brand.tagline")}
           </span>
         </span>
       </Link>
@@ -234,7 +227,7 @@ export function DashboardShell({
       ) : null}
 
       <aside
-        className={`dashboard-sidebar fixed inset-y-0 start-0 z-50 flex w-60 shrink-0 flex-col border-e border-border bg-surface transition-transform duration-200 ease-out md:sticky md:top-0 md:z-0 md:h-[100dvh] md:translate-x-0 ${
+        className={`dashboard-sidebar fixed inset-y-0 start-0 z-50 flex w-[232px] shrink-0 flex-col border-e border-border bg-surface transition-transform duration-200 ease-out md:sticky md:top-0 md:z-0 md:h-[100dvh] md:translate-x-0 ${
           open ? "translate-x-0" : "max-md:-translate-x-full max-md:rtl:translate-x-full"
         }`}
       >
@@ -254,9 +247,10 @@ export function DashboardShell({
           userEmail={userEmail}
           roleLabel={roleLabel}
           todayLabel={todayLabel}
+          notify={notify}
           onOpenMenu={() => setOpen(true)}
         />
-        <main className="mx-auto w-full max-w-[1180px] flex-1 px-3 py-4 sm:px-5 sm:py-5">
+        <main className="w-full flex-1 px-4 py-5 sm:px-6 sm:py-6">
           {children}
         </main>
       </div>

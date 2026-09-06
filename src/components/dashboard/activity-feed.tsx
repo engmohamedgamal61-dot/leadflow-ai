@@ -76,30 +76,25 @@ export function ActivityFeed({
           { t, tOptional, locale },
         );
         const { icon: Icon, chip } = iconFor(e.eventType);
+        const context = [e.leadName ?? t("common.unnamedLead"), entry.detail]
+          .filter(Boolean)
+          .join(" · ");
         return (
           <li key={e.id}>
             <Link
               href={`/dashboard/leads/${e.leadId}`}
-              className="flex items-start gap-3 px-3 py-2.5 transition-colors hover:bg-background/50"
+              className="flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-background"
             >
               <span
-                className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${chip}`}
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${chip}`}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="h-[18px] w-[18px]" />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm text-foreground">
-                  <span className="font-medium">{entry.title}</span>
-                  <span className="text-muted">
-                    {" · "}
-                    {e.leadName ?? t("common.unnamedLead")}
-                  </span>
+                <p className="truncate text-[13.5px] font-medium text-foreground">
+                  {entry.title}
                 </p>
-                {entry.detail ? (
-                  <p className="mt-0.5 truncate text-xs text-muted">
-                    {entry.detail}
-                  </p>
-                ) : null}
+                <p className="truncate text-[12px] text-muted">{context}</p>
               </div>
               <span className="shrink-0 whitespace-nowrap text-[11px] text-muted">
                 <RelativeTime iso={e.createdAt} />

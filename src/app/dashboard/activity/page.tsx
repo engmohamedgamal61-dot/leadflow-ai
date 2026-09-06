@@ -29,7 +29,6 @@ export default async function ActivityPage() {
 
       <Panel
         icon={ActivityIcon}
-        tone="sky"
         title={t("dashboard.activity.title")}
         subtitle={t("dashboard.activity.subtitle")}
         bodyClassName="p-0"

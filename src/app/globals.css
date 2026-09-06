@@ -11,40 +11,31 @@
 }
 
 /*
- * Dashboard-only "warm off-white" theme. Scoped to `.dashboard-shell` so the
- * chat/auth/landing pages (which stay on the dark theme above) are untouched —
- * every `bg-surface` / `text-foreground` / `border-border` / `text-muted`
- * utility already used throughout the dashboard resolves through these custom
- * properties, so this is a pure re-theme: no component markup changes needed
- * beyond adding the scope class itself.
+ * Dashboard-only light theme, scoped to `.dashboard-shell` so the chat/auth/
+ * landing pages (dark theme above) are untouched. Every `bg-surface` /
+ * `text-foreground` / `border-border` / `text-muted` utility in the dashboard
+ * resolves through these custom properties — a pure re-theme.
  *
- * Hierarchy: content `--background` is the warm off-white ground; `--surface`
- * (cards) sits a step lighter; the sidebar (below) a step calmer. Semantic
- * colours (green/amber/red/blue) live only in component classes and carry
- * meaning, never decoration.
+ * Matches the approved reference: a light neutral page ground, pure-white
+ * cards, hairline neutral borders and a clear blue accent. Semantic colours
+ * (green/amber/red) live in component classes and carry meaning only.
  */
 .dashboard-shell {
-  --background: #f6f4f0;
-  --surface: #fbfaf7;
-  --border: #e7e3da;
-  --foreground: #17150f;
-  --muted: #6f6a60;
-  /* Deep indigo — calmer than indigo-500 on a light ground, and AA-legible as
-     link / active-nav text. Used for the accent tint, focus rings and the
-     brand mark across the dashboard. */
-  --accent: #4f46e5;
+  --background: #f6f6f5;
+  --surface: #ffffff;
+  --border: #e9e9e7;
+  --foreground: #18181b;
+  --muted: #6b7280;
+  --accent: #2563eb;
 }
 
 /*
- * The sidebar is a calm, very light neutral rail — one step off the warm
- * content ground and set apart by a hairline border, not a shadow. Charcoal
- * text and icons inherit from `.dashboard-shell`; only the surface and the
- * rail border are re-scoped here. Nav-item states (soft indigo tint + indigo
- * text when active, faint indigo wash on hover) live in `sidebar.tsx`.
+ * The sidebar and top bar are white chrome, set off from the light-grey
+ * content ground by a hairline border. Nav-item states live in `sidebar.tsx`.
  */
 .dashboard-sidebar {
-  --surface: #f3f1ec;
-  --border: #e3ded1;
+  --surface: #ffffff;
+  --border: #ededec;
 }
 
 @theme inline {

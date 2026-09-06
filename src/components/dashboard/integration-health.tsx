@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import type { ComponentType } from "react";
 import { useI18n } from "@/i18n/client";
-import { formatDateTime } from "@/lib/leads/format";
+import { relativeTimeBucket } from "@/lib/leads/format";
 import {
   AppointmentIcon,
   ChatIcon,
@@ -23,65 +22,72 @@ const DOT: Record<IntegrationHealthState, string> = {
 export interface IntegrationHealthInput {
   whatsapp: { status: string; lastError: string | null; updatedAt: string } | null;
   calendar: { status: string; lastError: string | null; updatedAt: string } | null;
-  widget: { enabled: boolean; allowedOrigins: number } | null;
-  /** Whether to render the per-row "Manage" links (owner/admin). */
+  widget: { enabled: boolean; allowedOrigins: number; updatedAt: string | null } | null;
   canManage: boolean;
 }
 
 interface Row {
   key: string;
   icon: ComponentType<IconProps>;
+  chip: string;
   name: string;
   state: IntegrationHealthState;
   statusText: string;
-  manageHref: string;
+  updatedAt: string | null;
+}
+
+function Relative({ iso }: { iso: string }) {
+  const { t } = useI18n();
+  const b = relativeTimeBucket(iso);
+  if (b.unit === "now") return <>{t("common.time.justNow")}</>;
+  if (b.unit === "minutes")
+    return <>{t("common.time.minutesAgo", { count: b.value })}</>;
+  if (b.unit === "hours")
+    return <>{t("common.time.hoursAgo", { count: b.value })}</>;
+  if (b.unit === "days")
+    return <>{t("common.time.daysAgo", { count: b.value })}</>;
+  return null;
 }
 
 export function IntegrationHealth({
   whatsapp,
   calendar,
   widget,
-  canManage,
 }: IntegrationHealthInput) {
-  const { t, tOptional, locale } = useI18n();
+  const { t, tOptional } = useI18n();
 
-  const connectionRow = (
+  const connRow = (
     key: "whatsapp" | "calendar",
     icon: ComponentType<IconProps>,
+    chip: string,
     conn: { status: string; lastError: string | null; updatedAt: string } | null,
   ): Row => {
     let state: IntegrationHealthState = "off";
-    let statusText = t("dashboard.integrationHealth.notConnected");
+    let statusText = t("dashboard.integrationHealth.status.disconnected");
     if (conn?.status === "connected") {
       state = "ok";
-      statusText = conn.updatedAt
-        ? t("dashboard.integrationHealth.lastChecked", {
-            date: formatDateTime(conn.updatedAt, locale),
-          })
-        : t("dashboard.integrationHealth.status.connected");
+      statusText = t("dashboard.integrationHealth.status.connected");
     } else if (conn?.status === "error") {
       state = "down";
-      statusText = conn.lastError
-        ? t("dashboard.integrationHealth.lastFailure", { error: conn.lastError })
-        : t("dashboard.integrationHealth.status.error");
+      statusText = t("dashboard.integrationHealth.status.error");
     } else if (conn?.status === "pending") {
       state = "warn";
-      statusText =
-        tOptional("dashboard.integrationHealth.status.pending") ?? "Pending";
+      statusText = tOptional("dashboard.integrationHealth.status.pending") ?? "Pending";
     }
     return {
       key,
       icon,
+      chip,
       name: t(`dashboard.integrationHealth.${key}`),
       state,
       statusText,
-      manageHref: "/dashboard/settings/integrations",
+      updatedAt: conn?.updatedAt ?? null,
     };
   };
 
   const rows: Row[] = [
-    connectionRow("whatsapp", ChatIcon, whatsapp),
-    connectionRow("calendar", AppointmentIcon, calendar),
+    connRow("whatsapp", ChatIcon, "bg-emerald-500/10 text-emerald-600", whatsapp),
+    connRow("calendar", AppointmentIcon, "bg-blue-500/10 text-blue-600", calendar),
   ];
 
   if (widget) {
@@ -99,10 +105,11 @@ export function IntegrationHealth({
     rows.push({
       key: "widget",
       icon: WidgetIcon,
+      chip: "bg-violet-500/10 text-violet-600",
       name: t("dashboard.integrationHealth.widget.name"),
       state,
       statusText,
-      manageHref: "/dashboard/settings/widget",
+      updatedAt: widget.updatedAt,
     });
   }
 
@@ -113,35 +120,38 @@ export function IntegrationHealth({
         return (
           <li
             key={row.key}
-            className="flex items-start gap-3 px-3 py-2.5"
+            className="flex items-center justify-between gap-3 px-5 py-3"
           >
-            <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-border/50 text-muted">
-              <RowIcon className="h-4 w-4" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <span
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${row.chip}`}
+              >
+                <RowIcon className="h-[18px] w-[18px]" />
+              </span>
+              <span className="truncate text-[13.5px] font-medium text-foreground">
+                {row.name}
+              </span>
+            </div>
+            <div className="flex shrink-0 items-center gap-3 text-[12px]">
+              <span className="flex items-center gap-1.5">
                 <span
                   aria-hidden
-                  className={`h-1.5 w-1.5 shrink-0 rounded-full ${DOT[row.state]}`}
+                  className={`h-1.5 w-1.5 rounded-full ${DOT[row.state]}`}
                 />
-                {row.name}
-              </p>
-              <p
-                className={`mt-0.5 truncate text-xs ${
-                  row.state === "down" ? "text-rose-600/90" : "text-muted"
-                }`}
-              >
-                {row.statusText}
-              </p>
+                <span
+                  className={
+                    row.state === "down" ? "text-rose-600" : "text-muted"
+                  }
+                >
+                  {row.statusText}
+                </span>
+              </span>
+              {row.updatedAt ? (
+                <span className="hidden whitespace-nowrap text-muted/70 sm:inline">
+                  <Relative iso={row.updatedAt} />
+                </span>
+              ) : null}
             </div>
-            {canManage ? (
-              <Link
-                href={row.manageHref}
-                className="shrink-0 whitespace-nowrap text-xs text-accent hover:underline"
-              >
-                {t("dashboard.integrationHealth.manage")}
-              </Link>
-            ) : null}
           </li>
         );
       })}

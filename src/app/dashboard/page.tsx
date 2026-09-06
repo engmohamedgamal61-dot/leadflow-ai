@@ -14,7 +14,6 @@ import {
   resolveDisplayName,
 } from "@/lib/org/display-name";
 import {
-  attachInsights,
   getDashboardTrends,
   getFollowUpCounts,
   getInsightSummary,
@@ -40,6 +39,7 @@ import { EmptyState } from "@/components/dashboard/states";
 import {
   ActivityIcon,
   AppointmentIcon,
+  ChatIcon,
   HandoffIcon,
   HealthIcon,
   LeadsIcon,
@@ -48,6 +48,7 @@ import {
   QualifyIcon,
   ReadinessIcon,
   SourceIcon,
+  WidgetIcon,
   WorkflowIcon,
 } from "@/components/icons";
 import { formatPercent } from "@/lib/leads/format";
@@ -94,31 +95,22 @@ export default async function DashboardOverviewPage() {
     getRecoveryCandidates(membership.organizationId),
     getRecentActivity(membership.organizationId),
     canManage ? loadStoredConfig(membership.organizationId) : Promise.resolve(null),
-    canManage
-      ? getWhatsAppConnectionView(supabase, membership.organizationId)
-      : Promise.resolve(null),
+    getWhatsAppConnectionView(supabase, membership.organizationId),
     canManage
       ? getConnectionView(supabase, membership.organizationId)
       : Promise.resolve(null),
-    canManage
-      ? getWidgetSettings(supabase, membership.organizationId)
-      : Promise.resolve(null),
+    getWidgetSettings(supabase, membership.organizationId),
   ]);
 
-  const recentInsights = await attachInsights(membership.organizationId, recent);
-  const recentRows: RecentLeadRow[] = recent.map((lead) => {
-    const ins = recentInsights.get(lead.id);
-    return {
-      id: lead.id,
-      name: lead.name,
-      source: lead.source,
-      status: lead.status,
-      temperature: lead.temperature,
-      createdAt: lead.createdAt,
-      riskLevel: ins?.riskLevel,
-      action: ins?.action,
-    };
-  });
+  const recentRows: RecentLeadRow[] = recent.map((lead) => ({
+    id: lead.id,
+    name: lead.name,
+    contact: lead.phone ?? lead.email,
+    source: lead.source,
+    status: lead.status,
+    temperature: lead.temperature,
+    createdAt: lead.createdAt,
+  }));
 
   const recoveryCount = recoveryCandidates.length;
   const isEmptyWorkspace = stats.total === 0;
@@ -126,24 +118,48 @@ export default async function DashboardOverviewPage() {
     stats.total > 0 ? formatPercent(stats.won / stats.total, locale) : "—";
   const trendLabel = t("dashboard.kpi.trendLabel");
 
+  // Lead-source channels that are actually wired for this workspace.
+  const channels: { key: string; icon: typeof SourceIcon }[] = [
+    { key: "web", icon: SourceIcon },
+  ];
+  if (whatsapp?.status === "connected") channels.push({ key: "whatsapp", icon: ChatIcon });
+  if (widget?.enabled) channels.push({ key: "widget", icon: WidgetIcon });
+
+  const apptDelta = delta(trends.appointments);
+
   const workflowNodes: WorkflowNode[] = [
     {
       key: "source",
       icon: SourceIcon,
-      iconTone: "sky",
+      iconTone: "blue",
       label: t("dashboard.workflow.nodes.source"),
       value: stats.total,
-      caption: t("dashboard.workflow.nodes.sourceSub", { count: stats.createdToday }),
+      caption: t("dashboard.workflow.nodes.sourceSub"),
       href: "/dashboard/leads",
       tone: stats.total > 0 ? "active" : "neutral",
+      footer: (
+        <span className="flex items-center gap-1">
+          {channels.map((c) => {
+            const CIcon = c.icon;
+            return (
+              <span
+                key={c.key}
+                className="flex h-5 w-5 items-center justify-center rounded-full border border-border bg-surface text-muted"
+              >
+                <CIcon className="h-3 w-3" />
+              </span>
+            );
+          })}
+        </span>
+      ),
     },
     {
       key: "qualify",
       icon: QualifyIcon,
-      iconTone: "emerald",
+      iconTone: "teal",
       label: t("dashboard.workflow.nodes.qualify"),
       value: stats.qualified,
-      caption: t("dashboard.workflow.nodes.qualifySub", { count: stats.total }),
+      caption: t("dashboard.workflow.nodes.qualifySub"),
       href: "/dashboard/leads?status=qualified",
       tone: "active",
       badge: { text: t("dashboard.workflow.aiActive"), tone: "ok" },
@@ -151,7 +167,7 @@ export default async function DashboardOverviewPage() {
     {
       key: "opportunity",
       icon: OpportunityIcon,
-      iconTone: "indigo",
+      iconTone: "violet",
       label: t("dashboard.workflow.nodes.opportunity"),
       value: stats.hot,
       caption: t("dashboard.workflow.nodes.opportunitySub"),
@@ -160,7 +176,9 @@ export default async function DashboardOverviewPage() {
       badge:
         insightSummary.atRisk > 0
           ? {
-              text: t("dashboard.workflow.atRisk", { count: insightSummary.atRisk }),
+              text: t("dashboard.workflow.needAttention", {
+                count: insightSummary.atRisk,
+              }),
               tone: "warn",
             }
           : undefined,
@@ -185,13 +203,18 @@ export default async function DashboardOverviewPage() {
       iconTone: "indigo",
       label: t("dashboard.workflow.nodes.followUp"),
       value: appointmentCount,
-      caption: t("dashboard.workflow.nodes.followUpSub", { count: followUps.pending }),
+      caption: t("dashboard.workflow.nodes.followUpSub"),
       href: "/dashboard/appointments",
       tone: followUps.dueNow > 0 ? "attention" : "neutral",
       badge:
-        followUps.dueNow > 0
-          ? { text: t("dashboard.workflow.dueNow", { count: followUps.dueNow }), tone: "warn" }
-          : undefined,
+        apptDelta > 0
+          ? { text: `+${apptDelta}`, tone: "ok" }
+          : followUps.dueNow > 0
+            ? {
+                text: t("dashboard.workflow.dueNow", { count: followUps.dueNow }),
+                tone: "warn",
+              }
+            : undefined,
     },
     {
       key: "handoff",
@@ -229,7 +252,7 @@ export default async function DashboardOverviewPage() {
     : t(`dashboard.greeting.${period}`);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <GreetingHeader
         greeting={greeting}
         subtitle={t("dashboard.greeting.subtitle")}
@@ -257,10 +280,10 @@ export default async function DashboardOverviewPage() {
       ) : null}
 
       {/* KPI row */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <KpiCard
           icon={LeadsIcon}
-          tone="indigo"
+          tone="blue"
           title={t("dashboard.kpi.totalLeads")}
           value={stats.total}
           trend={{ delta: delta(trends.leads), label: trendLabel }}
@@ -276,10 +299,10 @@ export default async function DashboardOverviewPage() {
         />
         <KpiCard
           icon={AppointmentIcon}
-          tone="sky"
+          tone="violet"
           title={t("dashboard.kpi.appointments")}
           value={appointmentCount}
-          trend={{ delta: delta(trends.appointments), label: trendLabel }}
+          trend={{ delta: apptDelta, label: trendLabel }}
           href="/dashboard/appointments"
         />
         <KpiCard
@@ -300,7 +323,7 @@ export default async function DashboardOverviewPage() {
         emphasis
         title={t("dashboard.workflow.title")}
         subtitle={t("dashboard.workflow.subtitle")}
-        bodyClassName="p-3"
+        bodyClassName="px-4 pb-4"
         action={
           <PanelAction href="/dashboard/leads">
             {t("dashboard.workflow.viewDetails")}
@@ -311,15 +334,12 @@ export default async function DashboardOverviewPage() {
       </Panel>
 
       {/* Operational two-column (single column when there's no integration panel) */}
-      <div
-        className={`grid gap-4 ${canManage ? "lg:grid-cols-2 lg:items-start" : ""}`}
-      >
+      <div className={`grid gap-6 ${canManage ? "lg:grid-cols-2" : ""}`}>
         <Panel
           icon={ActivityIcon}
-          tone="sky"
           title={t("dashboard.activity.title")}
           subtitle={t("dashboard.activity.subtitle")}
-          bodyClassName="p-0"
+          bodyClassName="pb-2"
           action={
             activity.length > 0 ? (
               <PanelAction href="/dashboard/activity">
@@ -329,14 +349,14 @@ export default async function DashboardOverviewPage() {
           }
         >
           {activity.length === 0 ? (
-            <div className="p-2">
+            <div className="px-3 pb-3">
               <EmptyState
                 title={t("dashboard.activity.emptyTitle")}
                 hint={t("dashboard.activity.emptyHint")}
               />
             </div>
           ) : (
-            <ActivityFeed events={activity} max={5} />
+            <ActivityFeed events={activity} max={4} />
           )}
         </Panel>
 
@@ -344,10 +364,14 @@ export default async function DashboardOverviewPage() {
           <Panel
             id="integration-health"
             icon={HealthIcon}
-            tone="emerald"
             title={t("dashboard.integrationHealth.title")}
             subtitle={t("dashboard.integrationHealth.subtitle")}
-            bodyClassName="p-0"
+            bodyClassName="pb-2"
+            action={
+              <PanelAction href="/dashboard/settings/integrations">
+                {t("common.viewAll")}
+              </PanelAction>
+            }
           >
             <IntegrationHealth
               whatsapp={whatsapp}
@@ -355,6 +379,7 @@ export default async function DashboardOverviewPage() {
               widget={{
                 enabled: widget?.enabled ?? false,
                 allowedOrigins: widget?.allowedOrigins.length ?? 0,
+                updatedAt: null,
               }}
               canManage={canManage}
             />
@@ -367,7 +392,7 @@ export default async function DashboardOverviewPage() {
         icon={LeadsIcon}
         title={t("dashboard.recentLeads")}
         subtitle={t("dashboard.recentLeadsSubtitle")}
-        bodyClassName="p-0"
+        bodyClassName="pb-2"
         action={
           <PanelAction href="/dashboard/leads">
             {t("dashboard.viewAllLeads")}
@@ -375,7 +400,7 @@ export default async function DashboardOverviewPage() {
         }
       >
         {recentRows.length === 0 ? (
-          <div className="p-2">
+          <div className="px-3 pb-3">
             <EmptyState
               title={t("dashboard.noLeadsTitle")}
               hint={t("dashboard.noLeadsHint")}
@@ -398,10 +423,9 @@ export default async function DashboardOverviewPage() {
         <Panel
           id="go-live-readiness"
           icon={ReadinessIcon}
-          tone="emerald"
           title={t("dashboard.readiness.title")}
           subtitle={t("dashboard.readiness.subtitle")}
-          bodyClassName="p-0"
+          bodyClassName="pb-2"
         >
           <GoLiveReadinessPanel readiness={readiness} canManage={canManage} />
         </Panel>

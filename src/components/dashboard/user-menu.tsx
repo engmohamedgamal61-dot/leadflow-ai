@@ -51,13 +51,13 @@ export function UserMenu({
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex items-center gap-2 rounded-xl border border-border bg-surface py-1 ps-1 pe-1.5 text-xs transition-colors hover:border-accent/40"
+        className="flex items-center gap-2 rounded-lg py-1 pe-1 ps-0.5 text-xs transition-colors hover:bg-foreground/[0.04]"
       >
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent/12 text-[11px] font-semibold text-accent">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-[12px] font-semibold text-accent-foreground">
           {initials(name, email)}
         </span>
         <span className="hidden min-w-0 flex-col items-start leading-tight sm:flex">
-          <span className="max-w-[9rem] truncate font-medium text-foreground">
+          <span className="max-w-[9rem] truncate font-semibold text-foreground">
             {displayName}
           </span>
           <span className="max-w-[9rem] truncate text-[10px] text-muted">
@@ -77,7 +77,7 @@ export function UserMenu({
               {displayName}
             </p>
             <p className="truncate text-xs text-muted">{email}</p>
-            <span className="mt-1.5 inline-block rounded-md bg-border/50 px-1.5 py-0.5 text-[11px] font-medium text-muted">
+            <span className="mt-1.5 inline-block rounded-md bg-foreground/[0.06] px-1.5 py-0.5 text-[11px] font-medium text-muted">
               {roleLabel}
             </span>
           </div>
@@ -86,7 +86,7 @@ export function UserMenu({
             role="menuitem"
             disabled={pending}
             onClick={() => startTransition(() => void signOutAction())}
-            className="block w-full px-3 py-2 text-start text-sm text-foreground transition-colors hover:bg-background/60 disabled:opacity-50"
+            className="block w-full px-3 py-2 text-start text-sm text-foreground transition-colors hover:bg-background disabled:opacity-50"
           >
             {pending ? t("auth.signingOut") : t("auth.signOut")}
           </button>
