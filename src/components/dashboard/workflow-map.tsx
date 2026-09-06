@@ -74,29 +74,29 @@ export function WorkflowMap({
           >
             <Link
               href={node.href}
-              className="group flex flex-1 flex-col items-center gap-1 rounded-2xl border border-border bg-surface p-3 text-center transition-colors hover:border-accent/50 hover:shadow-sm hover:shadow-black/[0.03]"
+              className="group flex flex-1 flex-col items-center gap-1 rounded-xl border border-border bg-surface p-2 text-center transition-colors hover:border-accent/50 hover:shadow-sm hover:shadow-black/[0.03]"
             >
               <span
-                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${CHIP[node.iconTone]}`}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${CHIP[node.iconTone]}`}
               >
-                <NodeIcon className="h-6 w-6" />
+                <NodeIcon className="h-4 w-4" />
               </span>
-              <span className="flex min-h-[2.4em] items-center justify-center gap-1 text-[12.5px] font-medium leading-tight text-foreground">
+              <span className="flex min-h-[2em] items-center justify-center gap-1 text-[12px] font-medium leading-[1.15] text-foreground">
                 <span className="text-muted/70">{i + 1}.</span>
                 <span>{node.label}</span>
               </span>
-              <span className="text-[21px] font-bold leading-none tabular-nums text-foreground">
+              <span className="text-[19px] font-bold leading-none tabular-nums text-foreground">
                 {node.value}
               </span>
-              <span className="text-[11px] leading-tight text-muted">
+              <span className="text-[10.5px] leading-tight text-muted">
                 {node.caption}
               </span>
-              <span className="mt-auto flex min-h-[22px] items-center pt-1">
+              <span className="mt-auto flex min-h-[20px] items-center pt-0.5">
                 {node.footer ? (
                   node.footer
                 ) : node.badge ? (
                   <span
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${BADGE[node.badge.tone]}`}
+                    className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9.5px] font-medium ${BADGE[node.badge.tone]}`}
                   >
                     {node.badge.text}
                   </span>
@@ -111,12 +111,12 @@ export function WorkflowMap({
 
             <span
               aria-hidden
-              className={`flex shrink-0 items-center justify-center py-0.5 xl:w-8 xl:py-0 ${
+              className={`flex shrink-0 items-center justify-center py-0.5 xl:w-6 xl:py-0 ${
                 isLast ? "hidden xl:hidden" : ""
               }`}
             >
-              <span className="flex items-center justify-center rounded-lg bg-foreground/[0.045] text-muted/45 max-xl:h-5 max-xl:w-7 xl:h-24 xl:w-7">
-                <ArrowIcon className="h-3.5 w-3.5 rotate-90 xl:rotate-0 xl:rtl:-scale-x-100" />
+              <span className="flex items-center justify-center rounded-md bg-foreground/[0.04] text-muted/45 max-xl:h-4 max-xl:w-6 xl:h-[60px] xl:w-4">
+                <ArrowIcon className="h-3 w-3 rotate-90 xl:rotate-0 xl:rtl:-scale-x-100" />
               </span>
             </span>
           </li>

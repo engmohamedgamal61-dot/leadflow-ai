@@ -47,20 +47,20 @@ export function KpiCard({
 }) {
   const body = (
     <>
-      <div className="flex items-center gap-3.5">
+      <div className="flex items-center gap-3">
         <span
-          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${CHIP[tone]}`}
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${CHIP[tone]}`}
         >
-          <Icon className="h-6 w-6" />
+          <Icon className="h-5 w-5" />
         </span>
         <div className="min-w-0">
-          <p className="text-[13px] leading-tight text-muted">{title}</p>
-          <p className="mt-1 text-[27px] font-bold leading-none tracking-tight tabular-nums text-foreground">
+          <p className="text-[12.5px] leading-tight text-muted">{title}</p>
+          <p className="mt-1 text-[24px] font-bold leading-none tracking-tight tabular-nums text-foreground">
             {value}
           </p>
         </div>
       </div>
-      <div className="mt-3 text-xs">
+      <div className="mt-2.5 text-[11.5px]">
         {trend ? (
           <Trend trend={trend} />
         ) : sublabel ? (
@@ -70,7 +70,8 @@ export function KpiCard({
     </>
   );
 
-  const cls = "block rounded-2xl border border-border bg-surface p-5 transition-colors";
+  const cls =
+    "block rounded-[14px] border border-border bg-surface p-4 shadow-[0_1px_2px_0_rgba(16,24,40,0.04)] transition-colors";
   return href ? (
     <Link href={href} className={`${cls} hover:border-accent/40`}>
       {body}
@@ -89,7 +90,7 @@ function Trend({ trend }: { trend: KpiTrend }) {
   return (
     <span className="inline-flex items-center gap-1">
       <Arrow
-        className={`h-3.5 w-3.5 ${up ? "text-emerald-600" : "text-amber-600"}`}
+        className={`h-3 w-3 ${up ? "text-emerald-600" : "text-amber-600"}`}
       />
       <span
         className={`font-semibold tabular-nums ${up ? "text-emerald-600" : "text-amber-600"}`}

@@ -144,9 +144,9 @@ export default async function DashboardOverviewPage() {
             return (
               <span
                 key={c.key}
-                className="flex h-5 w-5 items-center justify-center rounded-full border border-border bg-surface text-muted"
+                className="flex h-[17px] w-[17px] items-center justify-center rounded-full border border-border bg-surface text-muted/80"
               >
-                <CIcon className="h-3 w-3" />
+                <CIcon className="h-2.5 w-2.5" />
               </span>
             );
           })}
@@ -252,7 +252,7 @@ export default async function DashboardOverviewPage() {
     : t(`dashboard.greeting.${period}`);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <GreetingHeader
         greeting={greeting}
         subtitle={t("dashboard.greeting.subtitle")}
@@ -280,7 +280,7 @@ export default async function DashboardOverviewPage() {
       ) : null}
 
       {/* KPI row */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
         <KpiCard
           icon={LeadsIcon}
           tone="blue"
@@ -323,7 +323,7 @@ export default async function DashboardOverviewPage() {
         emphasis
         title={t("dashboard.workflow.title")}
         subtitle={t("dashboard.workflow.subtitle")}
-        bodyClassName="px-4 pb-4"
+        bodyClassName="px-4 pb-4 pt-0.5"
         action={
           <PanelAction href="/dashboard/leads">
             {t("dashboard.workflow.viewDetails")}
@@ -334,7 +334,7 @@ export default async function DashboardOverviewPage() {
       </Panel>
 
       {/* Operational two-column (single column when there's no integration panel) */}
-      <div className={`grid gap-6 ${canManage ? "lg:grid-cols-2" : ""}`}>
+      <div className={`grid gap-5 ${canManage ? "lg:grid-cols-2" : ""}`}>
         <Panel
           icon={ActivityIcon}
           title={t("dashboard.activity.title")}

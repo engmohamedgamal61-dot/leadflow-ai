@@ -34,23 +34,25 @@ export function Panel({
     <section
       id={id}
       className={`scroll-mt-24 overflow-hidden rounded-2xl border border-border bg-surface ${
-        emphasis ? "shadow-sm shadow-black/[0.03]" : ""
+        emphasis
+          ? "shadow-[0_1px_3px_0_rgba(16,24,40,0.06)]"
+          : "shadow-[0_1px_2px_0_rgba(16,24,40,0.04)]"
       }`}
     >
       <header
         className={
           headerClassName ??
-          "flex items-start justify-between gap-3 px-5 py-4"
+          "flex items-start justify-between gap-3 px-5 py-3.5"
         }
       >
         <div className="flex min-w-0 items-center gap-2.5">
-          <Icon className="h-5 w-5 shrink-0 text-accent" />
+          <Icon className="h-[17px] w-[17px] shrink-0 text-accent" />
           <div className="min-w-0">
-            <h2 className="text-[16px] font-semibold leading-tight text-foreground">
+            <h2 className="text-[15.5px] font-semibold leading-tight text-foreground">
               {title}
             </h2>
             {subtitle ? (
-              <p className="mt-0.5 text-[12.5px] leading-snug text-muted">
+              <p className="mt-0.5 text-[12px] leading-snug text-muted">
                 {subtitle}
               </p>
             ) : null}

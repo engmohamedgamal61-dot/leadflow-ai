@@ -86,15 +86,15 @@ export function ActivityFeed({
               className="flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-background"
             >
               <span
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${chip}`}
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${chip}`}
               >
-                <Icon className="h-[18px] w-[18px]" />
+                <Icon className="h-4 w-4" />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[13.5px] font-medium text-foreground">
+                <p className="truncate text-[13px] font-medium text-foreground">
                   {entry.title}
                 </p>
-                <p className="truncate text-[12px] text-muted">{context}</p>
+                <p className="truncate text-[11.5px] text-muted">{context}</p>
               </div>
               <span className="shrink-0 whitespace-nowrap text-[11px] text-muted">
                 <RelativeTime iso={e.createdAt} />

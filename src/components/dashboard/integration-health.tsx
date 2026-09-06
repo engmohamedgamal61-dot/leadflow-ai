@@ -120,15 +120,15 @@ export function IntegrationHealth({
         return (
           <li
             key={row.key}
-            className="flex items-center justify-between gap-3 px-5 py-3"
+            className="flex items-center justify-between gap-3 px-5 py-2.5"
           >
             <div className="flex min-w-0 items-center gap-2.5">
               <span
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${row.chip}`}
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${row.chip}`}
               >
-                <RowIcon className="h-[18px] w-[18px]" />
+                <RowIcon className="h-4 w-4" />
               </span>
-              <span className="truncate text-[13.5px] font-medium text-foreground">
+              <span className="truncate text-[13px] font-medium text-foreground">
                 {row.name}
               </span>
             </div>

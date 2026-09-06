@@ -78,13 +78,13 @@ function NavItem({ link, onNavigate }: { link: NavLink; onNavigate: () => void }
       href={link.href}
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
-      className={`relative flex items-center gap-3 rounded-lg px-3 py-[9px] text-[13.5px] transition-colors ${
+      className={`relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] transition-colors ${
         active
           ? "bg-accent/[0.09] font-medium text-accent before:absolute before:inset-y-1.5 before:start-0 before:w-[3px] before:rounded-e-full before:bg-accent before:content-['']"
           : "text-muted hover:bg-accent/[0.05] hover:text-foreground"
       }`}
     >
-      <Icon className="h-[18px] w-[18px] shrink-0" />
+      <Icon className="h-[15px] w-[15px] shrink-0" />
       <span className="truncate">{t(link.labelKey)}</span>
     </Link>
   );
@@ -125,17 +125,17 @@ function SidebarNav({
 function StatusCard({ syncedLabel }: { syncedLabel: string }) {
   const { t } = useI18n();
   return (
-    <div className="mx-3 mb-4 mt-3 rounded-xl border border-border bg-surface p-3.5">
+    <div className="mx-3 mb-4 mt-2 rounded-xl border border-border bg-surface px-3.5 py-3 shadow-[0_1px_2px_0_rgba(16,24,40,0.04)]">
       <div className="flex items-start gap-2">
         <span
           aria-hidden
-          className="mt-1 h-2 w-2 shrink-0 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20"
+          className="mt-[3px] h-[7px] w-[7px] shrink-0 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20"
         />
         <div className="min-w-0">
-          <p className="text-[12px] font-semibold leading-snug text-foreground">
+          <p className="text-[11.5px] font-semibold leading-[1.35] text-foreground">
             {t("dashboard.statusCard.title")}
           </p>
-          <p className="mt-1 text-[11px] leading-snug text-muted">
+          <p className="mt-1 text-[10.5px] leading-tight text-muted">
             {syncedLabel}
           </p>
         </div>
@@ -184,13 +184,13 @@ export function DashboardShell({
   }, [open]);
 
   const brand = (
-    <div className="flex items-start justify-between gap-2 px-4 pb-3 pt-5">
+    <div className="flex items-start justify-between gap-2 px-4 pb-3 pt-4">
       <Link href="/dashboard" className="flex min-w-0 items-center gap-2.5">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
-          <BoltIcon className="h-[18px] w-[18px]" />
+        <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+          <BoltIcon className="h-4 w-4" />
         </span>
         <span className="flex min-w-0 flex-col leading-tight">
-          <span className="truncate text-[16px] font-bold tracking-tight text-foreground">
+          <span className="truncate text-[15px] font-bold tracking-tight text-foreground">
             {t("brand.name")}
           </span>
           <span className="text-[9px] leading-tight text-muted">
@@ -227,7 +227,7 @@ export function DashboardShell({
       ) : null}
 
       <aside
-        className={`dashboard-sidebar fixed inset-y-0 start-0 z-50 flex w-[232px] shrink-0 flex-col border-e border-border bg-surface transition-transform duration-200 ease-out md:sticky md:top-0 md:z-0 md:h-[100dvh] md:translate-x-0 ${
+        className={`dashboard-sidebar fixed inset-y-0 start-0 z-50 flex w-[218px] shrink-0 flex-col border-e border-border bg-surface transition-transform duration-200 ease-out md:sticky md:top-0 md:z-0 md:h-[100dvh] md:translate-x-0 ${
           open ? "translate-x-0" : "max-md:-translate-x-full max-md:rtl:translate-x-full"
         }`}
       >
