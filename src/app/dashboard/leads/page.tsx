@@ -14,6 +14,7 @@ import {
   ActionBadge,
 } from "@/components/dashboard/badges";
 import { EmptyState } from "@/components/dashboard/states";
+import { LeadsIcon } from "@/components/icons";
 import { formatDate, formatNumber } from "@/lib/leads/format";
 import { getI18n } from "@/i18n/server";
 import { LeadsFilters } from "./filters";
@@ -43,7 +44,10 @@ export default async function LeadsPage({
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-2xl font-semibold text-foreground">{t("leads.title")}</h1>
+        <h1 className="flex items-center gap-2.5 text-2xl font-semibold text-foreground">
+          <LeadsIcon className="h-6 w-6 shrink-0 text-muted" />
+          {t("leads.title")}
+        </h1>
         <p className="text-xs text-muted tabular-nums">
           {total === 0
             ? t("leads.noLeads")

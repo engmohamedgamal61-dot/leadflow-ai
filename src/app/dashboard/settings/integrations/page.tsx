@@ -5,6 +5,7 @@ import { formatDateTime } from "@/lib/leads/format";
 import { getI18n } from "@/i18n/server";
 import { getConnectionView } from "@/lib/calendar/connections";
 import { getWhatsAppConnectionView } from "@/lib/whatsapp/connections";
+import { IntegrationsIcon } from "@/components/icons";
 import { WhatsAppSettings } from "./whatsapp-form";
 import { GoogleCalendarSettings } from "./calendar-form";
 
@@ -38,7 +39,8 @@ export default async function IntegrationsPage({
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-foreground">
+        <h1 className="flex items-center gap-2.5 text-2xl font-semibold text-foreground">
+          <IntegrationsIcon className="h-6 w-6 shrink-0 text-muted" />
           {t("integrations.title")}
         </h1>
         <p className="mt-1 text-sm text-muted">{t("integrations.subtitle")}</p>

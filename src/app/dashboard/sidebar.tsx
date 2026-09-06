@@ -2,32 +2,44 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { LanguageSwitcher } from "@/components/i18n/language-switcher";
+import {
+  AiAgentIcon,
+  DashboardIcon,
+  IntegrationsIcon,
+  LeadsIcon,
+  RecoveryIcon,
+  TeamIcon,
+  WidgetIcon,
+  type IconProps,
+} from "@/components/icons";
 import { useI18n } from "@/i18n/client";
 
 interface NavLink {
   href: string;
   labelKey: string;
   exact: boolean;
+  icon: ComponentType<IconProps>;
 }
 
 const TOP_LINKS: NavLink[] = [
-  { href: "/dashboard", labelKey: "navigation.dashboard", exact: true },
-  { href: "/dashboard/leads", labelKey: "navigation.leads", exact: false },
-  { href: "/dashboard/recovery", labelKey: "navigation.recovery", exact: false },
+  { href: "/dashboard", labelKey: "navigation.dashboard", exact: true, icon: DashboardIcon },
+  { href: "/dashboard/leads", labelKey: "navigation.leads", exact: false, icon: LeadsIcon },
+  { href: "/dashboard/recovery", labelKey: "navigation.recovery", exact: false, icon: RecoveryIcon },
 ];
 
 const SETTINGS_LINKS: NavLink[] = [
-  { href: "/dashboard/settings/ai", labelKey: "navigation.aiAgent", exact: true },
+  { href: "/dashboard/settings/ai", labelKey: "navigation.aiAgent", exact: true, icon: AiAgentIcon },
   {
     href: "/dashboard/settings/integrations",
     labelKey: "navigation.integrations",
     exact: false,
+    icon: IntegrationsIcon,
   },
-  { href: "/dashboard/settings/widget", labelKey: "navigation.widget", exact: true },
-  { href: "/dashboard/settings/team", labelKey: "navigation.team", exact: true },
+  { href: "/dashboard/settings/widget", labelKey: "navigation.widget", exact: true, icon: WidgetIcon },
+  { href: "/dashboard/settings/team", labelKey: "navigation.team", exact: true, icon: TeamIcon },
 ];
 
 function isActive(pathname: string, link: NavLink): boolean {
@@ -46,13 +58,14 @@ function NavItem({
   const pathname = usePathname();
   const { t } = useI18n();
   const active = isActive(pathname, link);
+  const Icon = link.icon;
 
   return (
     <Link
       href={link.href}
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
-      className={`block rounded-lg px-3 py-2 text-sm transition-colors ${
+      className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
         indent ? "ms-3" : ""
       } ${
         active
@@ -60,7 +73,8 @@ function NavItem({
           : "text-muted hover:bg-surface hover:text-foreground"
       }`}
     >
-      {t(link.labelKey)}
+      <Icon className="h-4 w-4 shrink-0" />
+      <span className="truncate">{t(link.labelKey)}</span>
     </Link>
   );
 }

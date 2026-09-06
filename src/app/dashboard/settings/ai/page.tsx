@@ -3,6 +3,7 @@ import { requireOrganizationContext, canManageConfig } from "@/lib/org/context";
 import { getIndustryTemplate, effectiveConfigFromStored } from "@/lib/config";
 import { loadStoredConfig } from "@/lib/config/organization-config.server";
 import { maxScore } from "@/lib/lead-scoring";
+import { AiAgentIcon } from "@/components/icons";
 import { getI18n } from "@/i18n/server";
 import { AiBehaviorForm } from "./ai-behavior-form";
 import { QualificationForm, type QualRow } from "./qualification-form";
@@ -58,7 +59,8 @@ export default async function AiSettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-foreground">
+        <h1 className="flex items-center gap-2.5 text-2xl font-semibold text-foreground">
+          <AiAgentIcon className="h-6 w-6 shrink-0 text-muted" />
           {t("settingsAi.title")}
         </h1>
         <p className="mt-1 text-sm text-muted">

@@ -3,6 +3,7 @@ import { requireOrganizationContext, canManageConfig } from "@/lib/org/context";
 import { createClient } from "@/lib/supabase/server";
 import { listOrgMembers } from "@/lib/org/members.server";
 import { listInvitations } from "@/lib/org/invitations.server";
+import { TeamIcon } from "@/components/icons";
 import { formatDate } from "@/lib/leads/format";
 import { getI18n } from "@/i18n/server";
 import { InviteForm, RevokeInviteButton } from "./team-form";
@@ -27,7 +28,10 @@ export default async function TeamPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-foreground">{t("team.title")}</h1>
+        <h1 className="flex items-center gap-2.5 text-2xl font-semibold text-foreground">
+          <TeamIcon className="h-6 w-6 shrink-0 text-muted" />
+          {t("team.title")}
+        </h1>
         <p className="mt-1 text-sm text-muted">{t("team.subtitle")}</p>
         {!canManage ? (
           <p className="mt-2 inline-block rounded-md border border-border bg-background px-2 py-1 text-xs text-muted">

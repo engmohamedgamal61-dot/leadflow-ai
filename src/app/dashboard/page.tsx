@@ -23,6 +23,26 @@ import { EmptyState } from "@/components/dashboard/states";
 import { ActivityFeed } from "@/components/dashboard/activity-feed";
 import { GoLiveReadinessPanel } from "@/components/dashboard/readiness";
 import { IntegrationHealth } from "@/components/dashboard/integration-health";
+import { SectionHeading } from "@/components/dashboard/section-heading";
+import {
+  WorkflowMap,
+  type WorkflowNode,
+} from "@/components/dashboard/workflow-map";
+import {
+  ActivityIcon,
+  AppointmentIcon,
+  DashboardIcon,
+  FollowUpIcon,
+  HandoffIcon,
+  HealthIcon,
+  LeadsIcon,
+  NextActionIcon,
+  OpportunityIcon,
+  QualifyIcon,
+  ReadinessIcon,
+  SourceIcon,
+  WorkflowIcon,
+} from "@/components/icons";
 import { formatDate, formatDateTime, formatPercent } from "@/lib/leads/format";
 import { getI18n } from "@/i18n/server";
 
@@ -75,6 +95,65 @@ export default async function DashboardOverviewPage() {
   const recoveryCount = recoveryCandidates.length;
   const isEmptyWorkspace = stats.total === 0;
 
+  const workflowNodes: WorkflowNode[] = [
+    {
+      key: "source",
+      icon: SourceIcon,
+      label: t("dashboard.workflow.nodes.source"),
+      sub: t("dashboard.workflow.nodes.sourceSub", { count: stats.createdToday }),
+      value: stats.total,
+      href: "/dashboard/leads",
+      tone: stats.total > 0 ? "active" : "neutral",
+    },
+    {
+      key: "qualify",
+      icon: QualifyIcon,
+      label: t("dashboard.workflow.nodes.qualify"),
+      sub: t("dashboard.workflow.nodes.qualifySub", { count: stats.qualified }),
+      value: stats.qualified,
+      href: "/dashboard/leads?status=qualified",
+      tone: stats.qualified > 0 ? "active" : "neutral",
+    },
+    {
+      key: "opportunity",
+      icon: OpportunityIcon,
+      label: t("dashboard.workflow.nodes.opportunity"),
+      sub: t("dashboard.workflow.nodes.opportunitySub", { count: stats.hot }),
+      value: stats.hot,
+      href: "/dashboard/leads?temperature=hot",
+      tone: stats.hot > 0 ? "active" : "neutral",
+    },
+    {
+      key: "nextAction",
+      icon: NextActionIcon,
+      label: t("dashboard.workflow.nodes.nextAction"),
+      sub: t("dashboard.workflow.nodes.nextActionSub", {
+        count: insightSummary.needsAttention,
+      }),
+      value: insightSummary.needsAttention,
+      href: "/dashboard/leads?focus=needs_attention",
+      tone: insightSummary.needsAttention > 0 ? "attention" : "neutral",
+    },
+    {
+      key: "followUp",
+      icon: AppointmentIcon,
+      label: t("dashboard.workflow.nodes.followUp"),
+      sub: t("dashboard.workflow.nodes.followUpSub", { count: appointmentCount }),
+      value: followUps.dueNow,
+      href: "/dashboard/leads?focus=needs_attention",
+      tone: followUps.dueNow > 0 ? "attention" : "neutral",
+    },
+    {
+      key: "handoff",
+      icon: HandoffIcon,
+      label: t("dashboard.workflow.nodes.handoff"),
+      sub: t("dashboard.workflow.nodes.handoffSub", { count: recoveryCount }),
+      value: recoveryCount,
+      href: "/dashboard/recovery",
+      tone: recoveryCount > 0 ? "attention" : "neutral",
+    },
+  ];
+
   const readiness = canManage
     ? computeGoLiveReadiness({
         templateValid: template !== undefined,
@@ -124,7 +203,7 @@ export default async function DashboardOverviewPage() {
       ) : null}
 
       <section aria-label={t("dashboard.exec.aria")} className="space-y-3">
-        <h2 className="text-sm font-semibold text-foreground">{t("dashboard.exec.title")}</h2>
+        <SectionHeading icon={DashboardIcon}>{t("dashboard.exec.title")}</SectionHeading>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           <StatCard label={t("dashboard.exec.leadsToday")} value={stats.createdToday} />
           <StatCard label={t("dashboard.exec.hotLeads")} value={stats.hot} accent="hot" />
@@ -159,26 +238,31 @@ export default async function DashboardOverviewPage() {
         </div>
       </section>
 
+      <section aria-label={t("dashboard.workflow.aria")} className="space-y-3">
+        <SectionHeading icon={WorkflowIcon}>{t("dashboard.workflow.title")}</SectionHeading>
+        <WorkflowMap nodes={workflowNodes} ariaLabel={t("dashboard.workflow.aria")} />
+      </section>
+
       {readiness ? (
         <section aria-label={t("dashboard.readiness.aria")} className="space-y-3">
-          <h2 className="text-sm font-semibold text-foreground">
+          <SectionHeading icon={ReadinessIcon}>
             {t("dashboard.readiness.title")}
-          </h2>
+          </SectionHeading>
           <GoLiveReadinessPanel readiness={readiness} canManage={canManage} />
         </section>
       ) : null}
 
       {readiness ? (
         <section aria-label={t("dashboard.integrationHealth.aria")} className="space-y-3">
-          <h2 className="text-sm font-semibold text-foreground">
+          <SectionHeading icon={HealthIcon}>
             {t("dashboard.integrationHealth.title")}
-          </h2>
+          </SectionHeading>
           <IntegrationHealth whatsapp={whatsapp} calendar={calendar} />
         </section>
       ) : null}
 
       <section aria-label={t("dashboard.pipeline.aria")} className="space-y-3">
-        <h2 className="text-sm font-semibold text-foreground">{t("dashboard.pipeline.title")}</h2>
+        <SectionHeading icon={OpportunityIcon}>{t("dashboard.pipeline.title")}</SectionHeading>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <StatCard label={t("dashboard.stats.totalLeads")} value={stats.total} />
           <StatCard label={t("dashboard.stats.qualified")} value={stats.qualified} />
@@ -190,9 +274,9 @@ export default async function DashboardOverviewPage() {
       </section>
 
       <section aria-label={t("dashboard.ariaLeadHealth")} className="space-y-3">
-        <h2 className="text-sm font-semibold text-foreground">
+        <SectionHeading icon={NextActionIcon}>
           {t("dashboard.leadHealthTitle")}
-        </h2>
+        </SectionHeading>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:max-w-2xl">
           <StatCard
             label={t("insights.filter.needsAttention")}
@@ -215,7 +299,7 @@ export default async function DashboardOverviewPage() {
       </section>
 
       <section aria-label={t("dashboard.workload.title")} className="space-y-3">
-        <h2 className="text-sm font-semibold text-foreground">{t("dashboard.workload.title")}</h2>
+        <SectionHeading icon={FollowUpIcon}>{t("dashboard.workload.title")}</SectionHeading>
         <div className="grid grid-cols-2 gap-3 sm:max-w-xs">
           <StatCard
             label={t("dashboard.workload.pendingFollowUps")}
@@ -230,7 +314,7 @@ export default async function DashboardOverviewPage() {
       </section>
 
       <section aria-label={t("dashboard.activity.aria")} className="space-y-3">
-        <h2 className="text-sm font-semibold text-foreground">{t("dashboard.activity.title")}</h2>
+        <SectionHeading icon={ActivityIcon}>{t("dashboard.activity.title")}</SectionHeading>
         {activity.length === 0 ? (
           <EmptyState
             title={t("dashboard.activity.emptyTitle")}
@@ -242,17 +326,19 @@ export default async function DashboardOverviewPage() {
       </section>
 
       <section aria-label={t("dashboard.ariaRecentLeads")} className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-foreground">
-            {t("dashboard.recentLeads")}
-          </h2>
-          <Link
-            href="/dashboard/leads"
-            className="text-xs text-muted hover:text-foreground"
-          >
-            {t("common.viewAll")}
-          </Link>
-        </div>
+        <SectionHeading
+          icon={LeadsIcon}
+          action={
+            <Link
+              href="/dashboard/leads"
+              className="text-xs text-muted hover:text-foreground"
+            >
+              {t("common.viewAll")}
+            </Link>
+          }
+        >
+          {t("dashboard.recentLeads")}
+        </SectionHeading>
 
         {recent.length === 0 ? (
           <EmptyState
@@ -300,9 +386,9 @@ export default async function DashboardOverviewPage() {
       </section>
 
       <section aria-label={t("dashboard.ariaUpcomingAppointments")} className="space-y-3">
-        <h2 className="text-sm font-semibold text-foreground">
+        <SectionHeading icon={AppointmentIcon}>
           {t("dashboard.upcomingAppointments")}
-        </h2>
+        </SectionHeading>
 
         {upcomingAppointments.length === 0 ? (
           <EmptyState

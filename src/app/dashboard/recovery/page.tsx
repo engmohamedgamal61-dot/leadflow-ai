@@ -9,6 +9,7 @@ import {
 import { StatCard } from "@/components/dashboard/stat-card";
 import { PriorityBadge, OutcomeBadge } from "@/components/dashboard/badges";
 import { EmptyState } from "@/components/dashboard/states";
+import { RecoveryIcon } from "@/components/icons";
 import { formatDate } from "@/lib/leads/format";
 import { getI18n } from "@/i18n/server";
 import { StartRecoveryForm } from "./start-recovery-form";
@@ -38,7 +39,10 @@ export default async function RecoveryPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold text-foreground">{t("recovery.title")}</h1>
+        <h1 className="flex items-center gap-2.5 text-2xl font-semibold text-foreground">
+          <RecoveryIcon className="h-6 w-6 shrink-0 text-muted" />
+          {t("recovery.title")}
+        </h1>
         <p className="mt-1 text-sm text-muted">{t("recovery.subtitle")}</p>
       </div>
 
