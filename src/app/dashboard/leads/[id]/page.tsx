@@ -20,6 +20,7 @@ import {
   RiskBadge,
   ActionBadge,
 } from "@/components/dashboard/badges";
+import { SourceMark } from "@/components/dashboard/source-mark";
 import { getI18n } from "@/i18n/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAvailability } from "@/lib/calendar/service";
@@ -406,7 +407,9 @@ export default async function LeadDetailPage({
               </div>
               <div className="flex justify-between">
                 <dt className="text-muted">{t("leadDetail.sidebar.source")}</dt>
-                <dd className="text-foreground">{record.source ?? "—"}</dd>
+                <dd className="text-foreground">
+                  <SourceMark source={record.source} />
+                </dd>
               </div>
               <div className="flex justify-between">
                 <dt className="text-muted">{t("leadDetail.sidebar.created")}</dt>

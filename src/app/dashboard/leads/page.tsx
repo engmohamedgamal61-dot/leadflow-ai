@@ -14,6 +14,7 @@ import {
   ActionBadge,
 } from "@/components/dashboard/badges";
 import { EmptyState } from "@/components/dashboard/states";
+import { SourceMark } from "@/components/dashboard/source-mark";
 import { LeadsIcon } from "@/components/icons";
 import { formatDate, formatNumber } from "@/lib/leads/format";
 import { getI18n } from "@/i18n/server";
@@ -140,7 +141,7 @@ export default async function LeadsPage({
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-muted">
-                      {lead.source ?? "—"}
+                      <SourceMark source={lead.source} />
                     </td>
                     <td className="px-4 py-2.5 text-muted">
                       {formatDate(lead.createdAt, locale)}

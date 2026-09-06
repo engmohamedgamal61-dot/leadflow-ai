@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useI18n } from "@/i18n/client";
 import { formatDate, relativeTimeBucket } from "@/lib/leads/format";
 import { StatusBadge } from "@/components/dashboard/badges";
+import { SourceMark } from "@/components/dashboard/source-mark";
 
 export interface RecentLeadRow {
   id: string;
@@ -75,7 +76,9 @@ export function RecentLeadsTable({ rows }: { rows: RecentLeadRow[] }) {
                   </Link>
                 </td>
                 <td className="px-5 py-3 text-muted">{lead.contact ?? "—"}</td>
-                <td className="px-5 py-3 text-muted">{lead.source ?? "—"}</td>
+                <td className="px-5 py-3 text-muted">
+                  <SourceMark source={lead.source} />
+                </td>
                 <td className="px-5 py-3">
                   <StatusBadge value={lead.status} />
                 </td>
@@ -111,7 +114,9 @@ export function RecentLeadsTable({ rows }: { rows: RecentLeadRow[] }) {
                 <StatusBadge value={lead.status} />
                 <Opportunity temperature={lead.temperature} />
                 {lead.source ? (
-                  <span className="text-[11px] text-muted">{lead.source}</span>
+                  <span className="text-[11px] text-muted">
+                    <SourceMark source={lead.source} />
+                  </span>
                 ) : null}
               </div>
             </Link>

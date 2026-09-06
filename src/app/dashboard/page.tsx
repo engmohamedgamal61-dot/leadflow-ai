@@ -36,12 +36,13 @@ import {
   type RecentLeadRow,
 } from "@/components/dashboard/recent-leads-table";
 import { EmptyState } from "@/components/dashboard/states";
+import type { ComponentType } from "react";
 import {
   ActivityIcon,
   AppointmentIcon,
-  ChatIcon,
   HandoffIcon,
   HealthIcon,
+  type IconProps,
   LeadsIcon,
   NextActionIcon,
   OpportunityIcon,
@@ -51,6 +52,7 @@ import {
   WidgetIcon,
   WorkflowIcon,
 } from "@/components/icons";
+import { brandIcon } from "@/components/icons/brands";
 import { formatPercent } from "@/lib/leads/format";
 import { getI18n } from "@/i18n/server";
 
@@ -118,11 +120,13 @@ export default async function DashboardOverviewPage() {
     stats.total > 0 ? formatPercent(stats.won / stats.total, locale) : "—";
   const trendLabel = t("dashboard.kpi.trendLabel");
 
-  // Lead-source channels that are actually wired for this workspace.
-  const channels: { key: string; icon: typeof SourceIcon }[] = [
+  // Lead-source channels that are actually wired for this workspace. Web is
+  // always on; WhatsApp / widget only when the integration really exists.
+  const channels: { key: string; icon: ComponentType<IconProps> }[] = [
     { key: "web", icon: SourceIcon },
   ];
-  if (whatsapp?.status === "connected") channels.push({ key: "whatsapp", icon: ChatIcon });
+  if (whatsapp?.status === "connected")
+    channels.push({ key: "whatsapp", icon: brandIcon("whatsapp") ?? SourceIcon });
   if (widget?.enabled) channels.push({ key: "widget", icon: WidgetIcon });
 
   const apptDelta = delta(trends.appointments);
@@ -144,9 +148,9 @@ export default async function DashboardOverviewPage() {
             return (
               <span
                 key={c.key}
-                className="flex h-[17px] w-[17px] items-center justify-center rounded-full border border-border bg-surface text-muted/80"
+                className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-border bg-surface text-muted/80"
               >
-                <CIcon className="h-2.5 w-2.5" />
+                <CIcon className="h-3 w-3" />
               </span>
             );
           })}

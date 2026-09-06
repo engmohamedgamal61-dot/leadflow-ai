@@ -17,6 +17,27 @@ import {
   SourceIcon,
   type IconProps,
 } from "@/components/icons";
+import { brandIcon } from "@/components/icons/brands";
+
+/** A recognised communication channel/brand slug carried in event metadata. */
+const KNOWN_CHANNEL_BRANDS: Record<string, string> = { whatsapp: "whatsapp" };
+
+/**
+ * When an event's metadata names a real channel (today only `follow_up_executed`
+ * records one), show that channel's brand mark instead of the semantic icon.
+ */
+function brandFor(
+  eventType: string,
+  metadata: unknown,
+): ComponentType<IconProps> | null {
+  if (eventType !== "follow_up_executed") return null;
+  const channel =
+    metadata && typeof metadata === "object" && "channel" in metadata
+      ? (metadata as { channel?: unknown }).channel
+      : null;
+  if (typeof channel !== "string") return null;
+  return brandIcon(KNOWN_CHANNEL_BRANDS[channel] ?? null);
+}
 
 /** eventType → a small semantic icon chip (tone carries meaning, not decoration). */
 function iconFor(eventType: string): { icon: ComponentType<IconProps>; chip: string } {
@@ -75,7 +96,10 @@ export function ActivityFeed({
           }),
           { t, tOptional, locale },
         );
-        const { icon: Icon, chip } = iconFor(e.eventType);
+        const semantic = iconFor(e.eventType);
+        const Brand = brandFor(e.eventType, e.metadata);
+        const Icon = Brand ?? semantic.icon;
+        const chip = Brand ? "border border-border bg-surface" : semantic.chip;
         const context = [e.leadName ?? t("common.unnamedLead"), entry.detail]
           .filter(Boolean)
           .join(" · ");
@@ -88,7 +112,7 @@ export function ActivityFeed({
               <span
                 className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${chip}`}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className={Brand ? "h-[17px] w-[17px]" : "h-4 w-4"} />
               </span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[13px] font-medium text-foreground">

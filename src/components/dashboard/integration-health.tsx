@@ -3,14 +3,13 @@
 import type { ComponentType } from "react";
 import { useI18n } from "@/i18n/client";
 import { relativeTimeBucket } from "@/lib/leads/format";
-import {
-  AppointmentIcon,
-  ChatIcon,
-  WidgetIcon,
-  type IconProps,
-} from "@/components/icons";
+import { WidgetIcon, type IconProps } from "@/components/icons";
+import { brandIcon, type BrandKey } from "@/components/icons/brands";
 
 export type IntegrationHealthState = "ok" | "warn" | "down" | "off";
+
+/** Neutral chip for brand marks — keeps each brand's colour inside the glyph. */
+const BRAND_CHIP = "border border-border bg-surface";
 
 const DOT: Record<IntegrationHealthState, string> = {
   ok: "bg-emerald-500",
@@ -28,6 +27,9 @@ export interface IntegrationHealthInput {
 
 interface Row {
   key: string;
+  /** A third-party brand mark, when the row is a real external integration. */
+  brand?: BrandKey;
+  /** Internal icon — used for LeadFlow's own features (e.g. the website widget). */
   icon: ComponentType<IconProps>;
   chip: string;
   name: string;
@@ -58,8 +60,7 @@ export function IntegrationHealth({
 
   const connRow = (
     key: "whatsapp" | "calendar",
-    icon: ComponentType<IconProps>,
-    chip: string,
+    brand: BrandKey,
     conn: { status: string; lastError: string | null; updatedAt: string } | null,
   ): Row => {
     let state: IntegrationHealthState = "off";
@@ -76,8 +77,9 @@ export function IntegrationHealth({
     }
     return {
       key,
-      icon,
-      chip,
+      brand,
+      icon: WidgetIcon,
+      chip: BRAND_CHIP,
       name: t(`dashboard.integrationHealth.${key}`),
       state,
       statusText,
@@ -86,8 +88,8 @@ export function IntegrationHealth({
   };
 
   const rows: Row[] = [
-    connRow("whatsapp", ChatIcon, "bg-emerald-500/10 text-emerald-600", whatsapp),
-    connRow("calendar", AppointmentIcon, "bg-blue-500/10 text-blue-600", calendar),
+    connRow("whatsapp", "whatsapp", whatsapp),
+    connRow("calendar", "google_calendar", calendar),
   ];
 
   if (widget) {
@@ -116,6 +118,7 @@ export function IntegrationHealth({
   return (
     <ul className="divide-y divide-border/70">
       {rows.map((row) => {
+        const Brand = brandIcon(row.brand);
         const RowIcon = row.icon;
         return (
           <li
@@ -126,7 +129,7 @@ export function IntegrationHealth({
               <span
                 className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${row.chip}`}
               >
-                <RowIcon className="h-4 w-4" />
+                {Brand ? <Brand className="h-[17px] w-[17px]" /> : <RowIcon className="h-4 w-4" />}
               </span>
               <span className="truncate text-[13px] font-medium text-foreground">
                 {row.name}

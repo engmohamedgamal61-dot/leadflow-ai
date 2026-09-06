@@ -8,6 +8,7 @@ import {
 } from "@/lib/calendar/connection-actions";
 import type { CalendarConnectionView } from "@/lib/calendar/connections";
 import { useI18n } from "@/i18n/client";
+import { GoogleCalendarBrandIcon } from "@/components/icons/brands";
 
 const INITIAL: CalendarFormState = {};
 const WORKING_DAY_VALUES = [0, 1, 2, 3, 4, 5, 6] as const;
@@ -81,9 +82,14 @@ export function GoogleCalendarSettings({
   return (
     <section className="space-y-5 rounded-xl border border-border bg-surface p-5">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-foreground">{t("calendar.title")}</h2>
-          <p className="mt-0.5 text-xs text-muted">{t("calendar.description")}</p>
+        <div className="flex items-start gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface">
+            <GoogleCalendarBrandIcon className="h-[22px] w-[22px]" />
+          </span>
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">{t("calendar.title")}</h2>
+            <p className="mt-0.5 text-xs text-muted">{t("calendar.description")}</p>
+          </div>
         </div>
         {connection ? (
           <span
