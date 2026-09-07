@@ -35,7 +35,7 @@ export interface AgentExecContext {
   conversationId: string | null;
   /** Idempotency key for this turn/submission, or null. */
   requestId: string | null;
-  source: "chat" | "manual";
+  source: "chat" | "manual" | "integration";
 }
 
 export interface AgentActionOutcome {

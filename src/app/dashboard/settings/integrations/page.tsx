@@ -5,9 +5,11 @@ import { formatDateTime } from "@/lib/leads/format";
 import { getI18n } from "@/i18n/server";
 import { getConnectionView } from "@/lib/calendar/connections";
 import { getWhatsAppConnectionView } from "@/lib/whatsapp/connections";
+import { listEndpoints } from "@/lib/integrations/queries";
 import { IntegrationsIcon } from "@/components/icons";
 import { WhatsAppSettings } from "./whatsapp-form";
 import { GoogleCalendarSettings } from "./calendar-form";
+import { WebhooksSection } from "./webhooks-section";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { dict } = await getI18n();
@@ -25,9 +27,10 @@ export default async function IntegrationsPage({
   const { calendar: calendarParam } = await searchParams;
 
   const supabase = await createClient();
-  const [connection, calendarConnection] = await Promise.all([
+  const [connection, calendarConnection, endpoints] = await Promise.all([
     getWhatsAppConnectionView(supabase, membership.organizationId),
     getConnectionView(supabase, membership.organizationId),
+    listEndpoints(supabase, membership.organizationId),
   ]);
 
   const calendarBanner = calendarParam
@@ -66,6 +69,8 @@ export default async function IntegrationsPage({
           connection ? formatDateTime(connection.updatedAt, locale) : null
         }
       />
+
+      <WebhooksSection endpoints={endpoints} canManage={canManage} />
     </div>
   );
 }

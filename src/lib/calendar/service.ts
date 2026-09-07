@@ -34,7 +34,7 @@ export interface CalendarExecContext {
   leadId: string;
   conversationId: string | null;
   requestId: string | null;
-  source: "chat" | "manual";
+  source: "chat" | "manual" | "integration";
 }
 
 export interface CalendarActionOutcome {

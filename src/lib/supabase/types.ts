@@ -45,6 +45,18 @@ export type AppointmentStatus =
   | "cancelled"
   | "completed"
   | "no_show";
+export type IntegrationDeliveryStatus =
+  | "pending"
+  | "delivering"
+  | "succeeded"
+  | "failed"
+  | "dead";
+export type IntegrationDeliveryKind = "event" | "test";
+export type IntegrationInboundActionStatus =
+  | "accepted"
+  | "rejected"
+  | "duplicate"
+  | "failed";
 
 export interface Database {
   public: {
@@ -785,6 +797,231 @@ export interface Database {
           },
         ];
       };
+      integration_endpoints: {
+        Row: {
+          id: string;
+          organization_id: string;
+          name: string;
+          url: string;
+          secret_encrypted: string;
+          secret_hint: string;
+          secret_rotated_at: string | null;
+          enabled: boolean;
+          subscribed_events: string[];
+          description: string | null;
+          consecutive_failures: number;
+          last_success_at: string | null;
+          last_failure_at: string | null;
+          last_error: string | null;
+          disabled_reason: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          name: string;
+          url: string;
+          secret_encrypted: string;
+          secret_hint: string;
+          secret_rotated_at?: string | null;
+          enabled?: boolean;
+          subscribed_events?: string[];
+          description?: string | null;
+          consecutive_failures?: number;
+          last_success_at?: string | null;
+          last_failure_at?: string | null;
+          last_error?: string | null;
+          disabled_reason?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          name?: string;
+          url?: string;
+          secret_encrypted?: string;
+          secret_hint?: string;
+          secret_rotated_at?: string | null;
+          enabled?: boolean;
+          subscribed_events?: string[];
+          description?: string | null;
+          consecutive_failures?: number;
+          last_success_at?: string | null;
+          last_failure_at?: string | null;
+          last_error?: string | null;
+          disabled_reason?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "integration_endpoints_organization_id_fkey";
+            columns: ["organization_id"];
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      integration_event_outbox: {
+        Row: {
+          id: string;
+          organization_id: string;
+          event_type: string;
+          lead_id: string | null;
+          payload: Json;
+          occurred_at: string;
+          fanned_out_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          event_type: string;
+          lead_id?: string | null;
+          payload?: Json;
+          occurred_at: string;
+          fanned_out_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          event_type?: string;
+          lead_id?: string | null;
+          payload?: Json;
+          occurred_at?: string;
+          fanned_out_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      integration_deliveries: {
+        Row: {
+          id: string;
+          organization_id: string;
+          endpoint_id: string;
+          outbox_event_id: string | null;
+          event_type: string;
+          payload: Json;
+          status: IntegrationDeliveryStatus;
+          attempt_count: number;
+          max_attempts: number;
+          next_attempt_at: string;
+          claimed_at: string | null;
+          last_status_code: number | null;
+          last_error: string | null;
+          last_attempt_at: string | null;
+          last_duration_ms: number | null;
+          delivered_at: string | null;
+          kind: IntegrationDeliveryKind;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          endpoint_id: string;
+          outbox_event_id?: string | null;
+          event_type: string;
+          payload: Json;
+          status?: IntegrationDeliveryStatus;
+          attempt_count?: number;
+          max_attempts?: number;
+          next_attempt_at?: string;
+          claimed_at?: string | null;
+          last_status_code?: number | null;
+          last_error?: string | null;
+          last_attempt_at?: string | null;
+          last_duration_ms?: number | null;
+          delivered_at?: string | null;
+          kind?: IntegrationDeliveryKind;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          endpoint_id?: string;
+          outbox_event_id?: string | null;
+          event_type?: string;
+          payload?: Json;
+          status?: IntegrationDeliveryStatus;
+          attempt_count?: number;
+          max_attempts?: number;
+          next_attempt_at?: string;
+          claimed_at?: string | null;
+          last_status_code?: number | null;
+          last_error?: string | null;
+          last_attempt_at?: string | null;
+          last_duration_ms?: number | null;
+          delivered_at?: string | null;
+          kind?: IntegrationDeliveryKind;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "integration_deliveries_endpoint_id_fkey";
+            columns: ["endpoint_id"];
+            referencedRelation: "integration_endpoints";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      integration_inbound_actions: {
+        Row: {
+          id: string;
+          organization_id: string;
+          endpoint_id: string;
+          idempotency_key: string;
+          action: string;
+          lead_id: string | null;
+          request_summary: Json;
+          status: IntegrationInboundActionStatus;
+          result_summary: Json | null;
+          error_code: string | null;
+          received_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          endpoint_id: string;
+          idempotency_key: string;
+          action: string;
+          lead_id?: string | null;
+          request_summary?: Json;
+          status: IntegrationInboundActionStatus;
+          result_summary?: Json | null;
+          error_code?: string | null;
+          received_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          endpoint_id?: string;
+          idempotency_key?: string;
+          action?: string;
+          lead_id?: string | null;
+          request_summary?: Json;
+          status?: IntegrationInboundActionStatus;
+          result_summary?: Json | null;
+          error_code?: string | null;
+          received_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "integration_inbound_actions_endpoint_id_fkey";
+            columns: ["endpoint_id"];
+            referencedRelation: "integration_endpoints";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<never, never>;
     Functions: {
@@ -828,6 +1065,16 @@ export interface Database {
       hit_rate_limit: {
         Args: { p_key: string; p_max: number; p_window_seconds: number };
         Returns: boolean;
+      };
+      /**
+       * Integration Hub delivery claim (service-role only). Atomically moves a
+       * bounded batch of due `pending`/`failed` deliveries (plus stuck
+       * `delivering` rows) to `delivering` via `FOR UPDATE SKIP LOCKED`.
+       * See `20260907120000_integration_hub.sql`.
+       */
+      claim_integration_deliveries: {
+        Args: { p_limit: number; p_stuck_after: string };
+        Returns: Database["public"]["Tables"]["integration_deliveries"]["Row"][];
       };
     };
     Enums: {

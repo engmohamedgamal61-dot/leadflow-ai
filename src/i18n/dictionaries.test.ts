@@ -39,6 +39,7 @@ test("no Arabic value is left as the raw English string", () => {
     "leadDetail.conversation.channelStatus",
     "leadDetail.appointments.upcoming",
     "events.appointmentBookedDetail",
+    "integrationHub.form.urlPlaceholder",
   ]);
   const suspicious: string[] = [];
   const walk = (a: unknown, b: unknown, path: string) => {
