@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { ONBOARDING_PATH } from "@/lib/auth/route-policy";
+import { safeNextPath } from "@/lib/auth/next-path";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,8 +20,7 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type") as EmailOtpType | null;
-  const next = searchParams.get("next") ?? ONBOARDING_PATH;
-  const safeNext = next.startsWith("/") && !next.startsWith("//") ? next : ONBOARDING_PATH;
+  const safeNext = safeNextPath(searchParams.get("next"), ONBOARDING_PATH);
 
   const supabase = await createClient();
 

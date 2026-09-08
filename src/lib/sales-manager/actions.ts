@@ -3,6 +3,8 @@
 import { requireOrganizationContext } from "@/lib/org/context";
 import { canManageConfig } from "@/lib/org/roles";
 import { getLocale } from "@/i18n/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { enforceRateLimit, salesManagerRule } from "@/lib/security/rate-limit";
 import { askLeadFlow } from "./service.ts";
 import type { AskResult } from "./orchestration.ts";
 
@@ -37,6 +39,18 @@ export async function askLeadFlowAction(
   }
   if (trimmed.length > MAX_QUESTION_LENGTH) {
     return { ok: false, errorCode: "askLeadFlow.errors.tooLong" };
+  }
+
+  // Per-org rate limit BEFORE any intent query or Anthropic call. Fails open
+  // (like the chat limiter) — the Phase O hard usage limit is the harder stop.
+  try {
+    const admin = createAdminClient();
+    const gate = await enforceRateLimit(admin, salesManagerRule(membership.organizationId));
+    if (!gate.allowed) {
+      return { ok: false, errorCode: "askLeadFlow.errors.rateLimited" };
+    }
+  } catch {
+    /* Supabase not configured — skip, same as the chat route. */
   }
 
   const locale = await getLocale();

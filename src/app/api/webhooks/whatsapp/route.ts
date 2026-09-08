@@ -7,6 +7,7 @@ import { resolveOrgByPhoneNumberId } from "@/lib/whatsapp/connections";
 import { processInboundWhatsAppMessage } from "@/lib/whatsapp/inbound";
 import { applyStatusUpdate } from "@/lib/whatsapp/status";
 import { reportError } from "@/lib/observability/report";
+import { BODY_LIMITS, bodyTooLargeResponse, readLimitedText } from "@/lib/security/body-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,7 +45,9 @@ export async function GET(request: NextRequest): Promise<Response> {
 }
 
 export async function POST(request: NextRequest): Promise<Response> {
-  const raw = await request.text();
+  const bodyResult = await readLimitedText(request, BODY_LIMITS.webhook);
+  if (!bodyResult.ok) return bodyTooLargeResponse();
+  const raw = bodyResult.text;
 
   if (
     !verifySignature(
@@ -87,7 +90,12 @@ export async function POST(request: NextRequest): Promise<Response> {
     let processed = 0;
     let skipped = 0;
 
-    if (parsed.messages.length > 0) {
+    // Defence in depth: a real Meta batch is a handful of messages. Cap it so a
+    // pathological (or replayed-with-a-leaked-secret) payload can't fan out into
+    // an unbounded number of Anthropic calls. The body-size limit already bounds
+    // the payload; this bounds the work.
+    const inbound = parsed.messages.slice(0, 50);
+    if (inbound.length > 0) {
       let anthropic: ReturnType<typeof getAnthropicClient>;
       try {
         anthropic = getAnthropicClient();
@@ -95,7 +103,7 @@ export async function POST(request: NextRequest): Promise<Response> {
         console.error("[whatsapp] webhook: ANTHROPIC_API_KEY not configured");
         return;
       }
-      for (const message of parsed.messages) {
+      for (const message of inbound) {
         const r = await processInboundWhatsAppMessage(phoneNumberId, message, {
           db,
           anthropic,

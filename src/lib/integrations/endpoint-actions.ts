@@ -235,6 +235,21 @@ export async function sendTestWebhookAction(
     .maybeSingle();
   if (!endpoint) return { errorCode: "integrationHub.errors.notFound" };
 
+  // A synchronous outbound HTTP request an admin can trigger on demand — cap it
+  // so it can't be used as a spray tool. Fail-open (like the chat limiter).
+  try {
+    const { data: allowed } = await admin.rpc("hit_rate_limit", {
+      p_key: `integration_test:${endpoint.id}`,
+      p_max: 10,
+      p_window_seconds: 60,
+    });
+    if (allowed === false) {
+      return { errorCode: "integrationHub.errors.testRateLimited" };
+    }
+  } catch {
+    /* fail open */
+  }
+
   let secret: string;
   try {
     const { decryptEndpointSecret } = await import("./secret");

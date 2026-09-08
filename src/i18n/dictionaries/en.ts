@@ -810,6 +810,7 @@ export const en = {
       forbidden: "Only an owner or admin can use the AI Sales Manager.",
       empty: "Type a question first.",
       tooLong: "That question is too long — please shorten it.",
+      rateLimited: "You're asking a lot of questions very quickly — give it a moment and try again.",
       unavailable: "The AI Sales Manager is unavailable right now. Please try again.",
     },
   },
@@ -1053,6 +1054,7 @@ export const en = {
       notFound: "That endpoint no longer exists.",
       cantReadSecret: "Could not read the endpoint's signing secret.",
       testFailed: "Could not send the test webhook.",
+      testRateLimited: "Too many test deliveries — wait a minute and try again.",
       retryFailed: "Could not queue that delivery for retry.",
     },
     validation: {

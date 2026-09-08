@@ -33,6 +33,35 @@ test("isSafeWebhookUrl allows insecure/private when the escape hatch is on", () 
   );
 });
 
+test("isSafeWebhookUrl blocks obfuscated IP encodings (SSRF bypass attempts)", () => {
+  for (const url of [
+    "https://2130706433/x", // 127.0.0.1 as a 32-bit int
+    "https://0x7f000001/x", // 127.0.0.1 as hex
+    "https://0177.0.0.1/x", // 127.0.0.1 with an octal first octet
+    "https://127.1/x", // short form
+    "https://[::ffff:169.254.169.254]/latest/meta-data", // IPv4-mapped IPv6 → cloud metadata
+    "https://[::ffff:7f00:1]/x", // IPv4-mapped IPv6, hex form
+    "https://[::1]/x",
+    "https://2852039166/x", // 169.254.169.254 as an int
+    "https://0xA9FEA9FE/x", // 169.254.169.254 as hex
+    "https://100.64.1.1/x", // carrier-grade NAT
+    "https://user:pass@example.com/x", // embedded credentials
+    "https://internal-service/x", // single-label host
+  ]) {
+    assert.equal(isSafeWebhookUrl(url).ok, false, `should reject ${url}`);
+  }
+});
+
+test("isSafeWebhookUrl still accepts legitimate public FQDNs", () => {
+  for (const url of [
+    "https://hooks.zapier.com/hooks/catch/123/abc",
+    "https://n8n.acme.co.uk/webhook/xyz",
+    "https://8.8.8.8/collector", // a real public IP is fine
+  ]) {
+    assert.equal(isSafeWebhookUrl(url).ok, true, `should accept ${url}`);
+  }
+});
+
 test("validateEndpointInput: happy path normalises + de-dupes events", () => {
   const v = validateEndpointInput({
     name: "  n8n  ",

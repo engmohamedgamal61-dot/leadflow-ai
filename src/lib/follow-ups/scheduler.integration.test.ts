@@ -6,6 +6,16 @@ import { createClient } from "@supabase/supabase-js";
  * Real-Postgres tests for the follow-up scheduler: atomic claiming under
  * concurrency, the retry/failure lifecycle, cancellation safety and tenant
  * isolation. Skipped without local Supabase.
+ *
+ * MUST run with `--test-concurrency=1` (use `npm run test:integration`).
+ * `runFollowUpScheduler` is a GLOBAL job — it claims every due follow-up in
+ * the database, across all orgs, by design. When integration test FILES run in
+ * parallel against the one shared local Postgres, another file's due
+ * follow-ups (e.g. `recovery.integration.test.ts`) get swept into this file's
+ * `run()` and throw the per-run counts off. This is test-harness contention,
+ * not a product race: the scheduler's claim is `FOR UPDATE SKIP LOCKED` and
+ * every write path is unique-constraint / RLS guarded. Serialising the files
+ * removes the contention.
  */
 const URL = process.env.LEADFLOW_DB_TEST_URL;
 const SERVICE_KEY = process.env.LEADFLOW_DB_TEST_SERVICE_KEY;

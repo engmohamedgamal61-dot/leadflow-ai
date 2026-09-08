@@ -63,6 +63,21 @@ export function chatOrgRule(orgKey: string): RateLimitRule {
   };
 }
 
+/**
+ * Per-organization cap for the AI Sales Manager ("Ask LeadFlow"). Each question
+ * runs ~10 bounded DB reads plus one Anthropic call; owner/admin gating alone
+ * doesn't stop a runaway client loop or an admin burning the AI budget. The
+ * Phase O hard usage limit is opt-in, so this is the always-on backstop.
+ */
+export function salesManagerRule(organizationId: string): RateLimitRule {
+  return {
+    bucket: "ask:org",
+    id: organizationId,
+    max: envInt("ASK_LEADFLOW_RATE_LIMIT_PER_MIN", 15),
+    windowSeconds: 60,
+  };
+}
+
 export async function enforceRateLimit(
   db: Db,
   rule: RateLimitRule,

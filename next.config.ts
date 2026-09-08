@@ -27,10 +27,19 @@ const connectSrc = [
   .filter(Boolean)
   .join(" ");
 
+// `unsafe-eval` is only needed by the dev bundler (React Refresh); a
+// production build never evals. `unsafe-inline` for scripts stays for now —
+// Next injects its own inline bootstrap and the app has no inline scripts or
+// XSS sinks of its own; a per-request nonce is the follow-up hardening.
+const SCRIPT_SRC =
+  process.env.NODE_ENV === "production"
+    ? "script-src 'self' 'unsafe-inline'"
+    : "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
+
 function csp(frameAncestors: string): string {
   return [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+    SCRIPT_SRC,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self'",
@@ -57,6 +66,8 @@ const baseHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Don't advertise the framework/version.
+  poweredByHeader: false,
   async headers() {
     return [
       {

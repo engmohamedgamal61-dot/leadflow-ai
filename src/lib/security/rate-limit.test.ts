@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { clientIp } from "./client-ip.ts";
-import { chatIpRule, chatOrgRule } from "./rate-limit.ts";
+import { chatIpRule, chatOrgRule, salesManagerRule } from "./rate-limit.ts";
 
 function headers(map: Record<string, string>) {
   return { get: (n: string) => map[n.toLowerCase()] ?? null };
@@ -31,4 +31,19 @@ test("rate rules: sensible defaults, env-overridable", () => {
   process.env.CHAT_RATE_LIMIT_PER_IP = "not-a-number";
   assert.equal(chatIpRule("x").max, 20, "falls back on junk");
   delete process.env.CHAT_RATE_LIMIT_PER_IP;
+});
+
+test("salesManagerRule: per-org, short window, env-overridable", () => {
+  const r = salesManagerRule("org-abc");
+  assert.equal(r.bucket, "ask:org");
+  assert.equal(r.id, "org-abc");
+  assert.equal(r.windowSeconds, 60);
+  assert.ok(r.max > 0 && r.max <= 60);
+
+  process.env.ASK_LEADFLOW_RATE_LIMIT_PER_MIN = "3";
+  assert.equal(salesManagerRule("x").max, 3);
+  delete process.env.ASK_LEADFLOW_RATE_LIMIT_PER_MIN;
+  process.env.ASK_LEADFLOW_RATE_LIMIT_PER_MIN = "junk";
+  assert.equal(salesManagerRule("x").max, 15, "falls back on junk");
+  delete process.env.ASK_LEADFLOW_RATE_LIMIT_PER_MIN;
 });

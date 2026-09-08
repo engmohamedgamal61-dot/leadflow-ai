@@ -21,6 +21,7 @@ import { enforceRateLimit, chatIpRule, chatOrgRule } from "@/lib/security/rate-l
 import { reportError } from "@/lib/observability/report";
 import { checkUsageAllowed } from "@/lib/metering/enforcement";
 import { normalizeAnthropicUsage } from "@/lib/metering/types";
+import { BODY_LIMITS, bodyTooLargeResponse, readLimitedText } from "@/lib/security/body-limit";
 import { LEAD_DELIMITER, type ChatTurn } from "@/types/chat";
 
 export const runtime = "nodejs";
@@ -154,9 +155,12 @@ function errorResponse(error: unknown) {
 }
 
 export async function POST(request: NextRequest) {
+  const bodyResult = await readLimitedText(request, BODY_LIMITS.chat);
+  if (!bodyResult.ok) return bodyTooLargeResponse();
+
   let json: unknown;
   try {
-    json = await request.json();
+    json = JSON.parse(bodyResult.text);
   } catch {
     return Response.json({ errorCode: "chat.errors.invalidRequest" }, { status: 400 });
   }

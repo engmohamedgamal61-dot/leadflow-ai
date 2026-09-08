@@ -24,6 +24,7 @@ import {
   DELIVERY_HEADER,
   EVENT_HEADER,
 } from "./signature.ts";
+import { isSafeWebhookUrl } from "./validation.ts";
 import { redactSecrets } from "../observability/report.ts";
 
 type Db = SupabaseClient<Database>;
@@ -37,6 +38,8 @@ export type FetchLike = (
     headers: Record<string, string>;
     body: string;
     signal?: AbortSignal;
+    /** SSRF guard: never chase a redirect to an internal target. */
+    redirect?: "manual" | "error" | "follow";
   },
 ) => Promise<{
   status: number;
@@ -53,6 +56,9 @@ export type DeliveryDisposition = "succeeded" | "retry_scheduled" | "dead";
 
 function classify(status: number): "ok" | "retry" | "dead" {
   if (status >= 200 && status < 300) return "ok";
+  // A 3xx means the consumer tried to redirect us. We never follow one (SSRF
+  // guard) — treat it as a permanent misconfiguration.
+  if (status >= 300 && status < 400) return "dead";
   if (status === 408 || status === 429 || status >= 500) return "retry";
   return "dead";
 }
@@ -86,33 +92,48 @@ export async function deliverOne(
   let outcome: "ok" | "retry" | "dead";
   let errorText: string | null = null;
 
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // Re-validate the destination at send time: the SSRF rules may have tightened
+  // since the endpoint was created, and this is the last checkpoint before the
+  // server makes the request.
+  const revalidated = isSafeWebhookUrl(endpoint.url);
+  if (!revalidated.ok) {
+    outcome = "dead";
+    errorText = "destination URL is not allowed";
+  } else {
     try {
-      const res = await doFetch(endpoint.url, {
-        method: "POST",
-        headers,
-        body,
-        signal: controller.signal,
-      });
-      statusCode = res.status;
-      outcome = classify(res.status);
-      if (outcome !== "ok") {
-        const snippet = await res.text().catch(() => "");
-        errorText = `HTTP ${res.status}${snippet ? `: ${snippet.slice(0, MAX_RESPONSE_SNIPPET)}` : ""}`;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await doFetch(endpoint.url, {
+          method: "POST",
+          headers,
+          body,
+          signal: controller.signal,
+          // Never chase a redirect — a 3xx to an internal host is the classic
+          // SSRF pivot. `classify` maps 3xx → dead.
+          redirect: "manual",
+        });
+        statusCode = res.status;
+        outcome = classify(res.status);
+        if (outcome !== "ok") {
+          const snippet =
+            statusCode >= 300 && statusCode < 400
+              ? ""
+              : await res.text().catch(() => "");
+          errorText = `HTTP ${res.status}${snippet ? `: ${snippet.slice(0, MAX_RESPONSE_SNIPPET)}` : ""}`;
+        }
+      } finally {
+        clearTimeout(timer);
       }
-    } finally {
-      clearTimeout(timer);
+    } catch (err) {
+      outcome = "retry";
+      errorText =
+        err instanceof Error
+          ? err.name === "AbortError" || err.name === "TimeoutError"
+            ? `request timed out after ${timeoutMs}ms`
+            : err.message.slice(0, MAX_RESPONSE_SNIPPET)
+          : "network error";
     }
-  } catch (err) {
-    outcome = "retry";
-    errorText =
-      err instanceof Error
-        ? err.name === "AbortError" || err.name === "TimeoutError"
-          ? `request timed out after ${timeoutMs}ms`
-          : err.message.slice(0, MAX_RESPONSE_SNIPPET)
-        : "network error";
   }
 
   const durationMs = Date.now() - startedAt;

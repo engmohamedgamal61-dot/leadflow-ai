@@ -5,6 +5,7 @@ import { verifySignature, SIGNATURE_HEADER, TIMESTAMP_HEADER } from "@/lib/integ
 import { parseInboundRequest } from "@/lib/integrations/inbound-validation";
 import { handleInboundAction } from "@/lib/integrations/inbound";
 import { reportError } from "@/lib/observability/report";
+import { BODY_LIMITS, bodyTooLargeResponse, readLimitedText } from "@/lib/security/body-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +31,9 @@ export async function POST(
   { params }: { params: Promise<{ endpointId: string }> },
 ): Promise<Response> {
   const { endpointId } = await params;
-  const raw = await request.text();
+  const bodyResult = await readLimitedText(request, BODY_LIMITS.inboundAction);
+  if (!bodyResult.ok) return bodyTooLargeResponse();
+  const raw = bodyResult.text;
 
   let db: ReturnType<typeof createAdminClient>;
   try {

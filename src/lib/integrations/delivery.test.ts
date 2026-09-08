@@ -52,6 +52,55 @@ function endpoint(over: Partial<Record<string, unknown>> = {}) {
 const fetchStatus = (status: number, body = ""): FetchLike =>
   async () => ({ status, text: async () => body });
 
+test("SSRF guard: a 3xx redirect response is never followed → dead, no body captured", async () => {
+  const { db, rec } = fakeDb();
+  let followed = false;
+  const redirectingFetch: FetchLike = async (_url, init) => {
+    assert.equal(init.redirect, "manual", "delivery must not follow redirects");
+    // The stub returns the 3xx itself; a real fetch with redirect:"manual"
+    // does the same in undici.
+    return {
+      status: 302,
+      text: async () => {
+        followed = true;
+        return "AWS_SECRET_ACCESS_KEY=…"; // what an SSRF pivot would leak
+      },
+    };
+  };
+  const d = await deliverOne(
+    db,
+    { delivery: delivery(), endpoint: endpoint(), secret: "s" },
+    { fetchImpl: redirectingFetch, now: NOW },
+  );
+  assert.equal(d, "dead");
+  assert.equal(rec.integration_deliveries[0].status, "dead");
+  assert.equal(followed, false, "response body of a redirect must not be read");
+  assert.ok(
+    !String(rec.integration_deliveries[0].last_error ?? "").includes("SECRET"),
+    "redirect target response must never reach the stored error",
+  );
+});
+
+test("SSRF guard: an endpoint whose URL is no longer allowed is not contacted → dead", async () => {
+  const { db } = fakeDb();
+  let called = false;
+  const spyFetch: FetchLike = async () => {
+    called = true;
+    return { status: 200, text: async () => "ok" };
+  };
+  const d = await deliverOne(
+    db,
+    {
+      delivery: delivery(),
+      endpoint: endpoint({ url: "https://169.254.169.254/latest/meta-data" }),
+      secret: "s",
+    },
+    { fetchImpl: spyFetch, now: NOW },
+  );
+  assert.equal(d, "dead");
+  assert.equal(called, false, "a blocked destination must never be fetched");
+});
+
 test("2xx → succeeded; endpoint failure counter reset", async () => {
   const { db, rec } = fakeDb();
   const d = await deliverOne(
