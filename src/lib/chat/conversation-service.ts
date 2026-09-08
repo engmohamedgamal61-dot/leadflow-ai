@@ -23,6 +23,9 @@ import { isQualificationComplete } from "@/lib/agent/qualification";
 import { runChatAgentActions } from "@/lib/agent/chat-actions";
 import { persistCompletedTurn } from "@/lib/persistence/chat";
 import { getAvailability } from "@/lib/calendar/service";
+import { recordAiUsage } from "@/lib/metering/service";
+import { normalizeAnthropicUsage } from "@/lib/metering/types";
+import type { TokenUsage } from "@/lib/metering/pricing";
 import type { Database } from "@/lib/supabase/types";
 
 const FALLBACK_REPLY =
@@ -50,6 +53,17 @@ export async function getAvailabilityForPrompt(
   }
 }
 
+export interface AssistantReply {
+  text: string;
+  /**
+   * Token usage for this reply call, for cost metering. `null` on failure or
+   * when the client returned no usage. Not an extra request — the same call's
+   * own `response.usage`.
+   */
+  usage: TokenUsage | null;
+  model: string;
+}
+
 /**
  * Non-streaming reply generation — for channels without a stream (WhatsApp).
  * `messages` is the full Anthropic history (must start with a user turn).
@@ -60,7 +74,7 @@ export async function generateAssistantReply(
   config: EffectiveConfig,
   messages: Anthropic.MessageParam[],
   availableSlots?: AvailableSlot[],
-): Promise<string> {
+): Promise<AssistantReply> {
   try {
     const response = await client.messages.create({
       model: CHAT_MODEL,
@@ -74,10 +88,14 @@ export async function generateAssistantReply(
       .map((b) => b.text)
       .join("")
       .trim();
-    return text || FALLBACK_REPLY;
+    return {
+      text: text || FALLBACK_REPLY,
+      usage: normalizeAnthropicUsage(response.usage),
+      model: CHAT_MODEL,
+    };
   } catch (error) {
     console.error("reply generation failed:", error);
-    return FALLBACK_REPLY;
+    return { text: FALLBACK_REPLY, usage: null, model: CHAT_MODEL };
   }
 }
 
@@ -96,6 +114,15 @@ export interface FinalizeTurnInput {
   requestId: string | null;
   externalContactId?: string | null;
   userProviderMessageId?: string | null;
+  /**
+   * Token usage of the reply call that produced `replyText`, for cost metering
+   * — from the web route's `stream.finalMessage()` or WhatsApp's
+   * `generateAssistantReply`. `null`/omitted → no reply usage recorded (the
+   * extraction call below is still metered). Never triggers an extra request.
+   */
+  replyUsage?: TokenUsage | null;
+  /** Model used for the reply call (defaults to the chat model). */
+  replyModel?: string;
 }
 
 export interface FinalizeTurnResult {
@@ -113,7 +140,12 @@ export interface FinalizeTurnResult {
 export async function finalizeConversationTurn(
   input: FinalizeTurnInput,
 ): Promise<FinalizeTurnResult> {
-  const { lead, proposedActions } = await extractLeadAndActions(
+  const {
+    lead,
+    proposedActions,
+    usage: extractionUsage,
+    model: extractionModel,
+  } = await extractLeadAndActions(
     input.client,
     [...input.historyMessages, { role: "assistant", content: input.replyText }],
     input.config,
@@ -149,6 +181,34 @@ export async function finalizeConversationTurn(
         requestId: input.requestId,
         markQualified: isQualificationComplete(lead, input.config),
         proposedActions,
+      });
+    }
+
+    // Cost metering — the single per-channel point where an org's Anthropic
+    // usage is recorded. Both calls' `usage` objects are already in hand; this
+    // adds NO request. Never throws (recordAiUsage swallows its own errors).
+    if (input.replyUsage) {
+      await recordAiUsage({
+        organizationId: input.organizationId,
+        requestType: "chat_reply",
+        model: input.replyModel ?? extractionModel,
+        channel: input.channel,
+        usage: input.replyUsage,
+        conversationId,
+        leadId,
+        requestId: input.requestId,
+      });
+    }
+    if (extractionUsage) {
+      await recordAiUsage({
+        organizationId: input.organizationId,
+        requestType: "lead_extraction",
+        model: extractionModel,
+        channel: input.channel,
+        usage: extractionUsage,
+        conversationId,
+        leadId,
+        requestId: input.requestId,
       });
     }
   }

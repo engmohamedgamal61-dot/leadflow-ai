@@ -152,6 +152,15 @@ export function HealthIcon(props: IconProps) {
   );
 }
 
+export function UsageIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M3 3v18h18" />
+      <path d="M7 15l3.5-4 3 2.5L21 7" />
+    </Icon>
+  );
+}
+
 export function WorkflowIcon(props: IconProps) {
   return (
     <Icon {...props}>

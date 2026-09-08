@@ -19,6 +19,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { clientIp } from "@/lib/security/client-ip";
 import { enforceRateLimit, chatIpRule, chatOrgRule } from "@/lib/security/rate-limit";
 import { reportError } from "@/lib/observability/report";
+import { checkUsageAllowed } from "@/lib/metering/enforcement";
+import { normalizeAnthropicUsage } from "@/lib/metering/types";
 import { LEAD_DELIMITER, type ChatTurn } from "@/types/chat";
 
 export const runtime = "nodejs";
@@ -276,6 +278,22 @@ export async function POST(request: NextRequest) {
     availableSlots = undefined;
   }
 
+  // Usage-limit gate — deterministic, BEFORE the Anthropic call. A no-op unless
+  // this org has a hard monthly limit enabled and has exceeded it. Fails open
+  // on any error (mirrors the rate limiter) so metering never takes chat
+  // offline, and is skipped entirely for the anonymous/demo path (no org).
+  if (organization?.organizationId) {
+    const gate = await checkUsageAllowed(organization.organizationId, {
+      db: admin ?? undefined,
+    });
+    if (!gate.allowed) {
+      return Response.json(
+        { errorCode: "chat.errors.usageLimitReached" },
+        { status: 429 },
+      );
+    }
+  }
+
   // Thinking disabled: a lead-qualification chat is a low-complexity task and
   // real-time responsiveness matters more than deliberation.
   const stream = client.messages.stream({
@@ -346,6 +364,16 @@ export async function POST(request: NextRequest) {
         return;
       }
 
+      // The completed message carries this reply call's own token usage — for
+      // cost metering, recorded once in `finalizeConversationTurn`. Not an
+      // extra request; `null` if the stream can't produce a final message.
+      let replyUsage: ReturnType<typeof normalizeAnthropicUsage> | null = null;
+      try {
+        replyUsage = normalizeAnthropicUsage((await stream.finalMessage()).usage);
+      } catch {
+        replyUsage = null;
+      }
+
       // Second pass — shared by every channel: ONE structured-output call
       // (extraction + proposed actions, not an extra request), deterministic
       // scoring, persistence, and agent-action execution. Never throws.
@@ -358,6 +386,7 @@ export async function POST(request: NextRequest) {
         organizationId: organization?.organizationId ?? null,
         historyMessages: messages,
         replyText,
+        replyUsage,
         userMessage: lastUserMessage,
         channel: "web",
         conversationId: parsed.conversationId,

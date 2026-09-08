@@ -7,6 +7,8 @@ import {
 } from "@/lib/lead-schema";
 import { assembleLead } from "@/lib/lead-normalization";
 import { parseProposedActions, type ProposedAction } from "@/lib/agent/actions";
+import { normalizeAnthropicUsage } from "@/lib/metering/types";
+import type { TokenUsage } from "@/lib/metering/pricing";
 import { EMPTY_LEAD, type LeadData } from "@/types/chat";
 
 const EXTRACTION_MAX_TOKENS = 640;
@@ -27,6 +29,14 @@ export interface AgentExtraction {
   proposedActions: ProposedAction[];
   /** Proposed items the parser dropped — logged, never surfaced to the client. */
   rejectedActions: string[];
+  /**
+   * Token usage for this structured-output call, for cost metering. `null` when
+   * the call failed or the SDK returned no usage (e.g. mock transport). Never an
+   * extra request — this is the same call's own `response.usage`.
+   */
+  usage: TokenUsage | null;
+  /** The model string this call used (for metering). */
+  model: string;
 }
 
 /**
@@ -72,12 +82,16 @@ You may also propose business actions in "proposed_actions" ONLY when the prospe
       .map((block) => block.text)
       .join("");
 
+    const usage = normalizeAnthropicUsage(response.usage);
+
     const parsed = firstJsonObject(text) as {
       lead?: unknown;
       proposed_actions?: unknown;
     } | null;
 
-    if (!parsed) return { lead: EMPTY_LEAD, proposedActions: [], rejectedActions: [] };
+    if (!parsed) {
+      return { lead: EMPTY_LEAD, proposedActions: [], rejectedActions: [], usage, model: CHAT_MODEL };
+    }
 
     const lead = parsed.lead
       ? assembleLead(parsed.lead, config)
@@ -87,9 +101,9 @@ You may also propose business actions in "proposed_actions" ONLY when the prospe
       now,
     );
 
-    return { lead, proposedActions: actions, rejectedActions: rejected };
+    return { lead, proposedActions: actions, rejectedActions: rejected, usage, model: CHAT_MODEL };
   } catch (error) {
     console.error("agent extraction failed", error);
-    return { lead: EMPTY_LEAD, proposedActions: [], rejectedActions: [] };
+    return { lead: EMPTY_LEAD, proposedActions: [], rejectedActions: [], usage: null, model: CHAT_MODEL };
   }
 }

@@ -21,6 +21,7 @@ import {
   finalizeConversationTurn,
   getAvailabilityForPrompt,
 } from "@/lib/chat/conversation-service";
+import { checkUsageAllowed } from "@/lib/metering/enforcement";
 import { resolveOrgByPhoneNumberId, getSendCredentials } from "./connections.ts";
 import { getMetaTransport, buildTextMessage, type MetaTransport } from "./meta-client.ts";
 import { uuidFromProviderId } from "./ids.ts";
@@ -103,6 +104,17 @@ export async function processInboundWhatsAppMessage(
     return { status: "unsupported" };
   }
 
+  // 4a. Usage-limit gate — deterministic, BEFORE any Anthropic call. A no-op
+  //     unless the org has a hard monthly limit enabled and has exceeded it;
+  //     fails open on any error so metering never takes replies offline.
+  const gate = await checkUsageAllowed(organizationId, { db });
+  if (!gate.allowed) {
+    console.warn(
+      `[whatsapp] usage limit reached for org ${organizationId} — skipping AI reply`,
+    );
+    return { status: "ignored", detail: "usage limit reached" };
+  }
+
   // 4. Load the org's effective config (industry template + Phase E overrides).
   const config = await loadConfig(organizationId, industryTemplateId);
 
@@ -118,15 +130,20 @@ export async function processInboundWhatsAppMessage(
   //    once here — a data lookup, not an extra Anthropic call — so the AI is
   //    never able to invent a time.
   const availableSlots = await getAvailabilityForPrompt(db, organizationId);
-  const replyText = await generateAssistantReply(anthropic, config, historyMessages, availableSlots);
+  const reply = await generateAssistantReply(anthropic, config, historyMessages, availableSlots);
+  const replyText = reply.text;
 
   // 7. Persist + extraction + scoring + agent actions (shared, one more call).
+  //    `replyUsage` carries this reply call's tokens to the shared metering
+  //    point in `finalizeConversationTurn` — no extra request.
   const { conversationId } = await finalizeConversationTurn({
     client: anthropic,
     config,
     organizationId,
     historyMessages,
     replyText,
+    replyUsage: reply.usage,
+    replyModel: reply.model,
     userMessage: message.text as string,
     channel: "whatsapp",
     conversationId: null,

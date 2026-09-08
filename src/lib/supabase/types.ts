@@ -1022,6 +1022,110 @@ export interface Database {
           },
         ];
       };
+      ai_usage_events: {
+        Row: {
+          id: string;
+          organization_id: string;
+          request_type: string;
+          model: string;
+          channel: string | null;
+          input_tokens: number;
+          output_tokens: number;
+          cache_read_input_tokens: number;
+          cache_creation_input_tokens: number;
+          estimated_cost_usd: number;
+          conversation_id: string | null;
+          lead_id: string | null;
+          request_id: string | null;
+          occurred_at: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          request_type: string;
+          model: string;
+          channel?: string | null;
+          input_tokens?: number;
+          output_tokens?: number;
+          cache_read_input_tokens?: number;
+          cache_creation_input_tokens?: number;
+          estimated_cost_usd?: number;
+          conversation_id?: string | null;
+          lead_id?: string | null;
+          request_id?: string | null;
+          occurred_at?: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          request_type?: string;
+          model?: string;
+          channel?: string | null;
+          input_tokens?: number;
+          output_tokens?: number;
+          cache_read_input_tokens?: number;
+          cache_creation_input_tokens?: number;
+          estimated_cost_usd?: number;
+          conversation_id?: string | null;
+          lead_id?: string | null;
+          request_id?: string | null;
+          occurred_at?: string;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ai_usage_events_organization_id_fkey";
+            columns: ["organization_id"];
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      organization_usage_limits: {
+        Row: {
+          organization_id: string;
+          monthly_token_limit: number | null;
+          monthly_request_limit: number | null;
+          monthly_cost_limit_usd: number | null;
+          warning_threshold_percent: number;
+          hard_limit_enabled: boolean;
+          updated_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          organization_id: string;
+          monthly_token_limit?: number | null;
+          monthly_request_limit?: number | null;
+          monthly_cost_limit_usd?: number | null;
+          warning_threshold_percent?: number;
+          hard_limit_enabled?: boolean;
+          updated_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          organization_id?: string;
+          monthly_token_limit?: number | null;
+          monthly_request_limit?: number | null;
+          monthly_cost_limit_usd?: number | null;
+          warning_threshold_percent?: number;
+          hard_limit_enabled?: boolean;
+          updated_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "organization_usage_limits_organization_id_fkey";
+            columns: ["organization_id"];
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<never, never>;
     Functions: {
@@ -1075,6 +1179,21 @@ export interface Database {
       claim_integration_deliveries: {
         Args: { p_limit: number; p_stuck_after: string };
         Returns: Database["public"]["Tables"]["integration_deliveries"]["Row"][];
+      };
+      /**
+       * AI usage aggregate for pre-call limit enforcement (service-role only).
+       * Deterministic sum over the half-open [p_from, p_to) window for one org.
+       * See `20260908120000_usage_metering.sql`.
+       */
+      org_ai_usage_totals: {
+        Args: { p_org_id: string; p_from: string; p_to: string };
+        Returns: {
+          total_input_tokens: number;
+          total_output_tokens: number;
+          total_tokens: number;
+          total_requests: number;
+          total_cost_usd: number;
+        }[];
       };
     };
     Enums: {

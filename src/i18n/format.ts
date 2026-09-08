@@ -88,6 +88,44 @@ export function formatNumber(
   return numberFormatter(locale).format(value);
 }
 
+/**
+ * Compact number, e.g. "1.2K", "3.4M" — for large token counts. Latin digits,
+ * so it stays consistent with the rest of this module in an Arabic UI.
+ */
+export function formatCompactNumber(
+  value: number | null | undefined,
+  locale: Locale = "en",
+): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  if (Math.abs(value) < 1000) return numberFormatter(locale).format(value);
+  return new Intl.NumberFormat(intlLocale(locale), {
+    numberingSystem: "latn",
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+/**
+ * USD amount. AI cost is billed and reasoned about in US dollars regardless of
+ * UI language; only the grouping/format is localized. Small amounts keep more
+ * precision so a fraction of a cent is still visible.
+ */
+export function formatCurrency(
+  value: number | null | undefined,
+  locale: Locale = "en",
+  currency = "USD",
+): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  const abs = Math.abs(value);
+  const maximumFractionDigits = abs > 0 && abs < 1 ? 4 : 2;
+  return new Intl.NumberFormat(intlLocale(locale), {
+    style: "currency",
+    currency,
+    numberingSystem: "latn",
+    maximumFractionDigits,
+  }).format(value);
+}
+
 /** `ratio` is 0–1; rendered as a whole-number percent. */
 export function formatPercent(
   ratio: number | null | undefined,

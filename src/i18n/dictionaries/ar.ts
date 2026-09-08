@@ -57,6 +57,7 @@ export const ar: Dictionary = {
     integrations: "التكاملات — LeadFlow AI",
     widget: "أداة الموقع — LeadFlow AI",
     team: "الفريق — LeadFlow AI",
+    usage: "الاستخدام والتكلفة — LeadFlow AI",
     activity: "النشاط — LeadFlow AI",
     appointments: "المواعيد — LeadFlow AI",
     followUps: "المتابعات — LeadFlow AI",
@@ -79,6 +80,7 @@ export const ar: Dictionary = {
     integrations: "التكاملات",
     widget: "أداة الموقع",
     team: "الفريق",
+    usage: "الاستخدام والتكلفة",
     settings: "الإعدادات",
     openMenu: "فتح القائمة",
     closeMenu: "إغلاق القائمة",
@@ -626,6 +628,106 @@ export const ar: Dictionary = {
     },
   },
 
+  settingsUsage: {
+    title: "الاستخدام والتكلفة",
+    subtitle:
+      "استخدام الذكاء الاصطناعي والتكلفة التقديرية لمساحة العمل هذه. التكاليف تقديرية بناءً على أسعار النماذج الحالية وقد تختلف عن فاتورة Anthropic.",
+    noAccess: "يمكن للمالك أو المشرف فقط عرض الاستخدام والتكلفة.",
+    readonly: "للعرض فقط — يمكن للمالك أو المشرف ضبط حدود الاستخدام.",
+    periods: {
+      today: "اليوم",
+      thisMonth: "هذا الشهر",
+      lastMonth: "الشهر الماضي",
+    },
+    kpi: {
+      estimatedCost: "التكلفة التقديرية للذكاء الاصطناعي",
+      totalTokens: "إجمالي الرموز",
+      totalRequests: "طلبات الذكاء الاصطناعي",
+      avgCostPerConversation: "متوسط التكلفة / محادثة",
+      avgCostPerLead: "متوسط التكلفة / عميل محتمل",
+      vsLastMonth: "مقارنةً بالشهر الماضي",
+      requestsSuffix: "طلب",
+    },
+    tokenBreakdown: {
+      title: "توزيع الرموز",
+      subtitle: "أين ذهبت رموز هذا الشهر.",
+      input: "المدخلات",
+      output: "المخرجات",
+      cacheRead: "قراءة التخزين المؤقت",
+      cacheWrite: "كتابة التخزين المؤقت",
+    },
+    byModel: {
+      title: "الاستخدام حسب النموذج",
+      colModel: "النموذج",
+      colRequests: "الطلبات",
+      colTokens: "الرموز",
+      colCost: "التكلفة التقديرية",
+      empty: "لا يوجد استخدام للنماذج هذا الشهر بعد.",
+    },
+    byType: {
+      title: "الاستخدام حسب نوع الطلب",
+      colType: "نوع الطلب",
+      colRequests: "الطلبات",
+      colTokens: "الرموز",
+      colCost: "التكلفة التقديرية",
+      empty: "لا يوجد استخدام هذا الشهر بعد.",
+      types: {
+        chat_reply: "رد المساعد",
+        lead_extraction: "استخراج بيانات العميل",
+        other: "أخرى",
+      },
+    },
+    daily: {
+      title: "الاستخدام اليومي هذا الشهر",
+      subtitle: "التكلفة التقديرية لكل يوم.",
+      empty: "لم يُسجَّل أي استخدام هذا الشهر بعد.",
+      tooltip: "{date}: {cost} · {requests} طلب",
+    },
+    limitProgress: {
+      title: "تقدّم الحدود",
+      noLimits:
+        "لم تُضبط أي حدود للاستخدام. اضبط حدودًا شهرية أدناه لتتبّع الاستخدام مقابل ميزانية.",
+      ofLimit: "{used} من {limit}",
+      used: "{used} مستخدَم",
+      dimensions: {
+        tokens: "الرموز",
+        requests: "الطلبات",
+        cost: "التكلفة التقديرية",
+      },
+      state: {
+        ok: "ضمن الحدود",
+        warn: "يقترب من الحد",
+        exceeded: "تم تجاوز الحد",
+      },
+      warnBanner:
+        "الاستخدام يقترب من حد شهري. راجع الاستخدام أو ارفع الحد قبل بلوغه.",
+      advisoryBanner:
+        "تم تجاوز حد استخدام شهري. الحدود إرشادية — لا يُحظر شيء. فعّل الحد الصارم لفرضه.",
+      blockedBanner:
+        "تم بلوغ حد استخدام شهري والفرض الصارم مُفعّل. تم إيقاف رسائل الذكاء الاصطناعي الجديدة حتى تتجدّد فترة الاستخدام الشهر المقبل أو يُرفع الحد.",
+    },
+    limitsForm: {
+      title: "حدود الاستخدام الشهرية",
+      description:
+        "حدود لكل مساحة عمل للشهر الميلادي الحالي. اترك الحقل فارغًا لإبقاء ذلك البُعد بلا حد.",
+      tokenLimit: "حد الرموز",
+      requestLimit: "حد الطلبات",
+      costLimit: "حد التكلفة التقديرية (دولار)",
+      noLimitPlaceholder: "بلا حد",
+      warningThreshold: "التحذير عند (% من الحد)",
+      warningThresholdHint: "تُظهر اللوحة تحذيرًا عندما يبلغ الاستخدام هذه النسبة من الحد.",
+      hardLimit: "فرض حد صارم",
+      hardLimitHint:
+        "عند التفعيل، تُحظر رسائل الذكاء الاصطناعي الجديدة بمجرد تجاوز أي حد. عند الإيقاف، تكون الحدود إرشادية وتؤثر على هذه اللوحة فقط. يبقى السلوك الحالي دون تغيير عند عدم ضبط أي حدود.",
+      saved: "تم حفظ حدود الاستخدام.",
+    },
+    errors: {
+      onlyOwnerAdmin: "يمكن للمالك أو المشرف فقط ضبط حدود الاستخدام.",
+      invalid: "هذه الحدود غير صالحة. استخدم أرقامًا صحيحة غير سالبة.",
+      noPermission: "ليس لديك إذن لتغيير هذه الإعدادات.",
+    },
+  },
+
   integrations: {
     title: "التكاملات",
     subtitle:
@@ -1066,6 +1168,8 @@ export const ar: Dictionary = {
       invalidRequest: "تعذّر إرسال هذه الرسالة. يرجى المحاولة مرة أخرى.",
       notConfigured: "لم يتم إعداد المساعد بعد.",
       originBlocked: "هذه المحادثة غير متاحة على هذا الموقع.",
+      usageLimitReached:
+        "لقد بلغ هذا المساعد حد الاستخدام الحالي. يرجى المحاولة لاحقًا.",
     },
     suggestedPrompts: [
       "أبحث عن شقة في الرياض.",

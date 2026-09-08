@@ -18,6 +18,7 @@ import {
   RecoveryIcon,
   SettingsIcon,
   TeamIcon,
+  UsageIcon,
   WidgetIcon,
   type IconProps,
 } from "@/components/icons";
@@ -43,6 +44,7 @@ const CONFIG_LINKS: NavLink[] = [
   { href: "/dashboard/settings/integrations", labelKey: "navigation.integrations", icon: IntegrationsIcon },
   { href: "/dashboard/settings/team", labelKey: "navigation.team", icon: TeamIcon, exact: true },
   { href: "/dashboard/settings/widget", labelKey: "navigation.widget", icon: WidgetIcon, exact: true },
+  { href: "/dashboard/settings/usage", labelKey: "navigation.usage", icon: UsageIcon, exact: true },
 ];
 
 const ACTIVITY_LINK: NavLink = {

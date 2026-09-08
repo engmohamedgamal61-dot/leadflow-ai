@@ -58,6 +58,7 @@ export const en = {
     integrations: "Integrations — LeadFlow AI",
     widget: "Website widget — LeadFlow AI",
     team: "Team — LeadFlow AI",
+    usage: "Usage & cost — LeadFlow AI",
     activity: "Activity — LeadFlow AI",
     appointments: "Appointments — LeadFlow AI",
     followUps: "Follow-ups — LeadFlow AI",
@@ -80,6 +81,7 @@ export const en = {
     integrations: "Integrations",
     widget: "Website widget",
     team: "Team",
+    usage: "Usage & cost",
     settings: "Settings",
     openMenu: "Open menu",
     closeMenu: "Close menu",
@@ -640,6 +642,106 @@ export const en = {
     },
   },
 
+  settingsUsage: {
+    title: "Usage & cost",
+    subtitle:
+      "AI usage and estimated cost for this workspace. Costs are estimates from current model pricing and may differ from your Anthropic invoice.",
+    noAccess: "Only an owner or admin can view usage and cost.",
+    readonly: "Read-only — an owner or admin can configure usage limits.",
+    periods: {
+      today: "Today",
+      thisMonth: "This month",
+      lastMonth: "Last month",
+    },
+    kpi: {
+      estimatedCost: "Estimated AI cost",
+      totalTokens: "Total tokens",
+      totalRequests: "AI requests",
+      avgCostPerConversation: "Avg cost / conversation",
+      avgCostPerLead: "Avg cost / lead",
+      vsLastMonth: "vs last month",
+      requestsSuffix: "requests",
+    },
+    tokenBreakdown: {
+      title: "Token breakdown",
+      subtitle: "Where this month's tokens went.",
+      input: "Input",
+      output: "Output",
+      cacheRead: "Cache read",
+      cacheWrite: "Cache write",
+    },
+    byModel: {
+      title: "Usage by model",
+      colModel: "Model",
+      colRequests: "Requests",
+      colTokens: "Tokens",
+      colCost: "Est. cost",
+      empty: "No model usage yet this month.",
+    },
+    byType: {
+      title: "Usage by request type",
+      colType: "Request type",
+      colRequests: "Requests",
+      colTokens: "Tokens",
+      colCost: "Est. cost",
+      empty: "No usage yet this month.",
+      types: {
+        chat_reply: "Assistant reply",
+        lead_extraction: "Lead extraction",
+        other: "Other",
+      },
+    },
+    daily: {
+      title: "Daily usage this month",
+      subtitle: "Estimated cost per day.",
+      empty: "No usage recorded this month yet.",
+      tooltip: "{date}: {cost} · {requests} requests",
+    },
+    limitProgress: {
+      title: "Limit progress",
+      noLimits:
+        "No usage limits configured. Set monthly limits below to track usage against a budget.",
+      ofLimit: "{used} of {limit}",
+      used: "{used} used",
+      dimensions: {
+        tokens: "Tokens",
+        requests: "Requests",
+        cost: "Estimated cost",
+      },
+      state: {
+        ok: "Within limits",
+        warn: "Approaching limit",
+        exceeded: "Limit exceeded",
+      },
+      warnBanner:
+        "Approaching a monthly usage limit. Review usage or raise the limit before it's reached.",
+      advisoryBanner:
+        "A monthly usage limit has been passed. Limits are advisory — nothing is blocked. Enable a hard limit to enforce it.",
+      blockedBanner:
+        "A monthly usage limit has been reached and hard enforcement is on. New AI messages are paused until usage resets next month or the limit is raised.",
+    },
+    limitsForm: {
+      title: "Monthly usage limits",
+      description:
+        "Per-workspace limits for the current calendar month. Leave a field blank to leave that dimension unlimited.",
+      tokenLimit: "Token limit",
+      requestLimit: "Request limit",
+      costLimit: "Estimated cost limit (USD)",
+      noLimitPlaceholder: "No limit",
+      warningThreshold: "Warn at (% of limit)",
+      warningThresholdHint: "The dashboard shows a warning once usage reaches this share of a limit.",
+      hardLimit: "Enforce a hard limit",
+      hardLimitHint:
+        "When on, new AI messages are blocked once any limit is exceeded. When off, limits are advisory and only affect this dashboard. Existing behaviour is unchanged when no limits are set.",
+      saved: "Usage limits saved.",
+    },
+    errors: {
+      onlyOwnerAdmin: "Only an owner or admin can configure usage limits.",
+      invalid: "Those limits aren't valid. Use whole, non-negative numbers.",
+      noPermission: "You don't have permission to change these settings.",
+    },
+  },
+
   integrations: {
     title: "Integrations",
     subtitle:
@@ -1090,6 +1192,8 @@ export const en = {
       invalidRequest: "That message could not be sent. Please try again.",
       notConfigured: "The assistant is not configured yet.",
       originBlocked: "This chat isn't available on this website.",
+      usageLimitReached:
+        "This assistant has reached its usage limit for now. Please try again later.",
     },
     suggestedPrompts: [
       "I'm looking for an apartment in Riyadh.",
