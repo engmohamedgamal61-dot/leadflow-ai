@@ -152,6 +152,16 @@ export function HealthIcon(props: IconProps) {
   );
 }
 
+export function AskIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.4 9 9 0 0 1-3.9-.86L3 20.5l1.5-4.4A8.4 8.4 0 1 1 21 11.5Z" />
+      <path d="M9.6 9.2a2.4 2.4 0 1 1 3.3 2.7c-.6.3-1 .8-1 1.5v.3" />
+      <path d="M11.9 16.4h.01" />
+    </Icon>
+  );
+}
+
 export function UsageIcon(props: IconProps) {
   return (
     <Icon {...props}>

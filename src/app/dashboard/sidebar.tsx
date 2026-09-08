@@ -8,6 +8,7 @@ import {
   ActivityIcon,
   AiAgentIcon,
   AppointmentIcon,
+  AskIcon,
   BoltIcon,
   DashboardIcon,
   FollowUpIcon,
@@ -40,6 +41,7 @@ const PRIMARY_LINKS: NavLink[] = [
 ];
 
 const CONFIG_LINKS: NavLink[] = [
+  { href: "/dashboard/ask", labelKey: "navigation.ask", icon: AskIcon, exact: true },
   { href: "/dashboard/settings/ai", labelKey: "navigation.aiAgent", icon: AiAgentIcon, exact: true },
   { href: "/dashboard/settings/integrations", labelKey: "navigation.integrations", icon: IntegrationsIcon },
   { href: "/dashboard/settings/team", labelKey: "navigation.team", icon: TeamIcon, exact: true },

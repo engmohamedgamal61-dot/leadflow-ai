@@ -2,14 +2,18 @@
  * Shared metering vocabulary. Pure — no I/O.
  *
  * `request_type` is stored as free text in `ai_usage_events` (a future type
- * needs no migration), but the two types LeadFlow emits today are enumerated so
+ * needs no migration), but the types LeadFlow emits today are enumerated so
  * the aggregation and UI can treat them as canonical. An unrecognised value
  * from an older row groups under `"other"` in the dashboard.
  */
 
 import type { TokenUsage } from "./pricing.ts";
 
-export const AI_REQUEST_TYPES = ["chat_reply", "lead_extraction"] as const;
+export const AI_REQUEST_TYPES = [
+  "chat_reply",
+  "lead_extraction",
+  "sales_manager",
+] as const;
 export type AiRequestType = (typeof AI_REQUEST_TYPES)[number];
 
 /** Narrow an arbitrary stored string to a known request type, or `null`. */
