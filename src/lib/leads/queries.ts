@@ -139,6 +139,230 @@ export async function getLeadStats(organizationId: string): Promise<LeadStats> {
   };
 }
 
+/** Inclusive-from / exclusive-to bounds for a time-scoped count. Both optional. */
+export interface DateWindow {
+  from?: Date | null;
+  to?: Date | null;
+}
+
+/**
+ * Narrow a PostgREST query to a `created_at` window. The builder is chainable
+ * but its self-type is awkward to name here, so this stays loosely typed —
+ * every call site passes a real `leads` query builder.
+ */
+function applyWindow<T>(query: T, window: DateWindow | undefined, column = "created_at"): T {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let q = query as any;
+  if (window?.from) q = q.gte(column, window.from.toISOString());
+  if (window?.to) q = q.lt(column, window.to.toISOString());
+  return q as T;
+}
+
+/**
+ * A single tenant-scoped head-count of leads, with optional bounded filters.
+ * `source` is matched case-insensitively. Used by Ask LeadFlow's `total_leads`
+ * intent — no rows are returned, only the count.
+ */
+export async function getLeadCount(
+  organizationId: string,
+  filters: {
+    status?: string | null;
+    temperature?: string | null;
+    source?: string | null;
+  } & DateWindow = {},
+): Promise<number> {
+  const supabase = await createClient();
+  let query = supabase
+    .from("leads")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId);
+  if (filters.status) query = query.eq("status", filters.status as LeadStatus);
+  if (filters.temperature) {
+    query = query.eq("temperature", filters.temperature as LeadTemperatureRow);
+  }
+  if (filters.source) query = query.ilike("source", filters.source);
+  query = applyWindow(query, filters);
+  const { count } = await query;
+  return count ?? 0;
+}
+
+export interface LeadStatusCounts {
+  total: number;
+  byStatus: Record<string, number>;
+}
+
+/** Lead counts per pipeline status for the org, optionally time-scoped. */
+export async function getLeadStatusCounts(
+  organizationId: string,
+  window: DateWindow = {},
+): Promise<LeadStatusCounts> {
+  const statuses = [
+    "new",
+    "contacted",
+    "qualified",
+    "appointment",
+    "won",
+    "lost",
+    "archived",
+  ] as const;
+  const supabase = await createClient();
+  const base = () => {
+    let q = supabase
+      .from("leads")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId);
+    q = applyWindow(q, window);
+    return q;
+  };
+  const [total, ...perStatus] = await Promise.all([
+    base(),
+    ...statuses.map((s) => base().eq("status", s)),
+  ]);
+  const byStatus: Record<string, number> = {};
+  statuses.forEach((s, i) => {
+    byStatus[s] = perStatus[i].count ?? 0;
+  });
+  return { total: total.count ?? 0, byStatus };
+}
+
+export interface OpportunityCounts {
+  total: number;
+  hot: number;
+  warm: number;
+  cold: number;
+}
+
+/** Lead counts by opportunity level (temperature), optionally time-scoped. */
+export async function getOpportunityCounts(
+  organizationId: string,
+  window: DateWindow = {},
+): Promise<OpportunityCounts> {
+  const supabase = await createClient();
+  const base = () => {
+    let q = supabase
+      .from("leads")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId);
+    q = applyWindow(q, window);
+    return q;
+  };
+  const [total, hot, warm, cold] = await Promise.all([
+    base(),
+    base().eq("temperature", "hot"),
+    base().eq("temperature", "warm"),
+    base().eq("temperature", "cold"),
+  ]);
+  return {
+    total: total.count ?? 0,
+    hot: hot.count ?? 0,
+    warm: warm.count ?? 0,
+    cold: cold.count ?? 0,
+  };
+}
+
+/** Bound for the in-memory source tally — an MVP-scale aggregate, not a full scan. */
+const SOURCE_BREAKDOWN_LEADS_LIMIT = 2000;
+
+/**
+ * Lead counts grouped by `source`. PostgREST has no GROUP BY, so this reads the
+ * `source` column for a bounded set of the org's most recent leads and tallies
+ * in memory (same tradeoff as the insight candidate scan).
+ */
+export async function getLeadSourceCounts(
+  organizationId: string,
+  window: DateWindow = {},
+): Promise<{ source: string | null; count: number }[]> {
+  const supabase = await createClient();
+  let query = supabase
+    .from("leads")
+    .select("source")
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: false })
+    .limit(SOURCE_BREAKDOWN_LEADS_LIMIT);
+  query = applyWindow(query, window);
+  const { data, error } = await query;
+  if (error) throw error;
+  const tally = new Map<string, number>();
+  for (const row of data ?? []) {
+    const key = (row as { source: string | null }).source?.trim() || "";
+    tally.set(key, (tally.get(key) ?? 0) + 1);
+  }
+  return [...tally.entries()].map(([source, count]) => ({
+    source: source === "" ? null : source,
+    count,
+  }));
+}
+
+export interface ConversionStats {
+  total: number;
+  qualified: number;
+  appointment: number;
+  won: number;
+  lost: number;
+}
+
+/** Win / loss / qualification counts for a conversion summary, optionally time-scoped. */
+export async function getConversionStats(
+  organizationId: string,
+  window: DateWindow = {},
+): Promise<ConversionStats> {
+  const supabase = await createClient();
+  const base = () => {
+    let q = supabase
+      .from("leads")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId);
+    q = applyWindow(q, window);
+    return q;
+  };
+  const [total, qualified, appointment, won, lost] = await Promise.all([
+    base(),
+    base().eq("status", "qualified"),
+    base().eq("status", "appointment"),
+    base().eq("status", "won"),
+    base().eq("status", "lost"),
+  ]);
+  return {
+    total: total.count ?? 0,
+    qualified: qualified.count ?? 0,
+    appointment: appointment.count ?? 0,
+    won: won.count ?? 0,
+    lost: lost.count ?? 0,
+  };
+}
+
+/**
+ * A bounded, tenant-scoped list of leads matching simple column filters — the
+ * backing rows for Ask LeadFlow's `qualified_leads` intent. Newest first.
+ */
+export async function listLeadsBrief(
+  organizationId: string,
+  filters: {
+    status?: string | null;
+    temperature?: string | null;
+    source?: string | null;
+    limit?: number;
+  } & DateWindow = {},
+): Promise<LeadListRow[]> {
+  const supabase = await createClient();
+  let query = supabase
+    .from("leads")
+    .select(LIST_COLUMNS)
+    .eq("organization_id", organizationId)
+    .order("score", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(Math.min(Math.max(filters.limit ?? 8, 1), 50));
+  if (filters.status) query = query.eq("status", filters.status as LeadStatus);
+  if (filters.temperature) {
+    query = query.eq("temperature", filters.temperature as LeadTemperatureRow);
+  }
+  if (filters.source) query = query.ilike("source", filters.source);
+  query = applyWindow(query, filters);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).map((r) => toListRow(r as Parameters<typeof toListRow>[0]));
+}
+
 const FOCUS_TO_RISK_LEVEL: Record<LeadFocusValue, RiskLevel> = {
   needs_attention: "needs_attention",
   at_risk: "at_risk",

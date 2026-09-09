@@ -66,3 +66,36 @@ test("every suggested question maps to an allowlisted intent", () => {
     assert.ok(ASK_INTENTS.includes(SUGGESTION_INTENT[key]));
   }
 });
+
+test("keyword fallback covers the new count / breakdown intents (EN)", () => {
+  assert.equal(route("How many leads do I have?"), "total_leads");
+  assert.equal(route("Show me leads by status"), "lead_count_by_status");
+  assert.equal(route("How many strong opportunities do I have?"), "lead_count_by_opportunity");
+  assert.equal(route("Where do my leads come from?"), "lead_source_breakdown");
+  assert.equal(route("How many qualified leads are there?"), "qualified_leads");
+  assert.equal(route("How many appointments do I have?"), "appointment_count");
+  assert.equal(route("How many follow-ups do I have pending?"), "follow_up_count");
+  assert.equal(route("What's our conversion rate?"), "conversion_summary");
+});
+
+test("keyword fallback covers the new intents (AR + mixed)", () => {
+  assert.equal(route("كام عميل عندي؟"), "total_leads");
+  assert.equal(route("عندي كام lead qualified؟"), "qualified_leads");
+  assert.equal(route("كام فرصة قوية عندي؟"), "lead_count_by_opportunity");
+  assert.equal(route("كام موعد عندي هذا الأسبوع؟"), "appointment_count");
+  assert.equal(route("إيه مصدر العملاء؟"), "lead_source_breakdown");
+  assert.equal(route("أنا بسأل عن عدد العملاء"), "total_leads");
+});
+
+test("a lead-count question never routes to needs_attention", () => {
+  for (const q of ["كام عميل عندي؟", "أنا بسأل عن عدد العملاء", "how many leads do I have?"]) {
+    assert.notEqual(route(q), "needs_attention");
+  }
+});
+
+test("DETERMINISTIC_INTENTS is a subset of the allowlist", async () => {
+  const { DETERMINISTIC_INTENTS } = await import("./intents.ts");
+  for (const intent of DETERMINISTIC_INTENTS) {
+    assert.ok(ASK_INTENTS.includes(intent));
+  }
+});

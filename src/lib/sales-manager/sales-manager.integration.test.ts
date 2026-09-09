@@ -2,8 +2,10 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createClient } from "@supabase/supabase-js";
 import { recordAiUsage } from "../metering/service.ts";
+import { asAiRequestType } from "../metering/types.ts";
 import { canManageConfig } from "../org/roles.ts";
 import { routeQuestion } from "./intents.ts";
+import { parseInterpretation } from "./interpretation.ts";
 import {
   filterByRisk,
   rankPriorityLeads,
@@ -192,6 +194,24 @@ test("a sales_manager usage row is recorded, org-scoped, and owner/admin-only", 
 test("intent routing is stable for the shipped suggested questions", () => {
   assert.equal(routeQuestion("Which leads need attention today?").intent, "needs_attention");
   assert.equal(routeQuestion("Summarize today's sales activity.").intent, "recent_activity");
+});
+
+test("both AI Sales Manager usage buckets are recognised request types", () => {
+  assert.equal(asAiRequestType("sales_manager"), "sales_manager");
+  assert.equal(asAiRequestType("sales_manager_interpret"), "sales_manager_interpret");
+});
+
+test("an injected 'intent' from the interpretation call is rejected, not routed", () => {
+  const injected = parseInterpretation({
+    intent: "needs_attention; SELECT * FROM organizations",
+    filters: { status: null, temperature: null, source: null },
+    time_range: "all_time",
+    limit: null,
+    confidence: 0.99,
+    needs_clarification: false,
+    clarification_question: null,
+  });
+  assert.equal(injected.ok, false);
 });
 
 test("prompt-injection isolation: another org's data (and injected text) never enters org A's context", { skip }, async () => {

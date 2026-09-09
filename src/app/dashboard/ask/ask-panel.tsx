@@ -221,9 +221,14 @@ function AnswerView({
   tOptional: TOpt;
   locale: "en" | "ar";
 }) {
-  const answerText = result.answer ?? (result.answerKey ? t(result.answerKey) : "");
+  const answerText =
+    result.answer ??
+    (result.answerKey
+      ? t(result.answerKey, result.answerParams ?? undefined)
+      : "");
   const { metrics, leads, appointments, activity } = result.result;
   const hasCards = leads.length > 0 || appointments.length > 0 || activity.length > 0;
+  const isClarification = result.state === "needs_clarification";
 
   return (
     <div className="space-y-3">
@@ -231,9 +236,14 @@ function AnswerView({
         <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
           <AiAgentIcon className="h-3.5 w-3.5" />
         </span>
-        <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-          {answerText}
-        </p>
+        <div className="min-w-0 flex-1">
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+            {answerText}
+          </p>
+          {isClarification ? (
+            <p className="mt-1 text-xs text-muted">{t("askLeadFlow.clarify.hint")}</p>
+          ) : null}
+        </div>
       </div>
 
       {result.state === "limit_reached" ? (

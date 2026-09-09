@@ -2,12 +2,18 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   CARD_LIMIT,
+  conversionMetrics,
   filterByRisk,
+  followUpCountMetrics,
   isEmptyResult,
+  leadSourceMetrics,
+  leadStatusMetrics,
+  opportunityMetrics,
   pipelineMetrics,
   rankPriorityLeads,
   rankRecovery,
   shapeAppointments,
+  shapeLeadList,
   shapeOverdueFollowUps,
   weeklyChangeMetrics,
   type InsightCandidate,
@@ -123,6 +129,81 @@ test("weekly-change metrics carry a signed delta", () => {
   assert.equal(byKey.newLeads.delta, 4);
   assert.equal(byKey.qualified.delta, -2);
   assert.equal(byKey.appointmentsBooked.delta, 0);
+});
+
+test("leadStatusMetrics: total first, then only non-zero statuses in pipeline order", () => {
+  const m = leadStatusMetrics(
+    { new: 4, contacted: 0, qualified: 3, appointment: 0, won: 1, lost: 0, archived: 0 },
+    8,
+  );
+  assert.deepEqual(
+    m.map((x) => [x.key, x.value]),
+    [
+      ["totalLeads", 8],
+      ["status_new", 4],
+      ["status_qualified", 3],
+      ["status_won", 1],
+    ],
+  );
+});
+
+test("opportunityMetrics carries hot / warm / cold plus the total", () => {
+  const m = opportunityMetrics({ hot: 2, warm: 5, cold: 1 }, 8);
+  const byKey = Object.fromEntries(m.map((x) => [x.key, x.value]));
+  assert.deepEqual(byKey, { totalLeads: 8, hot: 2, warm: 5, cold: 1 });
+});
+
+test("leadSourceMetrics: largest first, blank source becomes unknownSource, zeros dropped", () => {
+  const m = leadSourceMetrics([
+    { source: "web", count: 3 },
+    { source: null, count: 5 },
+    { source: "whatsapp", count: 0 },
+    { source: "  ", count: 2 },
+  ]);
+  assert.deepEqual(
+    m.map((x) => [x.key, x.value]),
+    [
+      ["unknownSource", 5],
+      ["web", 3],
+      ["unknownSource", 2],
+    ],
+  );
+});
+
+test("conversionMetrics computes a whole-number win rate over decided leads", () => {
+  const m = conversionMetrics({ total: 20, qualified: 8, appointment: 4, won: 3, lost: 1 });
+  const byKey = Object.fromEntries(m.map((x) => [x.key, x.value]));
+  assert.equal(byKey.won, 3);
+  assert.equal(byKey.lost, 1);
+  assert.equal(byKey.conversionRate, "75%"); // 3 / (3+1)
+});
+
+test("conversionMetrics: no decided leads → 0% (not NaN)", () => {
+  const m = conversionMetrics({ total: 5, qualified: 2, appointment: 0, won: 0, lost: 0 });
+  assert.equal(Object.fromEntries(m.map((x) => [x.key, x.value])).conversionRate, "0%");
+});
+
+test("followUpCountMetrics rolls pending + failed into an open count", () => {
+  const m = followUpCountMetrics({ pending: 4, dueNow: 2, failed: 1 });
+  const byKey = Object.fromEntries(m.map((x) => [x.key, x.value]));
+  assert.deepEqual(byKey, { openFollowUps: 5, followUpsDue: 2, failedFollowUps: 1 });
+});
+
+test("shapeLeadList: highest score first, capped, plain cards with a link and no tag", () => {
+  const rows = Array.from({ length: 12 }, (_, i) => ({
+    id: `l${i}`,
+    name: `Lead ${i}`,
+    status: "qualified",
+    temperature: "warm",
+    score: i,
+    updatedAt: "2026-09-01T00:00:00Z",
+  }));
+  const cards = shapeLeadList(rows);
+  assert.equal(cards.length, CARD_LIMIT);
+  assert.equal(cards[0].id, "l11");
+  assert.equal(cards[0].tag, null);
+  assert.equal(cards[0].reasonKey, null);
+  assert.equal(cards[0].href, "/dashboard/leads/l11");
 });
 
 test("isEmptyResult is true only when nothing is worth an AI answer", () => {

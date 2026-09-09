@@ -1,14 +1,29 @@
 /**
  * Ask LeadFlow — the allowlisted question intents.
  *
- * Pure, dependency-free, deterministic. The model NEVER chooses a query: a
- * plain keyword router maps the user's natural-language question to exactly one
- * of these fixed intents, each of which is backed by a bounded, tenant-scoped
- * server-side query (`retrieval.ts`). An unrecognised question falls back to
- * `priority_leads` ("who should we work first"), the most useful default.
+ * Pure, dependency-free, deterministic. Every supported question maps to
+ * exactly one of these fixed intents, each backed by a bounded, tenant-scoped
+ * server-side query (`retrieval.ts`).
+ *
+ * The primary path is the structured interpretation call (`interpretation.ts`);
+ * `routeQuestion` here is a KEYWORD FALLBACK used only when that call is
+ * unavailable (no API key, error, or the org is over its usage limit). An
+ * unrecognised question falls back to `priority_leads` ("who should we work
+ * first"), the most useful default — but the interpretation path never does
+ * that: it asks for clarification instead.
  */
 
 export const ASK_INTENTS = [
+  // deterministic count / breakdown intents (answered without a 2nd AI call)
+  "total_leads",
+  "lead_count_by_status",
+  "lead_count_by_opportunity",
+  "lead_source_breakdown",
+  "qualified_leads",
+  "appointment_count",
+  "follow_up_count",
+  "conversion_summary",
+  // AI-phrased list / summary intents
   "priority_leads",
   "needs_attention",
   "at_risk_leads",
@@ -23,6 +38,21 @@ export const ASK_INTENTS = [
 export type AskIntent = (typeof ASK_INTENTS)[number];
 
 export const DEFAULT_INTENT: AskIntent = "priority_leads";
+
+/**
+ * Intents whose answer is a deterministic, templated sentence built from the
+ * counts in the `IntentResult` — no grounded Anthropic call is made for these.
+ */
+export const DETERMINISTIC_INTENTS: ReadonlySet<AskIntent> = new Set([
+  "total_leads",
+  "lead_count_by_status",
+  "lead_count_by_opportunity",
+  "lead_source_breakdown",
+  "qualified_leads",
+  "appointment_count",
+  "follow_up_count",
+  "conversion_summary",
+]);
 
 /**
  * Suggested questions shown as chips. Each is a dictionary key under
@@ -47,6 +77,57 @@ export type SuggestedQuestionKey = (typeof SUGGESTED_QUESTION_KEYS)[number];
  * only for the tie-break: earlier intents win an equal score.
  */
 const KEYWORDS: Record<AskIntent, string[]> = {
+  total_leads: [
+    "how many leads", "how many leads do i have", "how many clients",
+    "total leads", "lead count", "number of leads", "count of leads",
+    "leads in total", "leads do i have",
+    "كام عميل", "كم عميل", "عدد العملاء", "كام عميل عندي", "كم عدد العملاء",
+    "كام lead", "كام ليد", "عندي كام عميل", "اجمالي العملاء", "عدد العملا",
+  ],
+  lead_count_by_status: [
+    "by status", "per status", "leads by status", "count by status",
+    "how many in each status", "status breakdown", "pipeline stage",
+    "حسب الحاله", "حسب المرحله", "لكل حاله", "توزيع الحالات", "العملاء حسب الحاله",
+  ],
+  lead_count_by_opportunity: [
+    "by opportunity", "opportunity level", "by temperature", "hot warm cold",
+    "how many hot", "how many strong", "strong opportunities", "how many warm",
+    "how many cold", "how strong",
+    "حسب الفرصه", "مستوى الفرصه", "كام فرصه قويه", "فرص قويه", "كم فرصه قويه",
+    "الفرص القويه", "حسب الحراره",
+  ],
+  lead_source_breakdown: [
+    "lead source", "sources", "leads come from", "leads coming from", "come from",
+    "where do leads come from", "where are leads coming from",
+    "channel breakdown", "by source", "source breakdown", "which channels",
+    "مصدر العملاء", "مصادر العملاء", "من اين ياتي العملاء", "من وين", "حسب المصدر",
+    "قنوات", "توزيع المصادر",
+  ],
+  qualified_leads: [
+    "qualified leads", "qualified", "how many qualified", "which are qualified",
+    "show me qualified", "leads qualified",
+    "العملاء المؤهلين", "المؤهلين", "كام مؤهل", "عملاء مؤهلين", "lead qualified",
+    "ليد مؤهل", "كام lead qualified",
+  ],
+  appointment_count: [
+    "how many appointments", "how many appointments do i have", "how many meetings",
+    "how many meetings do i have", "appointment count", "number of appointments",
+    "count of appointments", "how many bookings", "how many appointments this",
+    "كام موعد", "كم موعد", "عدد المواعيد", "كام حجز", "عدد الحجوزات", "كام موعد عندي",
+  ],
+  follow_up_count: [
+    "how many follow ups", "how many follow-ups", "how many followups",
+    "follow up count", "number of follow ups", "how many are overdue",
+    "how many due", "how many follow ups are pending", "how many follow-ups do i have",
+    "how many follow ups do i have", "follow ups do i have",
+    "كام متابعه", "كم متابعه", "عدد المتابعات", "كام متابعه متاخره", "كام متابعه عندي",
+  ],
+  conversion_summary: [
+    "conversion", "conversion rate", "win rate", "close rate", "how many won",
+    "how many did we win", "how many closed", "won vs lost", "conversion summary",
+    "معدل التحويل", "نسبه التحويل", "معدل الاغلاق", "كام صفقه كسبنا", "كام عميل كسبنا",
+    "نسبه الكسب", "المكسوب مقابل الخساره",
+  ],
   needs_attention: [
     "need attention", "needs attention", "attention today", "who needs",
     "urgent", "right now", "waiting on a reply", "unanswered",
@@ -79,9 +160,9 @@ const KEYWORDS: Record<AskIntent, string[]> = {
     "نشاط", "ماذا حدث", "نشاط اليوم", "ملخص اليوم", "لخّص اليوم", "لخص اليوم", "آخر التحديثات",
   ],
   pipeline_summary: [
-    "pipeline", "overview", "how are we doing", "status of", "summary of the pipeline",
-    "how many leads", "totals", "breakdown",
-    "خط الأنابيب", "نظرة عامة", "كيف نبلي", "ملخص", "إجمالي", "كم عدد",
+    "pipeline", "overview", "how are we doing", "state of the pipeline",
+    "summary of the pipeline", "pipeline health", "where do we stand",
+    "خط الأنابيب", "نظرة عامة", "كيف نبلي", "ملخص خط المبيعات", "حاله خط المبيعات",
   ],
   weekly_changes: [
     "this week", "changed this week", "what changed", "week over week",

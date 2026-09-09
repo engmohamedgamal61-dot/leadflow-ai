@@ -255,6 +255,101 @@ export function shapeOverdueFollowUps(
   return { cards, overdueCount: overdue.length, failedCount: failed.length };
 }
 
+/**
+ * Plain lead cards for a filtered list (`qualified_leads`, etc.) — no reason /
+ * tag, just the lead and a link. Sorted highest-score first.
+ */
+export function shapeLeadList(
+  leads: CandidateLeadLike[],
+  limit = CARD_LIMIT,
+): LeadCard[] {
+  return [...leads]
+    .sort(byNeglect)
+    .slice(0, limit)
+    .map((lead) => toLeadCard(lead, null, undefined, null));
+}
+
+/** Pipeline order for a "by status" breakdown. */
+const STATUS_ORDER = [
+  "new",
+  "contacted",
+  "qualified",
+  "appointment",
+  "won",
+  "lost",
+  "archived",
+] as const;
+
+/** `total` first, then each non-zero status in pipeline order. */
+export function leadStatusMetrics(
+  byStatus: Record<string, number>,
+  total: number,
+): MetricValue[] {
+  const rows: MetricValue[] = [{ key: "totalLeads", value: total }];
+  for (const status of STATUS_ORDER) {
+    const value = byStatus[status] ?? 0;
+    if (value > 0) rows.push({ key: `status_${status}`, value });
+  }
+  return rows;
+}
+
+/** `total` first, then hot / warm / cold. */
+export function opportunityMetrics(
+  byTemperature: { hot: number; warm: number; cold: number },
+  total: number,
+): MetricValue[] {
+  return [
+    { key: "totalLeads", value: total },
+    { key: "hot", value: byTemperature.hot },
+    { key: "warm", value: byTemperature.warm },
+    { key: "cold", value: byTemperature.cold },
+  ];
+}
+
+/** One metric per source, largest first. A null / blank source becomes "unknownSource". */
+export function leadSourceMetrics(
+  rows: { source: string | null; count: number }[],
+): MetricValue[] {
+  return [...rows]
+    .map((r) => ({
+      key: r.source && r.source.trim() ? r.source.trim() : "unknownSource",
+      value: r.count,
+    }))
+    .filter((m) => typeof m.value === "number" && m.value > 0)
+    .sort((a, b) => Number(b.value) - Number(a.value));
+}
+
+export function followUpCountMetrics(counts: {
+  pending: number;
+  dueNow: number;
+  failed: number;
+}): MetricValue[] {
+  return [
+    { key: "openFollowUps", value: counts.pending + counts.failed },
+    { key: "followUpsDue", value: counts.dueNow },
+    { key: "failedFollowUps", value: counts.failed },
+  ];
+}
+
+export function conversionMetrics(input: {
+  total: number;
+  qualified: number;
+  appointment: number;
+  won: number;
+  lost: number;
+}): MetricValue[] {
+  const decided = input.won + input.lost;
+  const rate = decided > 0 ? Math.round((input.won / decided) * 100) : 0;
+  return [
+    { key: "totalLeads", value: input.total },
+    { key: "qualified", value: input.qualified },
+    { key: "appointmentsBooked", value: input.appointment },
+    { key: "won", value: input.won },
+    { key: "lost", value: input.lost },
+    { key: "conversionRate", value: `${rate}%` },
+  ];
+}
+
 export function pipelineMetrics(input: PipelineInput): MetricValue[] {
   return [
     { key: "totalLeads", value: input.stats.total },

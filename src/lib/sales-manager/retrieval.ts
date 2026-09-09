@@ -14,25 +14,42 @@
 import "server-only";
 
 import {
+  getConversionStats,
   getDashboardTrends,
   getFollowUpCounts,
   getInsightSummary,
+  getLeadCount,
   getLeadInsightCandidates,
+  getLeadSourceCounts,
   getLeadStats,
+  getLeadStatusCounts,
+  getOpportunityCounts,
   getRecentActivity,
   getRecoveryCandidates,
   getUpcomingAppointmentCount,
   getUpcomingAppointments,
+  listLeadsBrief,
   listOpenFollowUps,
 } from "@/lib/leads/queries";
 import type { AskIntent } from "./intents.ts";
 import {
+  DEFAULT_INTENT_PARAMS,
+  resolveTimeRange,
+  type IntentParams,
+} from "./interpretation.ts";
+import {
+  conversionMetrics,
   filterByRisk,
+  followUpCountMetrics,
   isEmptyResult,
+  leadSourceMetrics,
+  leadStatusMetrics,
+  opportunityMetrics,
   pipelineMetrics,
   rankPriorityLeads,
   rankRecovery,
   shapeAppointments,
+  shapeLeadList,
   shapeOverdueFollowUps,
   weeklyChangeMetrics,
   type IntentResult,
@@ -44,8 +61,11 @@ const RECENT_ACTIVITY_LIMIT = 12;
 export async function runIntent(
   intent: AskIntent,
   organizationId: string,
+  params: IntentParams = DEFAULT_INTENT_PARAMS,
   now: Date = new Date(),
 ): Promise<IntentResult> {
+  const window = resolveTimeRange(params.timeRange, now);
+  const { filters } = params;
   const base = {
     intent,
     metrics: [] as IntentResult["metrics"],
@@ -55,6 +75,100 @@ export async function runIntent(
   };
 
   switch (intent) {
+    case "total_leads": {
+      const count = await getLeadCount(organizationId, {
+        status: filters.status,
+        temperature: filters.temperature,
+        source: filters.source,
+        from: window.from,
+        to: window.to,
+      });
+      return finalize({ ...base, metrics: [{ key: "totalLeads", value: count }] });
+    }
+
+    case "lead_count_by_status": {
+      const { total, byStatus } = await getLeadStatusCounts(organizationId, window);
+      return finalize({ ...base, metrics: leadStatusMetrics(byStatus, total) });
+    }
+
+    case "lead_count_by_opportunity": {
+      const counts = await getOpportunityCounts(organizationId, window);
+      return finalize({
+        ...base,
+        metrics: opportunityMetrics(counts, counts.total),
+      });
+    }
+
+    case "lead_source_breakdown": {
+      const rows = await getLeadSourceCounts(organizationId, window);
+      return finalize({ ...base, metrics: leadSourceMetrics(rows) });
+    }
+
+    case "qualified_leads": {
+      const [rows, count] = await Promise.all([
+        listLeadsBrief(organizationId, {
+          status: "qualified",
+          temperature: filters.temperature,
+          source: filters.source,
+          from: window.from,
+          to: window.to,
+          limit: params.limit ?? undefined,
+        }),
+        getLeadCount(organizationId, {
+          status: "qualified",
+          temperature: filters.temperature,
+          source: filters.source,
+          from: window.from,
+          to: window.to,
+        }),
+      ]);
+      return finalize({
+        ...base,
+        leads: shapeLeadList(
+          rows.map((r) => ({
+            id: r.id,
+            name: r.name,
+            status: r.status,
+            temperature: r.temperature,
+            score: r.score,
+            updatedAt: r.updatedAt,
+          })),
+          params.limit ?? undefined,
+        ),
+        metrics: [{ key: "qualified", value: count }],
+      });
+    }
+
+    case "appointment_count": {
+      const [appts, count] = await Promise.all([
+        getUpcomingAppointments(organizationId, 12),
+        getUpcomingAppointmentCount(organizationId),
+      ]);
+      return finalize({
+        ...base,
+        appointments: shapeAppointments(
+          appts.map((a) => ({
+            id: a.id,
+            leadId: a.leadId,
+            leadName: a.leadName,
+            startsAt: a.startsAt,
+            status: a.status,
+          })),
+        ),
+        metrics: [{ key: "upcomingAppointments", value: count }],
+      });
+    }
+
+    case "follow_up_count": {
+      const counts = await getFollowUpCounts(organizationId);
+      return finalize({ ...base, metrics: followUpCountMetrics(counts) });
+    }
+
+    case "conversion_summary": {
+      const stats = await getConversionStats(organizationId, window);
+      return finalize({ ...base, metrics: conversionMetrics(stats) });
+    }
+
     case "priority_leads": {
       const candidates = await getLeadInsightCandidates(organizationId, now);
       const needs = candidates.filter((c) => c.insight.riskLevel === "needs_attention").length;

@@ -13,6 +13,7 @@ export const AI_REQUEST_TYPES = [
   "chat_reply",
   "lead_extraction",
   "sales_manager",
+  "sales_manager_interpret",
 ] as const;
 export type AiRequestType = (typeof AI_REQUEST_TYPES)[number];
 
