@@ -827,6 +827,7 @@ export const en = {
         "You've won {won} of {total} leads — a {rate} conversion rate.",
     },
     noData: {
+      generic: "I couldn't find any data for that in this workspace yet.",
       priorityLeads: "No leads need action right now — nothing is overdue or at risk.",
       needsAttention: "No leads need attention today.",
       atRisk: "No leads are at risk right now.",

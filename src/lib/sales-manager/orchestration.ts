@@ -1,42 +1,40 @@
 /**
  * Ask LeadFlow — the pure orchestration flow.
  *
+ * FLEXIBLE CONVERSATION + CONSTRAINED DATA ACCESS + GROUNDED ANSWERS.
+ *
  * Deterministic and dependency-injected so it runs under `node --test`: every
- * side-effecting collaborator (interpretation call, intent retrieval, the usage
- * gate, the grounded answer call, usage recording) is passed in. `service.ts`
- * wires the real ones; `actions.ts` adds the auth boundary on top.
+ * side-effecting collaborator (the planner call, operation execution, the
+ * usage gate, the grounded answer call, usage recording) is passed in.
+ * `service.ts` wires the real ones; `actions.ts` adds the auth boundary.
  *
- * Flow:
  *   check org hard-usage gate (once, up front)
- *   → interpret the question with ONE small AI call        [gate permitting]
- *       • output schema-invalid / unknown intent → ask for clarification
- *       • model unsure / flagged ambiguous       → ask for clarification
- *       • gate blocked / AI unavailable          → keyword-router fallback
- *   → run ONE allowlisted, tenant-scoped intent query (deterministic)
- *       • no data                → deterministic "no data" line, no answer call
- *       • count / breakdown intent → deterministic templated answer, no answer call
- *       • otherwise + gate ok      → ONE grounded answer call
- *       • otherwise + gate blocked → deterministic data only, "limit reached"
+ *   → AI query planner → QueryPlan            [gate permitting]
+ *       • schema-invalid / unknown op / unknown filter → ask for clarification
+ *       • model flagged ambiguous                       → ask for clarification
+ *       • gate blocked / planner unavailable            → keyword-router fallback (ONE operation)
+ *   → strict validation (parsePlan) → allowlisted operations
+ *   → execute each operation deterministically, tenant-scoped
+ *   → build a GroundingContext from the structured results
+ *       • every operation empty        → deterministic "no data" line, no answer call
+ *       • single pure count operation  → deterministic templated answer, no answer call
+ *       • otherwise + gate ok          → ONE grounded answer call over the GroundingContext
+ *       • otherwise + gate blocked     → deterministic data only, "limit reached"
  *
- * The model interprets language; it never chooses SQL, a table, or a tool. An
- * unknown or injected `intent` is rejected by `parseInterpretation` and is
- * NEVER mapped to a real query.
+ * The model interprets language; it never chooses SQL, a table, a column, or a
+ * tool. An unknown or injected operation/filter is rejected by `parsePlan` and
+ * is NEVER executed.
  */
 
-import { DETERMINISTIC_INTENTS, type AskIntent } from "./intents.ts";
+import { MAX_OPERATIONS, parsePlan, type PlannedOperation } from "./plan.ts";
 import {
-  DEFAULT_INTENT_PARAMS,
-  parseInterpretation,
-  shouldClarify,
-  type IntentParams,
-} from "./interpretation.ts";
-import type { IntentResult } from "./ranking.ts";
-import {
-  buildAnswerContext,
-  type GroundedAnswer,
-  type InterpretationCall,
-  type ReasonFn,
-} from "./answer.ts";
+  buildGroundingContext,
+  mergeViews,
+  renderGroundingText,
+  type ExecutedOperation,
+  type GroundedView,
+} from "./grounding.ts";
+import type { ConversationTurn, GroundedAnswer, PlanCall } from "./answer.ts";
 import type { TokenUsage } from "@/lib/metering/pricing";
 import type { Locale } from "@/i18n/config";
 
@@ -52,37 +50,38 @@ export type AskUsageKind = "sales_manager" | "sales_manager_interpret";
 
 export interface AskResult {
   question: string;
-  intent: AskIntent;
   state: AskState;
-  /** The model's prose answer, already in the user's locale. `null` for a deterministic state. */
+  /** The model's prose answer, already in the user's language. `null` for a deterministic state. */
   answer: string | null;
   /** Dotted dictionary key for a deterministic answer line. `null` when `answer` is set. */
   answerKey: string | null;
-  /** Interpolation params for `answerKey` (deterministic count answers). */
   answerParams: Record<string, string | number> | null;
-  /** Deterministic metrics + lead / appointment / activity cards for the UI. */
-  result: IntentResult;
+  /** Merged deterministic metrics + lead / appointment / activity cards for the UI. */
+  view: GroundedView;
+  /** The operation types that actually executed. */
+  operations: string[];
   /** True when this question spent at least one Anthropic call. */
   aiUsed: boolean;
-  /** How the intent was chosen — useful for tests / debugging, safe to expose. */
-  route: "interpreted" | "fallback" | "clarification";
+  route: "planned" | "fallback" | "clarification";
 }
 
+/** One prior turn of the Ask LeadFlow conversation, for follow-up understanding. */
+export type { ConversationTurn } from "./answer.ts";
+
 export interface AskDeps {
-  /** The small structured interpretation call. Never throws (`raw: null` on failure). */
-  interpret: (question: string) => Promise<InterpretationCall>;
-  /** Offline keyword router — used only when interpretation yields no usable intent. */
-  routeFallback: (question: string) => AskIntent;
-  /** Run one allowlisted, tenant-scoped intent query. */
-  runIntent: (
-    intent: AskIntent,
-    params: IntentParams,
-    now: Date,
-  ) => Promise<IntentResult>;
+  /** The small structured planner call. Never throws (`raw: null` on failure). */
+  plan: (question: string, history: ConversationTurn[]) => Promise<PlanCall>;
+  /** Offline keyword router → ONE bounded operation. Used only when planning yields nothing. */
+  routeFallback: (question: string) => PlannedOperation;
+  /** Execute validated operations against tenant-scoped data. */
+  execute: (operations: PlannedOperation[], now: Date) => Promise<ExecutedOperation[]>;
   /** Reuse the Phase O gate — resolves to whether a NEW Anthropic call is allowed. */
   checkGate: () => Promise<{ allowed: boolean }>;
-  /** The single grounded Anthropic call. Never throws (empty text on failure). */
-  generateAnswer: (context: string) => Promise<GroundedAnswer>;
+  /** The single grounded answer call. Never throws (empty text on failure). */
+  generateAnswer: (
+    groundingText: string,
+    history: ConversationTurn[],
+  ) => Promise<GroundedAnswer>;
   /** Record one call's usage under the given bucket. Never throws. */
   recordUsage: (input: {
     kind: AskUsageKind;
@@ -90,137 +89,107 @@ export interface AskDeps {
     usage: TokenUsage;
     requestId: string;
   }) => Promise<void>;
+  /** Recent prior turns (already trimmed / capped by the caller). */
+  history: ConversationTurn[];
   locale: Locale;
-  /** Resolve a reason dictionary key to English text, for the model context. */
-  reason: ReasonFn;
-  /** Resolve a metric-label dictionary key to English text, for the model context. */
-  metricLabel: (key: string) => string;
   now?: Date;
   /** Idempotency base for the usage records (one per question). */
   requestId?: string;
 }
 
-const NO_DATA_KEY: Record<AskIntent, string> = {
-  total_leads: "askLeadFlow.noData.totalLeads",
-  lead_count_by_status: "askLeadFlow.noData.leadCountByStatus",
-  lead_count_by_opportunity: "askLeadFlow.noData.leadCountByOpportunity",
-  lead_source_breakdown: "askLeadFlow.noData.leadSourceBreakdown",
-  qualified_leads: "askLeadFlow.noData.qualifiedLeads",
-  appointment_count: "askLeadFlow.noData.appointmentCount",
-  follow_up_count: "askLeadFlow.noData.followUpCount",
-  conversion_summary: "askLeadFlow.noData.conversionSummary",
-  priority_leads: "askLeadFlow.noData.priorityLeads",
-  needs_attention: "askLeadFlow.noData.needsAttention",
-  at_risk_leads: "askLeadFlow.noData.atRisk",
-  upcoming_appointments: "askLeadFlow.noData.upcomingAppointments",
-  overdue_followups: "askLeadFlow.noData.overdueFollowups",
-  recovery_opportunities: "askLeadFlow.noData.recovery",
-  recent_activity: "askLeadFlow.noData.recentActivity",
-  pipeline_summary: "askLeadFlow.noData.pipeline",
-  weekly_changes: "askLeadFlow.noData.weeklyChanges",
-};
+const CLARIFY_KEY = "askLeadFlow.clarify.generic";
+const NO_DATA_KEY = "askLeadFlow.noData.generic";
 
-const emptyResult = (intent: AskIntent): IntentResult => ({
-  intent,
-  metrics: [],
-  leads: [],
-  appointments: [],
-  activity: [],
-  empty: true,
-});
-
-function metricNumber(result: IntentResult, key: string): number {
-  const m = result.metrics.find((x) => x.key === key);
+function metricNumber(view: GroundedView, key: string): number {
+  const m = view.metrics.find((x) => x.key === key);
   const n = typeof m?.value === "number" ? m.value : Number(m?.value);
   return Number.isFinite(n) ? n : 0;
 }
 
-function metricRaw(result: IntentResult, key: string): string | number {
-  const m = result.metrics.find((x) => x.key === key);
+function metricRaw(view: GroundedView, key: string): string | number {
+  const m = view.metrics.find((x) => x.key === key);
   return m?.value ?? 0;
 }
 
 /**
- * Build the deterministic, templated answer for a count / breakdown intent —
- * no Anthropic call. Directly addresses the question ("You have N …") and
- * leaves the breakdown itself to the metrics grid.
+ * A deterministic templated answer for a plan that is exactly ONE pure count /
+ * summary operation — no grounded answer call is spent for those.
  */
 function deterministicAnswer(
-  intent: AskIntent,
-  result: IntentResult,
-): { key: string; params: Record<string, string | number> } {
-  switch (intent) {
-    case "total_leads":
+  ops: ExecutedOperation[],
+  view: GroundedView,
+): { key: string; params: Record<string, string | number> } | null {
+  if (ops.length !== 1) return null;
+  const op = ops[0];
+  switch (op.type) {
+    case "lead_count":
       return {
         key: "askLeadFlow.deterministic.totalLeads",
-        params: { count: metricNumber(result, "totalLeads") },
-      };
-    case "qualified_leads":
-      return {
-        key: "askLeadFlow.deterministic.qualifiedLeads",
-        params: { count: metricNumber(result, "qualified") },
+        params: { count: Number(op.data.count ?? 0) },
       };
     case "appointment_count":
       return {
         key: "askLeadFlow.deterministic.appointmentCount",
-        params: { count: metricNumber(result, "upcomingAppointments") },
+        params: { count: Number(op.data.count ?? 0) },
       };
-    case "follow_up_count":
-      return {
-        key: "askLeadFlow.deterministic.followUpCount",
-        params: {
-          open: metricNumber(result, "openFollowUps"),
-          due: metricNumber(result, "followUpsDue"),
-          failed: metricNumber(result, "failedFollowUps"),
-        },
-      };
-    case "lead_count_by_status":
-      return {
-        key: "askLeadFlow.deterministic.leadCountByStatus",
-        params: { total: metricNumber(result, "totalLeads") },
-      };
-    case "lead_count_by_opportunity":
-      return {
-        key: "askLeadFlow.deterministic.leadCountByOpportunity",
-        params: {
-          total: metricNumber(result, "totalLeads"),
-          hot: metricNumber(result, "hot"),
-        },
-      };
-    case "lead_source_breakdown":
-      return {
-        key: "askLeadFlow.deterministic.leadSourceBreakdown",
-        params: { sources: result.metrics.length },
-      };
+    case "lead_count_grouped": {
+      const total = Number(op.data.total ?? 0);
+      const groupKey =
+        "by_status" in op.data
+          ? "askLeadFlow.deterministic.leadCountByStatus"
+          : "hot" in op.data
+            ? "askLeadFlow.deterministic.leadCountByOpportunity"
+            : "askLeadFlow.deterministic.leadSourceBreakdown";
+      return groupKey === "askLeadFlow.deterministic.leadCountByOpportunity"
+        ? { key: groupKey, params: { total, hot: Number(op.data.hot ?? 0) } }
+        : { key: groupKey, params: { total, sources: view.metrics.length } };
+    }
     case "conversion_summary":
       return {
         key: "askLeadFlow.deterministic.conversionSummary",
         params: {
-          total: metricNumber(result, "totalLeads"),
-          won: metricNumber(result, "won"),
-          rate: String(metricRaw(result, "conversionRate")),
+          total: metricNumber(view, "totalLeads"),
+          won: metricNumber(view, "won"),
+          rate: String(metricRaw(view, "conversionRate")),
         },
       };
     default:
-      return { key: "askLeadFlow.answerUnavailable", params: {} };
+      return null;
   }
+}
+
+function clarificationResult(
+  question: string,
+  text: string | null,
+  aiUsed: boolean,
+): AskResult {
+  return {
+    question,
+    state: "needs_clarification",
+    answer: text,
+    answerKey: text ? null : CLARIFY_KEY,
+    answerParams: null,
+    view: mergeViews([]),
+    operations: [],
+    aiUsed,
+    route: "clarification",
+  };
 }
 
 export async function runAsk(question: string, deps: AskDeps): Promise<AskResult> {
   const now = deps.now ?? new Date();
   const baseId = deps.requestId ?? crypto.randomUUID();
+  const history = deps.history ?? [];
 
-  // Respect a per-org hard usage limit BEFORE the interpretation AI call.
+  // Respect a per-org hard usage limit BEFORE the planner AI call.
   const gate = await deps.checkGate();
 
-  let intent: AskIntent | null = null;
-  let params: IntentParams = DEFAULT_INTENT_PARAMS;
+  let operations: PlannedOperation[] | null = null;
   let aiUsed = false;
   let route: AskResult["route"] = "fallback";
-  let clarification: { text: string | null } | null = null;
 
   if (gate.allowed) {
-    const call = await deps.interpret(question);
+    const call = await deps.plan(question, history);
     if (call.raw !== null) {
       aiUsed = true;
       if (call.usage) {
@@ -228,67 +197,49 @@ export async function runAsk(question: string, deps: AskDeps): Promise<AskResult
           kind: "sales_manager_interpret",
           model: call.model,
           usage: call.usage,
-          requestId: `${baseId}:interpret`,
+          requestId: `${baseId}:plan`,
         });
       }
-      const parsed = parseInterpretation(call.raw);
+      const parsed = parsePlan(call.raw);
       if (!parsed.ok) {
-        // Schema-invalid or an unknown / injected intent — never map to a
-        // real query. Ask the user to rephrase.
-        clarification = { text: null };
-      } else if (shouldClarify(parsed.value)) {
-        clarification = { text: parsed.value.clarificationQuestion };
-      } else {
-        intent = parsed.value.intent;
-        params = {
-          filters: parsed.value.filters,
-          timeRange: parsed.value.timeRange,
-          limit: parsed.value.limit,
-        };
-        route = "interpreted";
+        // Schema-invalid, an unknown operation/filter, or too many operations
+        // — never execute a "best guess". Ask the user to rephrase.
+        return clarificationResult(question, null, aiUsed);
       }
+      if (parsed.plan.needsClarification && parsed.plan.operations.length === 0) {
+        return clarificationResult(question, parsed.plan.clarificationQuestion, aiUsed);
+      }
+      operations = parsed.plan.operations.slice(0, MAX_OPERATIONS);
+      route = "planned";
     }
   }
 
-  if (clarification) {
-    return {
-      question,
-      intent: deps.routeFallback(question),
-      state: "needs_clarification",
-      answer: clarification.text,
-      answerKey: clarification.text ? null : "askLeadFlow.clarify.generic",
-      answerParams: null,
-      result: emptyResult(deps.routeFallback(question)),
-      aiUsed,
-      route: "clarification",
-    };
-  }
-
-  // Interpretation didn't yield an intent (gate blocked it, or AI unavailable).
-  if (!intent) {
-    intent = deps.routeFallback(question);
-    params = DEFAULT_INTENT_PARAMS;
+  // Planner unavailable (gate blocked, or the call failed) → keyword fallback.
+  if (!operations) {
+    operations = [deps.routeFallback(question)];
     route = "fallback";
   }
 
-  const result = await deps.runIntent(intent, params, now);
+  const executed = await deps.execute(operations, now);
+  const view = mergeViews(executed);
+  const opTypes = executed.map((o) => o.type);
   const base = {
     question,
-    intent,
-    result,
+    view,
+    operations: opTypes,
     answer: null as string | null,
     answerParams: null as Record<string, string | number> | null,
     route,
   };
 
-  // No data → deterministic, no answer call.
-  if (result.empty) {
-    return { ...base, state: "no_data", answerKey: NO_DATA_KEY[intent], aiUsed };
+  // Every operation came back empty → deterministic "no data".
+  if (executed.length > 0 && executed.every((o) => o.empty)) {
+    return { ...base, state: "no_data", answerKey: NO_DATA_KEY, aiUsed };
   }
 
-  // Count / breakdown intent → deterministic templated answer, no answer call.
-  if (DETERMINISTIC_INTENTS.has(intent)) {
-    const det = deterministicAnswer(intent, result);
+  // Exactly one pure count/summary op → deterministic templated answer, no answer call.
+  const det = deterministicAnswer(executed, view);
+  if (det) {
     return {
       ...base,
       state: "answered",
@@ -300,22 +251,13 @@ export async function runAsk(question: string, deps: AskDeps): Promise<AskResult
 
   // A grounded answer call is needed — respect the hard usage limit.
   if (!gate.allowed) {
-    return {
-      ...base,
-      state: "limit_reached",
-      answerKey: "askLeadFlow.limitReached",
-      aiUsed,
-    };
+    return { ...base, state: "limit_reached", answerKey: "askLeadFlow.limitReached", aiUsed };
   }
 
-  const context = buildAnswerContext({
-    question,
-    result,
-    locale: deps.locale,
-    reason: deps.reason,
-    metricLabel: deps.metricLabel,
-  });
-  const answer = await deps.generateAnswer(context);
+  const groundingText = renderGroundingText(
+    buildGroundingContext(question, executed, now),
+  );
+  const answer = await deps.generateAnswer(groundingText, history);
 
   if (!answer.text) {
     return {

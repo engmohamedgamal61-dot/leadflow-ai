@@ -181,6 +181,31 @@ export function rankPriorityLeads(
     .map((c) => toLeadCard(c.lead, c.insight.reasonKey, c.insight.reasonParams, c.insight.action));
 }
 
+/**
+ * Order an already-filtered candidate set "most important first" — risk band,
+ * then score, then most-neglected — WITHOUT dropping the `none` band (so a
+ * filtered `lead_search` with `sort: priority_desc` always returns rows).
+ */
+export function rankLeadsByPriority(
+  candidates: InsightCandidate[],
+  limit = CARD_LIMIT,
+): LeadCard[] {
+  return [...candidates]
+    .sort((a, b) => {
+      const r = RISK_RANK[a.insight.riskLevel] - RISK_RANK[b.insight.riskLevel];
+      return r !== 0 ? r : byNeglect(a.lead, b.lead);
+    })
+    .slice(0, limit)
+    .map((c) =>
+      toLeadCard(
+        c.lead,
+        c.insight.riskLevel === "none" ? null : c.insight.reasonKey,
+        c.insight.riskLevel === "none" ? undefined : c.insight.reasonParams,
+        c.insight.riskLevel === "none" ? null : c.insight.action,
+      ),
+    );
+}
+
 /** Leads in a single risk band. */
 export function filterByRisk(
   candidates: InsightCandidate[],

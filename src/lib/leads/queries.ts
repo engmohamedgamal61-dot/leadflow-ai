@@ -159,31 +159,113 @@ function applyWindow<T>(query: T, window: DateWindow | undefined, column = "crea
 }
 
 /**
- * A single tenant-scoped head-count of leads, with optional bounded filters.
- * `source` is matched case-insensitively. Used by Ask LeadFlow's `total_leads`
- * intent — no rows are returned, only the count.
+ * Reusable, tenant-scoped lead filter set — the single place Ask LeadFlow's
+ * `lead_search` / `lead_count` operations turn a validated plan into SQL. Every
+ * value is already allowlisted / sanitised by `sales-manager/plan.ts`; `custom`
+ * targets one `custom_data` key (regex-constrained to `[a-z0-9_]`).
  */
-export async function getLeadCount(
+export interface LeadQueryFilters {
+  status?: string[];
+  temperature?: string[];
+  source?: string[];
+  createdFrom?: Date | null;
+  createdTo?: Date | null;
+  /** `updated_at` strictly before this — "has gone quiet for a while". */
+  staleBefore?: Date | null;
+  /** Free-text match on name / phone / email. */
+  search?: string | null;
+  /** One contains-match on an allowlisted industry field in `custom_data`. */
+  custom?: { key: string; value: string } | null;
+}
+
+function applyLeadFilters<T>(query: T, f: LeadQueryFilters): T {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let q = query as any;
+  if (f.status && f.status.length > 0) q = q.in("status", f.status);
+  if (f.temperature && f.temperature.length > 0) q = q.in("temperature", f.temperature);
+  if (f.source && f.source.length > 0) {
+    q = q.or(f.source.map((s) => `source.ilike.${s.replace(/[%,()]/g, "")}`).join(","));
+  }
+  if (f.createdFrom) q = q.gte("created_at", f.createdFrom.toISOString());
+  if (f.createdTo) q = q.lt("created_at", f.createdTo.toISOString());
+  if (f.staleBefore) q = q.lt("updated_at", f.staleBefore.toISOString());
+  if (f.search) {
+    const p = f.search.replace(/[%,()]/g, "");
+    q = q.or(`name.ilike.%${p}%,phone.ilike.%${p}%,email.ilike.%${p}%`);
+  }
+  if (f.custom) {
+    const v = f.custom.value.replace(/[%,()]/g, "");
+    q = q.ilike(`custom_data->>${f.custom.key}`, `%${v}%`);
+  }
+  return q as T;
+}
+
+/** Tenant-scoped head-count of leads matching {@link LeadQueryFilters}. */
+export async function countLeadsFiltered(
   organizationId: string,
-  filters: {
-    status?: string | null;
-    temperature?: string | null;
-    source?: string | null;
-  } & DateWindow = {},
+  filters: LeadQueryFilters = {},
 ): Promise<number> {
   const supabase = await createClient();
-  let query = supabase
-    .from("leads")
-    .select("id", { count: "exact", head: true })
-    .eq("organization_id", organizationId);
-  if (filters.status) query = query.eq("status", filters.status as LeadStatus);
-  if (filters.temperature) {
-    query = query.eq("temperature", filters.temperature as LeadTemperatureRow);
-  }
-  if (filters.source) query = query.ilike("source", filters.source);
-  query = applyWindow(query, filters);
+  const query = applyLeadFilters(
+    supabase
+      .from("leads")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId),
+    filters,
+  );
   const { count } = await query;
   return count ?? 0;
+}
+
+export interface LeadSearchRow extends LeadListRow {
+  customData: Record<string, unknown>;
+}
+
+export type LeadSearchSort =
+  | "score_desc"
+  | "created_desc"
+  | "created_asc"
+  | "updated_asc";
+
+/**
+ * Bounded, tenant-scoped list of leads matching {@link LeadQueryFilters}, with
+ * `custom_data` included. `priority_desc` is NOT a SQL sort — the caller ranks
+ * that in memory from computed insights; this returns rows in one of the
+ * column sorts.
+ */
+export async function searchLeadsFiltered(
+  organizationId: string,
+  filters: LeadQueryFilters = {},
+  opts: { sort?: LeadSearchSort; limit?: number } = {},
+): Promise<LeadSearchRow[]> {
+  const supabase = await createClient();
+  const [col, asc] =
+    opts.sort === "created_asc"
+      ? (["created_at", true] as const)
+      : opts.sort === "updated_asc"
+        ? (["updated_at", true] as const)
+        : opts.sort === "created_desc"
+          ? (["created_at", false] as const)
+          : (["score", false] as const);
+
+  const query = applyLeadFilters(
+    supabase
+      .from("leads")
+      .select(`${LIST_COLUMNS}, custom_data`)
+      .eq("organization_id", organizationId)
+      .order(col, { ascending: asc })
+      .order("id", { ascending: false })
+      .limit(Math.min(Math.max(opts.limit ?? 8, 1), 50)),
+    filters,
+  );
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).map((r) => {
+    const row = r as Parameters<typeof toListRow>[0] & {
+      custom_data: Record<string, unknown> | null;
+    };
+    return { ...toListRow(row), customData: row.custom_data ?? {} };
+  });
 }
 
 export interface LeadStatusCounts {
@@ -332,35 +414,59 @@ export async function getConversionStats(
 }
 
 /**
- * A bounded, tenant-scoped list of leads matching simple column filters — the
- * backing rows for Ask LeadFlow's `qualified_leads` intent. Newest first.
+ * Week/month period comparison for one metric — the `compare_periods`
+ * operation. `new_leads` / `appointments` count rows in the two windows by
+ * their own `created_at`; `qualified` / `won` count the `status_changed`
+ * events into that status (so they measure what happened in the window, not
+ * the current snapshot).
  */
-export async function listLeadsBrief(
+export async function getMetricComparison(
   organizationId: string,
-  filters: {
-    status?: string | null;
-    temperature?: string | null;
-    source?: string | null;
-    limit?: number;
-  } & DateWindow = {},
-): Promise<LeadListRow[]> {
+  metric: "new_leads" | "qualified" | "won" | "appointments",
+  period: "week" | "month",
+  now: Date = new Date(),
+): Promise<{ current: number; previous: number }> {
   const supabase = await createClient();
-  let query = supabase
-    .from("leads")
-    .select(LIST_COLUMNS)
-    .eq("organization_id", organizationId)
-    .order("score", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(Math.min(Math.max(filters.limit ?? 8, 1), 50));
-  if (filters.status) query = query.eq("status", filters.status as LeadStatus);
-  if (filters.temperature) {
-    query = query.eq("temperature", filters.temperature as LeadTemperatureRow);
+  const span = (period === "week" ? 7 : 30) * 86_400_000;
+  const nowIso = now.toISOString();
+  const startCur = new Date(now.getTime() - span).toISOString();
+  const startPrev = new Date(now.getTime() - 2 * span).toISOString();
+
+  const countBetween = (
+    table: "leads" | "appointments" | "lead_events",
+    from: string,
+    to: string,
+    extra?: (q: unknown) => unknown,
+  ) => {
+    let q = supabase
+      .from(table)
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .gte("created_at", from)
+      .lt("created_at", to);
+    if (extra) q = extra(q) as typeof q;
+    return q;
+  };
+
+  let curQ;
+  let prevQ;
+  if (metric === "new_leads") {
+    curQ = countBetween("leads", startCur, nowIso);
+    prevQ = countBetween("leads", startPrev, startCur);
+  } else if (metric === "appointments") {
+    curQ = countBetween("appointments", startCur, nowIso);
+    prevQ = countBetween("appointments", startPrev, startCur);
+  } else {
+    const to = metric === "won" ? "won" : "qualified";
+    const withStatus = (q: unknown) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (q as any).eq("event_type", "status_changed").eq("metadata->>to", to);
+    curQ = countBetween("lead_events", startCur, nowIso, withStatus);
+    prevQ = countBetween("lead_events", startPrev, startCur, withStatus);
   }
-  if (filters.source) query = query.ilike("source", filters.source);
-  query = applyWindow(query, filters);
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []).map((r) => toListRow(r as Parameters<typeof toListRow>[0]));
+
+  const [cur, prev] = await Promise.all([curQ, prevQ]);
+  return { current: cur.count ?? 0, previous: prev.count ?? 0 };
 }
 
 const FOCUS_TO_RISK_LEVEL: Record<LeadFocusValue, RiskLevel> = {

@@ -1,16 +1,13 @@
 /**
- * Ask LeadFlow — the allowlisted question intents.
+ * Ask LeadFlow — the OFFLINE keyword classifier.
  *
- * Pure, dependency-free, deterministic. Every supported question maps to
- * exactly one of these fixed intents, each backed by a bounded, tenant-scoped
- * server-side query (`retrieval.ts`).
- *
- * The primary path is the structured interpretation call (`interpretation.ts`);
- * `routeQuestion` here is a KEYWORD FALLBACK used only when that call is
- * unavailable (no API key, error, or the org is over its usage limit). An
- * unrecognised question falls back to `priority_leads` ("who should we work
- * first"), the most useful default — but the interpretation path never does
- * that: it asks for clarification instead.
+ * Pure, dependency-free, deterministic. The primary path is the AI query
+ * planner (`plan.ts` + `answer.ts`), which turns a free-text question into a
+ * bounded plan of data operations. `routeQuestion` here is only the FALLBACK
+ * used when that planner call is unavailable (no API key, an error, or the org
+ * is over its usage limit): it maps the question to one of these coarse
+ * intents, which `plan.ts` `INTENT_TO_OPERATION` then turns into a single
+ * bounded operation. An unrecognised question falls back to `priority_leads`.
  */
 
 export const ASK_INTENTS = [
@@ -38,21 +35,6 @@ export const ASK_INTENTS = [
 export type AskIntent = (typeof ASK_INTENTS)[number];
 
 export const DEFAULT_INTENT: AskIntent = "priority_leads";
-
-/**
- * Intents whose answer is a deterministic, templated sentence built from the
- * counts in the `IntentResult` — no grounded Anthropic call is made for these.
- */
-export const DETERMINISTIC_INTENTS: ReadonlySet<AskIntent> = new Set([
-  "total_leads",
-  "lead_count_by_status",
-  "lead_count_by_opportunity",
-  "lead_source_breakdown",
-  "qualified_leads",
-  "appointment_count",
-  "follow_up_count",
-  "conversion_summary",
-]);
 
 /**
  * Suggested questions shown as chips. Each is a dictionary key under

@@ -12,8 +12,22 @@ import {
   TemperatureBadge,
 } from "@/components/dashboard/badges";
 import { AiAgentIcon, ArrowIcon, LeadsIcon } from "@/components/icons";
-import { askLeadFlowAction } from "@/lib/sales-manager/actions";
+import { askLeadFlowAction, type AskHistoryTurn } from "@/lib/sales-manager/actions";
 import type { AskResult } from "@/lib/sales-manager/orchestration";
+
+/** Last few turns as plain text — for follow-up understanding only, never facts. */
+function toHistory(turns: Turn[], t: (key: string) => string): AskHistoryTurn[] {
+  const out: AskHistoryTurn[] = [];
+  for (const turn of turns) {
+    if (turn.status !== "done" || !turn.result) continue;
+    out.push({ role: "user", content: turn.question });
+    const answer =
+      turn.result.answer ??
+      (turn.result.answerKey ? t(turn.result.answerKey) : "");
+    if (answer) out.push({ role: "assistant", content: answer });
+  }
+  return out.slice(-6);
+}
 
 interface Turn {
   id: string;
@@ -57,7 +71,7 @@ export function AskPanel({
     );
 
     try {
-      const res = await askLeadFlowAction(q);
+      const res = await askLeadFlowAction(q, toHistory(turns, t));
       setTurns((prev) =>
         prev.map((turn) =>
           turn.id === id
@@ -226,7 +240,7 @@ function AnswerView({
     (result.answerKey
       ? t(result.answerKey, result.answerParams ?? undefined)
       : "");
-  const { metrics, leads, appointments, activity } = result.result;
+  const { metrics, leads, appointments, activity } = result.view;
   const hasCards = leads.length > 0 || appointments.length > 0 || activity.length > 0;
   const isClarification = result.state === "needs_clarification";
 

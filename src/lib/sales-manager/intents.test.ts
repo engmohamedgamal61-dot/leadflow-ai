@@ -93,9 +93,12 @@ test("a lead-count question never routes to needs_attention", () => {
   }
 });
 
-test("DETERMINISTIC_INTENTS is a subset of the allowlist", async () => {
-  const { DETERMINISTIC_INTENTS } = await import("./intents.ts");
-  for (const intent of DETERMINISTIC_INTENTS) {
-    assert.ok(ASK_INTENTS.includes(intent));
+test("every keyword intent maps to a valid bounded operation (offline fallback)", async () => {
+  const { INTENT_TO_OPERATION } = await import("./plan.ts");
+  const { OPERATION_TYPES } = await import("./plan.ts");
+  for (const intent of ASK_INTENTS) {
+    const op = INTENT_TO_OPERATION[intent];
+    assert.ok(op, `${intent} has no fallback operation`);
+    assert.ok((OPERATION_TYPES as readonly string[]).includes(op.type));
   }
 });

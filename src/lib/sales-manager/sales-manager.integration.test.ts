@@ -5,7 +5,7 @@ import { recordAiUsage } from "../metering/service.ts";
 import { asAiRequestType } from "../metering/types.ts";
 import { canManageConfig } from "../org/roles.ts";
 import { routeQuestion } from "./intents.ts";
-import { parseInterpretation } from "./interpretation.ts";
+import { parsePlan } from "./plan.ts";
 import {
   filterByRisk,
   rankPriorityLeads,
@@ -83,6 +83,20 @@ before(async () => {
   };
   aLeadId = await mkLead(orgA, "Attention Anna");
   bLeadId = await mkLead(orgB, "Bravo Bob");
+
+  // Extra org-A leads for the operation-layer filter tests: two Instagram
+  // leads (one qualified) and one with a custom_data location.
+  const seedExtra = await admin.from("leads").insert([
+    { organization_id: orgA, name: "IG One", source: "instagram", status: "new", temperature: "warm", score: 30, custom_data: {} },
+    { organization_id: orgA, name: "IG Two", source: "instagram", status: "qualified", temperature: "hot", score: 60, custom_data: {} },
+    { organization_id: orgA, name: "Riyadh Rana", source: "web", status: "new", temperature: "hot", score: 40, custom_data: { location: "Riyadh, Al Olaya" } },
+  ]);
+  if (seedExtra.error) throw seedExtra.error;
+  // An Instagram lead in org B — must never appear in an org-A source filter.
+  const seedB = await admin.from("leads").insert({
+    organization_id: orgB, name: "IG Bravo", source: "instagram", status: "qualified", temperature: "hot", score: 55,
+  });
+  if (seedB.error) throw seedB.error;
 });
 
 after(async () => {
@@ -154,6 +168,50 @@ test("deterministic ranking picks the needs-attention lead from real signal data
   );
 });
 
+test("operation filters (source / custom_data / stale) are tenant-scoped via RLS", { skip }, async () => {
+  // Reproduces `applyLeadFilters` from lib/leads/queries.ts as org A's user.
+  const bySource = await users.a.client
+    .from("leads")
+    .select("id, name, source")
+    .eq("organization_id", orgA)
+    .or("source.ilike.instagram");
+  assert.equal(bySource.error, null);
+  const names = (bySource.data ?? []).map((r: { name: string }) => r.name).sort();
+  assert.deepEqual(names, ["IG One", "IG Two"], "only org A's Instagram leads");
+  assert.ok(!names.includes("IG Bravo"), "org B's Instagram lead is invisible");
+
+  // qualified + instagram
+  const qualified = await users.a.client
+    .from("leads")
+    .select("id, name")
+    .eq("organization_id", orgA)
+    .in("status", ["qualified"])
+    .or("source.ilike.instagram");
+  assert.deepEqual((qualified.data ?? []).map((r: { name: string }) => r.name), ["IG Two"]);
+
+  // custom_data->>location ilike '%riyadh%'
+  const byCity = await users.a.client
+    .from("leads")
+    .select("id, name")
+    .eq("organization_id", orgA)
+    .ilike("custom_data->>location", "%riyadh%");
+  assert.deepEqual((byCity.data ?? []).map((r: { name: string }) => r.name), ["Riyadh Rana"]);
+
+  // org B's user runs the same source filter — sees only its own Instagram lead.
+  const bView = await users.b.client
+    .from("leads")
+    .select("name")
+    .eq("organization_id", orgB)
+    .or("source.ilike.instagram");
+  assert.deepEqual((bView.data ?? []).map((r: { name: string }) => r.name), ["IG Bravo"]);
+  const bCrossProbe = await users.b.client
+    .from("leads")
+    .select("id")
+    .eq("organization_id", orgA)
+    .or("source.ilike.instagram");
+  assert.deepEqual(bCrossProbe.data, []);
+});
+
 test("a sales_manager usage row is recorded, org-scoped, and owner/admin-only", { skip }, async () => {
   const res = await recordAiUsage(
     {
@@ -201,17 +259,23 @@ test("both AI Sales Manager usage buckets are recognised request types", () => {
   assert.equal(asAiRequestType("sales_manager_interpret"), "sales_manager_interpret");
 });
 
-test("an injected 'intent' from the interpretation call is rejected, not routed", () => {
-  const injected = parseInterpretation({
-    intent: "needs_attention; SELECT * FROM organizations",
-    filters: { status: null, temperature: null, source: null },
-    time_range: "all_time",
-    limit: null,
-    confidence: 0.99,
+test("an injected operation from the planner call is rejected, never executed", () => {
+  const injected = parsePlan({
+    operations: [
+      { type: "run_raw_sql", query: "SELECT * FROM organizations" },
+      { type: "lead_count", filters: {} },
+    ],
     needs_clarification: false,
     clarification_question: null,
   });
   assert.equal(injected.ok, false);
+
+  const injectedFilter = parsePlan({
+    operations: [{ type: "lead_count", filters: { organization_id: "other-tenant" } }],
+    needs_clarification: false,
+    clarification_question: null,
+  });
+  assert.equal(injectedFilter.ok, false);
 });
 
 test("prompt-injection isolation: another org's data (and injected text) never enters org A's context", { skip }, async () => {
