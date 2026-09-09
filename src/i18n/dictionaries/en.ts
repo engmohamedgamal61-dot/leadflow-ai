@@ -144,6 +144,9 @@ export const en = {
         "Please confirm your email address before signing in.",
       rateLimited: "Too many attempts. Please wait a moment and try again.",
       weakPassword: "That password is not allowed. Choose a stronger one.",
+      reauthRequired:
+        "For your security, changing your password requires a fresh sign-in. Use the password-reset link from your email.",
+      samePassword: "The new password must be different from your current one.",
       generic: "Authentication failed. Please try again.",
     },
   },
@@ -1063,6 +1066,8 @@ export const en = {
       urlInvalid: "That doesn't look like a valid URL.",
       urlNotHttps: "The endpoint URL must use HTTPS.",
       urlBlockedHost: "That host isn't allowed (private or loopback address).",
+      urlUnresolvable: "That host could not be resolved.",
+      urlResolvesPrivate: "That host resolves to a private or internal address.",
       eventsRequired: "Choose at least one event to send.",
       descriptionLength: "Description is too long (max 300 characters).",
     },

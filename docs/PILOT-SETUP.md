@@ -105,10 +105,18 @@ secrets redacted. Without it, the same reports still go to stderr as structured
       in the customer org.
 - [ ] Team invite sent, accepted, correct role.
 
+## Production security
+
+See **`docs/PRODUCTION-SECURITY.md`** for the full pre-production checklist:
+secret rotation, Supabase Auth settings (Secure password change, email
+confirmation, redirect URLs), the trusted client-IP / proxy header for your
+platform, the outbound network-egress allowlist, and the demo-org guard. The
+server refuses to boot in production if a required secret is a dev placeholder.
+
 ## Known limits for the pilot
 
-- CSP allows `'unsafe-inline'` / `'unsafe-eval'` (Next/Turbopack bootstrap); a
-  nonce pipeline is post-pilot.
+- `style-src` still allows `'unsafe-inline'` (React attribute styles). Scripts
+  are nonce-only in production — no `'unsafe-inline'` / `'unsafe-eval'`.
 - The widget origin check relies on browser-set headers (`Referer`,
   `Sec-Fetch-Site`) plus the widget script's self-reported parent origin. This
   stops a copied key from working on an unauthorized site from a real browser;

@@ -24,6 +24,7 @@ import {
   DELIVERY_HEADER,
   EVENT_HEADER,
 } from "./signature.ts";
+import { assertPublicDestination, pinnedPost } from "./safe-fetch.ts";
 import { isSafeWebhookUrl } from "./validation.ts";
 import { redactSecrets } from "../observability/report.ts";
 
@@ -72,8 +73,6 @@ export async function deliverOne(
   const now = opts.now ?? new Date();
   const timeoutMs =
     opts.timeoutMs ?? resolveHttpTimeoutMs(process.env.INTEGRATION_HUB_HTTP_TIMEOUT_MS);
-  const doFetch: FetchLike = opts.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
-
   const body =
     typeof delivery.payload === "string"
       ? delivery.payload
@@ -92,11 +91,17 @@ export async function deliverOne(
   let outcome: "ok" | "retry" | "dead";
   let errorText: string | null = null;
 
-  // Re-validate the destination at send time: the SSRF rules may have tightened
-  // since the endpoint was created, and this is the last checkpoint before the
-  // server makes the request.
-  const revalidated = isSafeWebhookUrl(endpoint.url);
-  if (!revalidated.ok) {
+  // Re-validate the destination at send time. Always run the (cheap, pure)
+  // literal check; on the real network path also DNS-resolve and validate every
+  // resolved address, then pin the connection to them (`pinnedPost` never
+  // follows a redirect — a 3xx → `classify` → dead). Tests inject `fetchImpl`
+  // and exercise the classification logic directly, bypassing real DNS.
+  const literal = isSafeWebhookUrl(endpoint.url);
+  const resolved = literal.ok && !opts.fetchImpl
+    ? await assertPublicDestination(endpoint.url)
+    : null;
+
+  if (!literal.ok || (resolved && !resolved.ok)) {
     outcome = "dead";
     errorText = "destination URL is not allowed";
   } else {
@@ -104,15 +109,21 @@ export async function deliverOne(
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const res = await doFetch(endpoint.url, {
-          method: "POST",
-          headers,
-          body,
-          signal: controller.signal,
-          // Never chase a redirect — a 3xx to an internal host is the classic
-          // SSRF pivot. `classify` maps 3xx → dead.
-          redirect: "manual",
-        });
+        const res = opts.fetchImpl
+          ? await opts.fetchImpl(endpoint.url, {
+              method: "POST",
+              headers,
+              body,
+              signal: controller.signal,
+              redirect: "manual",
+            })
+          : await pinnedPost(resolved!.url, resolved!.addresses, {
+              headers,
+              body,
+              timeoutMs,
+              maxResponseBytes: 64 * 1024,
+              signal: controller.signal,
+            });
         statusCode = res.status;
         outcome = classify(res.status);
         if (outcome !== "ok") {

@@ -101,6 +101,20 @@ test("SSRF guard: an endpoint whose URL is no longer allowed is not contacted �
   assert.equal(called, false, "a blocked destination must never be fetched");
 });
 
+test("SSRF guard: the REAL network path (no fetchImpl) rejects a private literal without connecting", async () => {
+  const { db, rec } = fakeDb();
+  // No `fetchImpl` → deliverOne runs assertPublicDestination + pinnedPost. A
+  // loopback literal is rejected before any socket is opened.
+  const d = await deliverOne(
+    db,
+    { delivery: delivery(), endpoint: endpoint({ url: "https://127.0.0.1/x" }), secret: "s" },
+    { now: NOW, timeoutMs: 2000 },
+  );
+  assert.equal(d, "dead");
+  assert.equal(rec.integration_deliveries[0].status, "dead");
+  assert.match(String(rec.integration_deliveries[0].last_error), /not allowed/);
+});
+
 test("2xx → succeeded; endpoint failure counter reset", async () => {
   const { db, rec } = fakeDb();
   const d = await deliverOne(

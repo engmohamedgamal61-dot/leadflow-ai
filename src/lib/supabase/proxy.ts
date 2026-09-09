@@ -13,14 +13,36 @@ import type { User } from "@supabase/supabase-js";
  * so the refreshed cookies reach the browser — or copies its `Set-Cookie`
  * headers onto a redirect.
  *
+ * `extraRequestHeaders` is forwarded to the downstream render (used to inject
+ * the per-request CSP nonce). Refreshed cookies are merged into it so the
+ * render also sees the rotated session.
+ *
  * Only the public URL + anon key are used; the service-role key never touches
  * this path.
  */
-export async function refreshSession(request: NextRequest): Promise<{
+export async function refreshSession(
+  request: NextRequest,
+  extraRequestHeaders?: Headers,
+): Promise<{
   response: NextResponse;
   user: User | null;
 }> {
-  let response = NextResponse.next({ request });
+  const syncCookieHeader = () => {
+    if (!extraRequestHeaders) return;
+    const pairs = request.cookies
+      .getAll()
+      .map((c) => `${c.name}=${c.value}`)
+      .join("; ");
+    if (pairs) extraRequestHeaders.set("cookie", pairs);
+  };
+
+  const nextResponse = () =>
+    extraRequestHeaders
+      ? NextResponse.next({ request: { headers: extraRequestHeaders } })
+      : NextResponse.next({ request });
+
+  syncCookieHeader();
+  let response = nextResponse();
 
   const supabase = createServerClient<Database>(
     getSupabaseUrl(),
@@ -34,7 +56,8 @@ export async function refreshSession(request: NextRequest): Promise<{
           for (const { name, value } of cookiesToSet) {
             request.cookies.set(name, value);
           }
-          response = NextResponse.next({ request });
+          syncCookieHeader();
+          response = nextResponse();
           for (const { name, value, options } of cookiesToSet) {
             response.cookies.set(name, value, options);
           }

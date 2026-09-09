@@ -33,6 +33,18 @@ function authErrorCode(raw: string): string {
   }
   if (m.includes("email not confirmed")) return "auth.errors.emailNotConfirmed";
   if (m.includes("rate limit") || m.includes("too many")) return "auth.errors.rateLimited";
+  // Supabase "Secure password change": changing the password from a normal
+  // (non-recovery) session requires a fresh reauthentication.
+  if (m.includes("reauthentication") || m.includes("nonce")) {
+    return "auth.errors.reauthRequired";
+  }
+  if (
+    m.includes("should be different from the old password") ||
+    m.includes("same as the old password") ||
+    m.includes("same_password")
+  ) {
+    return "auth.errors.samePassword";
+  }
   if (m.includes("password")) return "auth.errors.weakPassword";
   return "auth.errors.generic";
 }
