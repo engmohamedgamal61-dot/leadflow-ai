@@ -26,7 +26,12 @@
  * is NEVER executed.
  */
 
-import { MAX_OPERATIONS, parsePlan, type PlannedOperation } from "./plan.ts";
+import {
+  CONFIDENCE_CLARIFY_THRESHOLD,
+  MAX_OPERATIONS,
+  parsePlan,
+  type PlannedOperation,
+} from "./plan.ts";
 import {
   buildGroundingContext,
   mergeViews,
@@ -63,6 +68,8 @@ export interface AskResult {
   /** True when this question spent at least one Anthropic call. */
   aiUsed: boolean;
   route: "planned" | "fallback" | "clarification";
+  /** Why a clarification was asked (for tests / telemetry), when `state` is `needs_clarification`. */
+  clarifyReason?: string;
 }
 
 /** One prior turn of the Ask LeadFlow conversation, for follow-up understanding. */
@@ -121,6 +128,11 @@ function deterministicAnswer(
 ): { key: string; params: Record<string, string | number> } | null {
   if (ops.length !== 1) return null;
   const op = ops[0];
+  // Only a complete, direct result may be templated. Anything capped / sampled
+  // / proxied, or carrying a caveat, needs the grounded answer to disclose it.
+  if (op.accuracy !== "exact" || (op.warnings?.length ?? 0) > 0 || (op.assumptions?.length ?? 0) > 0) {
+    return null;
+  }
   switch (op.type) {
     case "lead_count":
       return {
@@ -160,19 +172,25 @@ function deterministicAnswer(
 
 function clarificationResult(
   question: string,
-  text: string | null,
   aiUsed: boolean,
+  opts: {
+    text?: string | null;
+    key?: string;
+    params?: Record<string, string | number> | null;
+    reason: string;
+  },
 ): AskResult {
   return {
     question,
     state: "needs_clarification",
-    answer: text,
-    answerKey: text ? null : CLARIFY_KEY,
-    answerParams: null,
+    answer: opts.text ?? null,
+    answerKey: opts.text ? null : (opts.key ?? CLARIFY_KEY),
+    answerParams: opts.text ? null : (opts.params ?? null),
     view: mergeViews([]),
     operations: [],
     aiUsed,
     route: "clarification",
+    clarifyReason: opts.reason,
   };
 }
 
@@ -202,12 +220,33 @@ export async function runAsk(question: string, deps: AskDeps): Promise<AskResult
       }
       const parsed = parsePlan(call.raw);
       if (!parsed.ok) {
-        // Schema-invalid, an unknown operation/filter, or too many operations
-        // — never execute a "best guess". Ask the user to rephrase.
-        return clarificationResult(question, null, aiUsed);
+        // Never execute a "best guess". An explicitly-provided invalid filter
+        // value gets a specific, natural clarification; everything else a
+        // generic one.
+        if (parsed.reason === "unsupported_filter_value" && parsed.field) {
+          return clarificationResult(question, aiUsed, {
+            key: "askLeadFlow.clarify.filterValue",
+            params: { field: parsed.field, value: parsed.value ?? "" },
+            reason: `unsupported_filter_value:${parsed.field}`,
+          });
+        }
+        return clarificationResult(question, aiUsed, { reason: parsed.reason });
       }
       if (parsed.plan.needsClarification && parsed.plan.operations.length === 0) {
-        return clarificationResult(question, parsed.plan.clarificationQuestion, aiUsed);
+        return clarificationResult(question, aiUsed, {
+          text: parsed.plan.clarificationQuestion,
+          reason: "planner_flagged",
+        });
+      }
+      // The planner planned something but wasn't confident enough — ask rather
+      // than run a possibly-wrong query. (Threshold is conservative so ordinary
+      // wording differences don't trigger this.)
+      if (parsed.plan.confidence < CONFIDENCE_CLARIFY_THRESHOLD) {
+        return clarificationResult(question, aiUsed, {
+          text: parsed.plan.clarificationQuestion,
+          key: "askLeadFlow.clarify.lowConfidence",
+          reason: `low_confidence:${parsed.plan.confidence}`,
+        });
       }
       operations = parsed.plan.operations.slice(0, MAX_OPERATIONS);
       route = "planned";
@@ -232,13 +271,24 @@ export async function runAsk(question: string, deps: AskDeps): Promise<AskResult
     route,
   };
 
+  // A lead_lookup that came back ambiguous or not-found must be phrased
+  // conversationally ("which Ahmed?" / "no lead by that name") — never
+  // short-circuited to a canned no-data line or a deterministic count.
+  const lookupNeedsPhrasing = executed.some(
+    (o) =>
+      o.type === "lead_lookup" &&
+      (o.data.resolution === "ambiguous" || o.data.resolution === "not_found"),
+  );
+
   // Every operation came back empty → deterministic "no data".
-  if (executed.length > 0 && executed.every((o) => o.empty)) {
+  if (!lookupNeedsPhrasing && executed.length > 0 && executed.every((o) => o.empty)) {
     return { ...base, state: "no_data", answerKey: NO_DATA_KEY, aiUsed };
   }
 
-  // Exactly one pure count/summary op → deterministic templated answer, no answer call.
-  const det = deterministicAnswer(executed, view);
+  // Exactly one EXACT pure count/summary op → deterministic templated answer,
+  // no answer call. Partial / proxy results always go to the grounded answer so
+  // the limitation is disclosed in prose.
+  const det = lookupNeedsPhrasing ? null : deterministicAnswer(executed, view);
   if (det) {
     return {
       ...base,

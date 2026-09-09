@@ -104,11 +104,23 @@ export const OPERATION_TYPES = [
   "appointment_search",
   "appointment_count",
   "followup_search",
+  "lead_lookup",
   "lead_details",
   "conversion_summary",
   "activity_search",
 ] as const;
 export type OperationType = (typeof OPERATION_TYPES)[number];
+
+/** The only fields `lead_lookup` may resolve a human reference by. */
+export const LEAD_LOOKUP_BY = ["name", "phone", "email"] as const;
+export type LeadLookupBy = (typeof LEAD_LOOKUP_BY)[number];
+
+/**
+ * Below this planner-reported confidence the orchestrator asks a clarifying
+ * question instead of executing a possibly-wrong query. Deliberately
+ * conservative — harmless wording differences must NOT trigger a clarification.
+ */
+export const CONFIDENCE_CLARIFY_THRESHOLD = 0.4;
 
 export const LEAD_SORTS = [
   "priority_desc",
@@ -159,6 +171,9 @@ export const LIMITS = {
   activity_search: { max: 20, default: 12 },
 } as const;
 
+/** Hard cap on candidates `lead_lookup` returns before it must disambiguate. */
+export const LEAD_LOOKUP_MAX_CANDIDATES = 6;
+
 /**
  * Schema handed to Anthropic `output_config` so the planner returns an object
  * with an `operations` array. Kept deliberately loose (no nested enums / no
@@ -179,6 +194,7 @@ export const PLAN_JSON_SCHEMA = {
     },
     needs_clarification: { type: "boolean" },
     clarification_question: { type: ["string", "null"] },
+    confidence: { type: "number" },
   },
   required: ["operations", "needs_clarification", "clarification_question"],
 } as const;
@@ -246,6 +262,7 @@ export type PlannedOperation =
       when: AppointmentWhen;
     }
   | { type: "followup_search"; state: FollowupState; limit: number }
+  | { type: "lead_lookup"; by: LeadLookupBy; value: string }
   | { type: "lead_details"; leadId: string }
   | { type: "conversion_summary"; timeRange: TimeRangeKey }
   | { type: "activity_search"; timeRange: TimeRangeKey; limit: number };
@@ -254,6 +271,8 @@ export interface QueryPlan {
   operations: PlannedOperation[];
   needsClarification: boolean;
   clarificationQuestion: string | null;
+  /** Planner-reported certainty, 0..1. Defaults to 1 when the planner omits it. */
+  confidence: number;
 }
 
 export type PlanRejectReason =
@@ -262,11 +281,22 @@ export type PlanRejectReason =
   | "too_many_operations"
   | "unknown_operation"
   | "unknown_field"
-  | "invalid_operation";
+  | "invalid_operation"
+  /** An explicitly-provided enum value that isn't in the allowlist — dropping it
+   *  would change the meaning of the request, so the whole plan is refused. */
+  | "unsupported_filter_value"
+  /** `confidence` was present but not a number in [0,1]. */
+  | "invalid_confidence";
 
 export type ParsePlanResult =
   | { ok: true; plan: QueryPlan }
-  | { ok: false; reason: PlanRejectReason };
+  | {
+      ok: false;
+      reason: PlanRejectReason;
+      /** For `unsupported_filter_value`: the filter/field and the offending value. */
+      field?: string;
+      value?: string;
+    };
 
 // ── validation helpers ───────────────────────────────────────────────────────
 
@@ -276,36 +306,63 @@ function asRecord(v: unknown): Record<string, unknown> | null {
     : null;
 }
 
-/** Keep only the members of `values` that are in `allow`. Unknown values are dropped. */
-function narrowList<T extends string>(
+type ListResult<T> =
+  | { ok: true; values: T[] }
+  | { ok: false; value: string };
+
+/**
+ * Validate every member of a filter list against an allowlist. Empty / blank
+ * entries are ignored; a genuinely unknown value FAILS (the caller rejects the
+ * plan) rather than being silently dropped — dropping "enterprise" from
+ * `["hot","enterprise"]` would misrepresent the request.
+ */
+function narrowListStrict<T extends string>(
   raw: unknown,
   allow: readonly T[],
-): T[] {
+): ListResult<T> {
   const arr = Array.isArray(raw) ? raw : raw == null ? [] : [raw];
   const set = new Set(allow as readonly string[]);
   const out: T[] = [];
   for (const v of arr) {
-    if (typeof v === "string" && set.has(v.toLowerCase())) {
-      const lc = v.toLowerCase() as T;
-      if (!out.includes(lc)) out.push(lc);
+    if (typeof v !== "string") {
+      if (v == null) continue;
+      return { ok: false, value: String(v) };
     }
+    const lc = v.trim().toLowerCase();
+    if (lc === "") continue;
+    if (!set.has(lc)) return { ok: false, value: v.trim() };
+    if (!out.includes(lc as T)) out.push(lc as T);
   }
-  return out;
+  return { ok: true, values: out };
 }
 
-function narrowScalar<T extends string>(
+type ScalarResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; value: string };
+
+/**
+ * Validate a single enum-ish field. Absent → `fallback` (no clarification).
+ * Present but unrecognised → FAIL (a wrong sort / period / state changes the
+ * answer's meaning).
+ */
+function narrowScalarStrict<T extends string>(
   raw: unknown,
   allow: readonly T[],
-  fallback: T | null,
-): T | null {
-  return typeof raw === "string" &&
-    (allow as readonly string[]).includes(raw.toLowerCase())
-    ? (raw.toLowerCase() as T)
-    : fallback;
+  fallback: T,
+): ScalarResult<T> {
+  if (raw == null || raw === "") return { ok: true, value: fallback };
+  if (typeof raw !== "string") return { ok: false, value: String(raw) };
+  const lc = raw.trim().toLowerCase();
+  if ((allow as readonly string[]).includes(lc)) return { ok: true, value: lc as T };
+  return { ok: false, value: raw.trim() };
 }
 
+/** Non-strict — a bad time range is harmless (defaults to all_time). */
 function narrowTimeRange(raw: unknown): TimeRangeKey {
-  return narrowScalar(raw, TIME_RANGE_KEYS, "all_time") ?? "all_time";
+  if (typeof raw === "string" && (TIME_RANGE_KEYS as readonly string[]).includes(raw.toLowerCase())) {
+    return raw.toLowerCase() as TimeRangeKey;
+  }
+  return "all_time";
 }
 
 function clampLimit(raw: unknown, spec: { max: number; default: number }): number {
@@ -334,40 +391,81 @@ function cleanSourceList(raw: unknown): string[] {
   return out.slice(0, 8);
 }
 
+type OpFail = {
+  ok: false;
+  reason: PlanRejectReason;
+  field?: string;
+  value?: string;
+};
+
 /**
- * Validate the `filters` object of a lead operation.
- * Returns `null` when it contains a key outside {@link LEAD_FILTER_KEYS}
- * (an "unknown filter" → the whole plan is rejected).
+ * Validate the `filters` object of a lead operation. An unknown filter key, a
+ * malformed `custom`, or an explicitly-provided invalid enum value all FAIL —
+ * the whole plan is then refused (never silently narrowed).
  */
-function parseLeadFilters(raw: unknown): LeadFilters | null {
+function parseLeadFilters(raw: unknown): { ok: true; filters: LeadFilters } | OpFail {
   const obj = asRecord(raw) ?? {};
   for (const key of Object.keys(obj)) {
-    if (!LEAD_FILTER_KEYS.has(key)) return null;
+    if (!LEAD_FILTER_KEYS.has(key)) {
+      return { ok: false, reason: "unknown_field", field: key };
+    }
   }
 
   let custom: LeadFilters["custom"] = null;
-  const customRaw = asRecord(obj.custom);
-  if (customRaw) {
+  if (obj.custom != null) {
+    const customRaw = asRecord(obj.custom);
     const key =
-      typeof customRaw.key === "string" ? customRaw.key.toLowerCase() : "";
-    const value = cleanText(customRaw.value, 60);
+      customRaw && typeof customRaw.key === "string"
+        ? customRaw.key.trim().toLowerCase()
+        : "";
+    const value = customRaw ? cleanText(customRaw.value, 60) : null;
     if (CUSTOM_KEY_RE.test(key) && value) custom = { key, value };
-    else if (obj.custom != null && (key || value === null)) {
-      // A malformed custom filter the model clearly intended — reject.
-      return null;
-    }
-  } else if (obj.custom != null) {
-    return null;
+    else return { ok: false, reason: "unsupported_filter_value", field: "custom", value: key || "?" };
+  }
+
+  const status = narrowListStrict(obj.status, LEAD_STATUSES);
+  if (!status.ok) {
+    return { ok: false, reason: "unsupported_filter_value", field: "status", value: status.value };
+  }
+  const opportunity = narrowListStrict(obj.opportunity, LEAD_TEMPERATURES);
+  if (!opportunity.ok) {
+    return {
+      ok: false,
+      reason: "unsupported_filter_value",
+      field: "opportunity",
+      value: opportunity.value,
+    };
+  }
+  const createdWithin = narrowScalarStrict(obj.created_within, TIME_RANGE_KEYS, "all_time");
+  if (!createdWithin.ok) {
+    return {
+      ok: false,
+      reason: "unsupported_filter_value",
+      field: "created_within",
+      value: createdWithin.value,
+    };
+  }
+  const staleFor = narrowScalarStrict(obj.stale_for, TIME_RANGE_KEYS, "all_time");
+  if (!staleFor.ok) {
+    return {
+      ok: false,
+      reason: "unsupported_filter_value",
+      field: "stale_for",
+      value: staleFor.value,
+    };
   }
 
   return {
-    status: narrowList(obj.status, LEAD_STATUSES),
-    opportunity: narrowList(obj.opportunity, LEAD_TEMPERATURES),
-    source: cleanSourceList(obj.source),
-    createdWithin: narrowTimeRange(obj.created_within),
-    staleFor: narrowTimeRange(obj.stale_for),
-    search: cleanText(obj.search, 80),
-    custom,
+    ok: true,
+    filters: {
+      status: status.values,
+      opportunity: opportunity.values,
+      source: cleanSourceList(obj.source),
+      createdWithin: createdWithin.value,
+      staleFor: staleFor.value,
+      search: cleanText(obj.search, 80),
+      custom,
+    },
   };
 }
 
@@ -380,59 +478,66 @@ const OPERATION_FIELDS: Record<OperationType, ReadonlySet<string>> = {
   appointment_search: new Set(["type", "status", "when", "limit"]),
   appointment_count: new Set(["type", "status", "when"]),
   followup_search: new Set(["type", "state", "limit"]),
+  lead_lookup: new Set(["type", "by", "value"]),
   lead_details: new Set(["type", "lead_id"]),
   conversion_summary: new Set(["type", "time_range"]),
   activity_search: new Set(["type", "time_range", "limit"]),
 };
 
-function parseOperation(
-  raw: unknown,
-):
-  | { ok: true; op: PlannedOperation }
-  | { ok: false; reason: "unknown_operation" | "unknown_field" | "invalid_operation" } {
+function parseOperation(raw: unknown): { ok: true; op: PlannedOperation } | OpFail {
   const obj = asRecord(raw);
   if (!obj) return { ok: false, reason: "invalid_operation" };
 
   const type = typeof obj.type === "string" ? obj.type.toLowerCase() : "";
   if (!(OPERATION_TYPES as readonly string[]).includes(type)) {
-    return { ok: false, reason: "unknown_operation" };
+    return { ok: false, reason: "unknown_operation", value: type };
   }
   const opType = type as OperationType;
 
   for (const key of Object.keys(obj)) {
     if (!OPERATION_FIELDS[opType].has(key)) {
-      return { ok: false, reason: "unknown_field" };
+      return { ok: false, reason: "unknown_field", field: key };
     }
   }
 
   switch (opType) {
     case "lead_search": {
-      const filters = parseLeadFilters(obj.filters);
-      if (!filters) return { ok: false, reason: "unknown_field" };
-      const sort = narrowScalar(obj.sort, LEAD_SORTS, "priority_desc")!;
+      const f = parseLeadFilters(obj.filters);
+      if (!f.ok) return f;
+      const sort = narrowScalarStrict(obj.sort, LEAD_SORTS, "priority_desc");
+      if (!sort.ok) {
+        return { ok: false, reason: "unsupported_filter_value", field: "sort", value: sort.value };
+      }
       return {
         ok: true,
         op: {
           type: "lead_search",
-          filters,
-          sort,
+          filters: f.filters,
+          sort: sort.value,
           limit: clampLimit(obj.limit, LIMITS.lead_search),
         },
       };
     }
     case "lead_count": {
-      const filters = parseLeadFilters(obj.filters);
-      if (!filters) return { ok: false, reason: "unknown_field" };
-      return { ok: true, op: { type: "lead_count", filters } };
+      const f = parseLeadFilters(obj.filters);
+      if (!f.ok) return f;
+      return { ok: true, op: { type: "lead_count", filters: f.filters } };
     }
     case "lead_count_grouped": {
-      const groupBy = narrowScalar(obj.group_by, LEAD_GROUP_BY, null);
-      if (!groupBy) return { ok: false, reason: "invalid_operation" };
+      const groupBy = narrowScalarStrict(obj.group_by, LEAD_GROUP_BY, "" as LeadGroupBy);
+      if (!groupBy.ok || !(groupBy.value as string)) {
+        return {
+          ok: false,
+          reason: "unsupported_filter_value",
+          field: "group_by",
+          value: groupBy.ok ? "(missing)" : groupBy.value,
+        };
+      }
       return {
         ok: true,
         op: {
           type: "lead_count_grouped",
-          groupBy,
+          groupBy: groupBy.value,
           timeRange: narrowTimeRange(obj.time_range),
         },
       };
@@ -443,56 +548,97 @@ function parseOperation(
         op: { type: "pipeline_metrics", timeRange: narrowTimeRange(obj.time_range) },
       };
     case "compare_periods": {
-      const metric = narrowScalar(obj.metric, COMPARE_METRICS, null);
-      const period = narrowScalar(obj.period, COMPARE_PERIODS, "month");
-      if (!metric || !period) return { ok: false, reason: "invalid_operation" };
-      return { ok: true, op: { type: "compare_periods", metric, period } };
+      const metric = narrowScalarStrict(obj.metric, COMPARE_METRICS, "" as CompareMetric);
+      if (!metric.ok || !(metric.value as string)) {
+        return {
+          ok: false,
+          reason: "unsupported_filter_value",
+          field: "metric",
+          value: metric.ok ? "(missing)" : metric.value,
+        };
+      }
+      const period = narrowScalarStrict(obj.period, COMPARE_PERIODS, "month");
+      if (!period.ok) {
+        return { ok: false, reason: "unsupported_filter_value", field: "period", value: period.value };
+      }
+      return { ok: true, op: { type: "compare_periods", metric: metric.value, period: period.value } };
     }
-    case "appointment_search":
+    case "appointment_search": {
+      const status = narrowListStrict(obj.status, APPOINTMENT_STATUSES);
+      if (!status.ok) {
+        return { ok: false, reason: "unsupported_filter_value", field: "status", value: status.value };
+      }
+      const when = narrowScalarStrict(obj.when, APPOINTMENT_WHEN, "upcoming");
+      if (!when.ok) {
+        return { ok: false, reason: "unsupported_filter_value", field: "when", value: when.value };
+      }
       return {
         ok: true,
         op: {
           type: "appointment_search",
-          status: narrowList(obj.status, APPOINTMENT_STATUSES),
-          when: narrowScalar(obj.when, APPOINTMENT_WHEN, "upcoming")!,
+          status: status.values,
+          when: when.value,
           limit: clampLimit(obj.limit, LIMITS.appointment_search),
         },
       };
-    case "appointment_count":
+    }
+    case "appointment_count": {
+      const status = narrowListStrict(obj.status, APPOINTMENT_STATUSES);
+      if (!status.ok) {
+        return { ok: false, reason: "unsupported_filter_value", field: "status", value: status.value };
+      }
+      const when = narrowScalarStrict(obj.when, APPOINTMENT_WHEN, "upcoming");
+      if (!when.ok) {
+        return { ok: false, reason: "unsupported_filter_value", field: "when", value: when.value };
+      }
       return {
         ok: true,
-        op: {
-          type: "appointment_count",
-          status: narrowList(obj.status, APPOINTMENT_STATUSES),
-          when: narrowScalar(obj.when, APPOINTMENT_WHEN, "upcoming")!,
-        },
+        op: { type: "appointment_count", status: status.values, when: when.value },
       };
+    }
     case "followup_search": {
-      const state = narrowScalar(obj.state, FOLLOWUP_STATES, "open");
+      const state = narrowScalarStrict(obj.state, FOLLOWUP_STATES, "open");
+      if (!state.ok) {
+        return { ok: false, reason: "unsupported_filter_value", field: "state", value: state.value };
+      }
       return {
         ok: true,
         op: {
           type: "followup_search",
-          state: state!,
+          state: state.value,
           limit: clampLimit(obj.limit, LIMITS.followup_search),
         },
       };
+    }
+    case "lead_lookup": {
+      const by = narrowScalarStrict(obj.by, LEAD_LOOKUP_BY, "name");
+      if (!by.ok) {
+        return { ok: false, reason: "unsupported_filter_value", field: "by", value: by.value };
+      }
+      const value =
+        by.value === "phone"
+          ? (typeof obj.value === "string" ? obj.value.replace(/[^\d+]/g, "").slice(0, 24) : "")
+          : (cleanText(obj.value, 120) ?? "");
+      if (value.replace(/\D/g, "").length < 3 && by.value === "phone") {
+        return { ok: false, reason: "invalid_operation", field: "value" };
+      }
+      if (by.value !== "phone" && value.length < 2) {
+        return { ok: false, reason: "invalid_operation", field: "value" };
+      }
+      return { ok: true, op: { type: "lead_lookup", by: by.value, value } };
     }
     case "lead_details": {
       const leadId =
         typeof obj.lead_id === "string" && UUID_RE.test(obj.lead_id.trim())
           ? obj.lead_id.trim().toLowerCase()
           : null;
-      if (!leadId) return { ok: false, reason: "invalid_operation" };
+      if (!leadId) return { ok: false, reason: "invalid_operation", field: "lead_id" };
       return { ok: true, op: { type: "lead_details", leadId } };
     }
     case "conversion_summary":
       return {
         ok: true,
-        op: {
-          type: "conversion_summary",
-          timeRange: narrowTimeRange(obj.time_range),
-        },
+        op: { type: "conversion_summary", timeRange: narrowTimeRange(obj.time_range) },
       };
     case "activity_search":
       return {
@@ -506,12 +652,21 @@ function parseOperation(
   }
 }
 
+function parseConfidence(raw: unknown): { ok: true; value: number } | { ok: false } {
+  if (raw == null) return { ok: true, value: 1 };
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0 || raw > 1) {
+    return { ok: false };
+  }
+  return { ok: true, value: raw };
+}
+
 /**
  * Validate the planner's raw JSON into a safe {@link QueryPlan}.
  *
- * Unknown operations / filters / fields, an empty plan, or more than
- * {@link MAX_OPERATIONS} operations all fail — the caller then asks for
- * clarification instead of executing anything.
+ * Unknown operations / filters / fields, an unsupported enum value, an invalid
+ * `confidence`, an empty plan, or more than {@link MAX_OPERATIONS} operations
+ * all fail — the caller then asks for clarification instead of executing
+ * anything.
  */
 export function parsePlan(raw: unknown): ParsePlanResult {
   const obj = asRecord(raw);
@@ -524,11 +679,22 @@ export function parsePlan(raw: unknown): ParsePlanResult {
       ? obj.clarification_question.trim().slice(0, 300)
       : null;
 
+  const confidence = parseConfidence(obj.confidence);
+  if (!confidence.ok) return { ok: false, reason: "invalid_confidence" };
+
   const rawOps = Array.isArray(obj.operations) ? obj.operations : [];
 
   // The model asked to clarify and planned nothing — that's a valid plan.
   if (needsClarification && rawOps.length === 0) {
-    return { ok: true, plan: { operations: [], needsClarification: true, clarificationQuestion } };
+    return {
+      ok: true,
+      plan: {
+        operations: [],
+        needsClarification: true,
+        clarificationQuestion,
+        confidence: confidence.value,
+      },
+    };
   }
 
   if (rawOps.length === 0) return { ok: false, reason: "no_operations" };
@@ -539,13 +705,20 @@ export function parsePlan(raw: unknown): ParsePlanResult {
   const operations: PlannedOperation[] = [];
   for (const rawOp of rawOps) {
     const parsed = parseOperation(rawOp);
-    if (!parsed.ok) return { ok: false, reason: parsed.reason };
+    if (!parsed.ok) {
+      return { ok: false, reason: parsed.reason, field: parsed.field, value: parsed.value };
+    }
     operations.push(parsed.op);
   }
 
   return {
     ok: true,
-    plan: { operations, needsClarification, clarificationQuestion },
+    plan: {
+      operations,
+      needsClarification,
+      clarificationQuestion,
+      confidence: confidence.value,
+    },
   };
 }
 

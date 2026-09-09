@@ -27,7 +27,7 @@ import type {
 const CLOSED_LEAD_STATUSES = ["won", "lost", "archived"] as const;
 const ACTIVE_APPOINTMENT_STATUSES = ["scheduled", "rescheduled"] as const;
 /** Bounds for the insight candidate scan — an MVP-scale aggregate, not a full table scan. */
-const INSIGHT_CANDIDATE_LEADS_LIMIT = 300;
+export const INSIGHT_CANDIDATE_LEADS_LIMIT = 300;
 const INSIGHT_RECENT_MESSAGES_LIMIT = 1500;
 const INSIGHT_HANDOFF_EVENTS_LIMIT = 500;
 /** Revenue Recovery excludes only converted/archived leads — "lost" IS the primary target. */
@@ -343,17 +343,26 @@ export async function getOpportunityCounts(
 }
 
 /** Bound for the in-memory source tally — an MVP-scale aggregate, not a full scan. */
-const SOURCE_BREAKDOWN_LEADS_LIMIT = 2000;
+export const SOURCE_BREAKDOWN_LEADS_LIMIT = 2000;
+
+export interface LeadSourceCounts {
+  rows: { source: string | null; count: number }[];
+  /** How many lead rows were scanned to build the tally. */
+  scanned: number;
+  /** True when the scan hit its bound — the breakdown may be incomplete. */
+  capped: boolean;
+}
 
 /**
  * Lead counts grouped by `source`. PostgREST has no GROUP BY, so this reads the
  * `source` column for a bounded set of the org's most recent leads and tallies
- * in memory (same tradeoff as the insight candidate scan).
+ * in memory (same tradeoff as the insight candidate scan). `capped` tells the
+ * caller the breakdown is a sample of the newest leads, not the whole org.
  */
 export async function getLeadSourceCounts(
   organizationId: string,
   window: DateWindow = {},
-): Promise<{ source: string | null; count: number }[]> {
+): Promise<LeadSourceCounts> {
   const supabase = await createClient();
   let query = supabase
     .from("leads")
@@ -364,15 +373,70 @@ export async function getLeadSourceCounts(
   query = applyWindow(query, window);
   const { data, error } = await query;
   if (error) throw error;
+  const scanned = (data ?? []).length;
   const tally = new Map<string, number>();
   for (const row of data ?? []) {
     const key = (row as { source: string | null }).source?.trim() || "";
     tally.set(key, (tally.get(key) ?? 0) + 1);
   }
-  return [...tally.entries()].map(([source, count]) => ({
-    source: source === "" ? null : source,
-    count,
-  }));
+  return {
+    rows: [...tally.entries()].map(([source, count]) => ({
+      source: source === "" ? null : source,
+      count,
+    })),
+    scanned,
+    capped: scanned >= SOURCE_BREAKDOWN_LEADS_LIMIT,
+  };
+}
+
+/** Digits-only tail of a phone string, for a normalized exact-ish match. */
+function phoneTail(raw: string): string {
+  return raw.replace(/\D/g, "").slice(-12);
+}
+
+/**
+ * Resolve a HUMAN reference (name / phone / email) to lead rows, tenant-scoped
+ * and aggressively bounded. NOT a fuzzy database-wide search:
+ *  - email → case-insensitive exact match
+ *  - phone → normalized-tail match (handles +20 / 0 prefixes)
+ *  - name  → contains-match on the sanitised value, newest first
+ * Returns at most {@link cap} rows; the caller disambiguates / says "not found".
+ */
+export async function lookupLeadsByField(
+  organizationId: string,
+  by: "name" | "phone" | "email",
+  value: string,
+  cap = 6,
+): Promise<LeadSearchRow[]> {
+  const supabase = await createClient();
+  const clean = value.trim();
+  if (clean.length < 2) return [];
+
+  let query = supabase
+    .from("leads")
+    .select(`${LIST_COLUMNS}, custom_data`)
+    .eq("organization_id", organizationId)
+    .order("updated_at", { ascending: false })
+    .limit(cap);
+
+  if (by === "email") {
+    query = query.ilike("email", clean.replace(/[%,()*]/g, ""));
+  } else if (by === "phone") {
+    const tail = phoneTail(clean);
+    if (tail.length < 3) return [];
+    query = query.ilike("phone", `%${tail}`);
+  } else {
+    query = query.ilike("name", `%${clean.replace(/[%,()*]/g, "")}%`);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).map((r) => {
+    const row = r as Parameters<typeof toListRow>[0] & {
+      custom_data: Record<string, unknown> | null;
+    };
+    return { ...toListRow(row), customData: row.custom_data ?? {} };
+  });
 }
 
 export interface ConversionStats {
@@ -1278,7 +1342,7 @@ export interface ActivityEvent {
   createdAt: string;
 }
 
-const ACTIVITY_FEED_LIMIT = 20;
+export const ACTIVITY_FEED_LIMIT = 20;
 
 /**
  * The organization's most recent `lead_events`, across every lead — the raw

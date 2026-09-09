@@ -15,6 +15,9 @@ function op(over: Partial<ExecutedOperation>): ExecutedOperation {
     label: "no filters",
     data: { count: 0 },
     empty: false,
+    accuracy: "exact",
+    warnings: [],
+    assumptions: [],
     view: { metrics: [], leads: [], appointments: [], activity: [] },
     ...over,
   };
@@ -35,6 +38,54 @@ test("buildGroundingContext keeps the question, a UTC now, and one entry per ope
   assert.equal(ctx.results[0].operation, "lead_count");
   assert.equal(ctx.results[1].data.change, -5);
   assert.equal(ctx.allEmpty, false);
+  assert.equal(ctx.hasInexact, false);
+});
+
+test("data-quality metadata flows into the context and the reminder appears", () => {
+  const ctx = buildGroundingContext(
+    "hot leads that went quiet",
+    [
+      op({
+        type: "lead_search",
+        label: "opportunity=hot; lead record not updated for last 7 days (updated_at proxy)",
+        accuracy: "proxy",
+        warnings: ["'stale_for' matches leads whose LEAD RECORD has not been updated for that long. It is NOT evidence that no one contacted the lead."],
+        assumptions: ["12 leads match; only the top 8 are shown."],
+        data: { returned_count: 8, total_count: 12 },
+      }),
+    ],
+    now,
+  );
+  assert.equal(ctx.results[0].accuracy, "proxy");
+  assert.equal(ctx.hasInexact, true);
+  const text = renderGroundingText(ctx);
+  assert.ok(text.includes("accuracy: PROXY"));
+  assert.ok(text.includes("WARNING: 'stale_for'"));
+  assert.ok(text.includes("ASSUMPTION (disclose this): 12 leads match"));
+  assert.ok(/REMINDER: at least one result above is PARTIAL or PROXY/.test(text));
+});
+
+test("proxy grounding text never asserts a contact/follow-up claim", () => {
+  const text = renderGroundingText(
+    buildGroundingContext(
+      "leads no one contacted",
+      [
+        op({
+          type: "lead_search",
+          label: "lead record not updated for last 30 days (updated_at proxy)",
+          accuracy: "proxy",
+          warnings: [
+            "'stale_for' matches leads whose LEAD RECORD has not been updated (updated_at) for that long. It is NOT evidence that no one contacted, called or messaged the lead — only that the record shows no recent change.",
+          ],
+          data: { returned_count: 3, total_count: 3 },
+        }),
+      ],
+      now,
+    ),
+  );
+  // the grounding text must frame it as a record signal, and must carry the caveat
+  assert.ok(/not evidence that no one contacted/i.test(text));
+  assert.ok(text.includes("updated_at"));
 });
 
 test("allEmpty is true only when every operation is empty", () => {

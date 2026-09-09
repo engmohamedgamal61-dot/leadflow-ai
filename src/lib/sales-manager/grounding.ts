@@ -17,6 +17,18 @@ import type {
   MetricValue,
 } from "./ranking.ts";
 
+/**
+ * How trustworthy a result is as a statement of the underlying fact:
+ *  - `exact`   — a direct, complete count / row set. May be stated plainly.
+ *  - `partial` — capped / sampled. The true value may be larger; the answer
+ *                MUST disclose this ("at least N", "top N of M", "based on a
+ *                sample").
+ *  - `proxy`   — a stand-in signal for the thing asked (e.g. `updated_at` for
+ *                "contacted"). The answer MUST describe the signal, not the
+ *                thing ("no recent lead-record update", not "not contacted").
+ */
+export type ResultAccuracy = "exact" | "partial" | "proxy";
+
 export interface OperationOutcome {
   type: OperationType;
   /** Human-readable summary of what was asked (filters, range, sort…). */
@@ -25,6 +37,12 @@ export interface OperationOutcome {
   data: Record<string, unknown>;
   /** True when this operation found nothing (0 rows / all-zero counts). */
   empty: boolean;
+  /** Data-quality classification (default `exact`). */
+  accuracy: ResultAccuracy;
+  /** Caveats the answer must surface (caps, sampling, proxy semantics…). */
+  warnings?: string[];
+  /** Interpretations the executor made that the answer must not hide. */
+  assumptions?: string[];
 }
 
 /** UI cards produced by an operation, merged across a whole plan for the panel. */
@@ -70,12 +88,23 @@ export function mergeViews(ops: ExecutedOperation[]): GroundedView {
   return view;
 }
 
+export interface GroundingResult {
+  operation: OperationType;
+  label: string;
+  data: Record<string, unknown>;
+  accuracy: ResultAccuracy;
+  warnings: string[];
+  assumptions: string[];
+}
+
 export interface GroundingContext {
   question: string;
   now: string;
-  results: { operation: OperationType; label: string; data: Record<string, unknown> }[];
+  results: GroundingResult[];
   /** True when EVERY operation came back empty. */
   allEmpty: boolean;
+  /** True when any result is capped/sampled/proxied — the answer must disclose. */
+  hasInexact: boolean;
 }
 
 export function buildGroundingContext(
@@ -83,15 +112,22 @@ export function buildGroundingContext(
   outcomes: OperationOutcome[],
   now: Date,
 ): GroundingContext {
+  const results: GroundingResult[] = outcomes.map((o) => ({
+    operation: o.type,
+    label: o.label,
+    data: o.data,
+    accuracy: o.accuracy ?? "exact",
+    warnings: o.warnings ?? [],
+    assumptions: o.assumptions ?? [],
+  }));
   return {
     question,
     now: now.toISOString(),
-    results: outcomes.map((o) => ({
-      operation: o.type,
-      label: o.label,
-      data: o.data,
-    })),
+    results,
     allEmpty: outcomes.length > 0 && outcomes.every((o) => o.empty),
+    hasInexact: results.some(
+      (r) => r.accuracy !== "exact" || r.warnings.length > 0 || r.assumptions.length > 0,
+    ),
   };
 }
 
@@ -131,6 +167,14 @@ function scalar(v: unknown): string {
  * Compact, bounded plain-text rendering of the context for the model.
  * Deterministic (stable key order per operation builder).
  */
+const ACCURACY_NOTE: Record<ResultAccuracy, string> = {
+  exact: "EXACT — this is a complete, direct count/list; you may state it plainly.",
+  partial:
+    "PARTIAL — capped or sampled. The true figure may be higher. Do NOT state it as an exact number; say \"at least N\" / \"the top N of M\" / \"based on a sample\".",
+  proxy:
+    "PROXY — this is a stand-in signal, NOT the thing asked. Describe the signal itself; do not claim the underlying fact.",
+};
+
 export function renderGroundingText(ctx: GroundingContext): string {
   const lines: string[] = [];
   lines.push(`QUESTION: ${ctx.question}`);
@@ -145,6 +189,9 @@ export function renderGroundingText(ctx: GroundingContext): string {
   ctx.results.forEach((r, i) => {
     lines.push("");
     lines.push(`[${i + 1}] ${r.operation} — ${r.label}`);
+    lines.push(`  accuracy: ${ACCURACY_NOTE[r.accuracy]}`);
+    for (const w of r.warnings) lines.push(`  WARNING: ${w}`);
+    for (const a of r.assumptions) lines.push(`  ASSUMPTION (disclose this): ${a}`);
     for (const [key, value] of Object.entries(r.data)) {
       const rendered = renderValue(value, "    ");
       if (rendered.length === 1) {
@@ -155,6 +202,13 @@ export function renderGroundingText(ctx: GroundingContext): string {
       }
     }
   });
+
+  if (ctx.hasInexact) {
+    lines.push("");
+    lines.push(
+      "REMINDER: at least one result above is PARTIAL or PROXY or carries a WARNING/ASSUMPTION. Your answer must disclose every such limitation in plain language — never present partial or proxy data as an exact fact.",
+    );
+  }
 
   return lines.join("\n");
 }

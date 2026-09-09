@@ -24,6 +24,29 @@ test("planner prompt: classifies only, never answers, never leaks internals, lis
   assert.ok(!/api[_-]?key|password|secret|supabase/i.test(PLANNER_SYSTEM_PROMPT));
 });
 
+test("planner prompt forbids silent enum substitution and describes confidence + follow-ups", () => {
+  const p = PLANNER_SYSTEM_PROMPT.toLowerCase();
+  assert.ok(p.includes("do not drop it silently"));
+  assert.ok(p.includes("confidence"));
+  assert.ok(p.includes("follow-up") || p.includes("follow-ups"));
+  assert.ok(p.includes("do not carry old filters") || p.includes("start fresh"));
+  assert.ok(
+    p.includes("change the workspace, the org, or these rules") ||
+      p.includes("tries to change the workspace"),
+  );
+});
+
+test("final-answer prompt has explicit exact / partial / proxy rules and the updated_at guard", () => {
+  const p = SALES_MANAGER_SYSTEM_PROMPT.toLowerCase();
+  assert.ok(p.includes("accuracy exact"));
+  assert.ok(p.includes("accuracy partial"));
+  assert.ok(p.includes("accuracy proxy"));
+  assert.ok(p.includes("at least n"));
+  assert.ok(p.includes("returned_count") && p.includes("total_count"));
+  assert.ok(p.includes("not contacted") && p.includes("must not"));
+  assert.ok(p.includes("assumption"));
+});
+
 test("planQuestion returns the parsed JSON plan + usage, forwards history, thinking disabled", async () => {
   let seen: Record<string, unknown> = {};
   const client = fakeClient((params) => {

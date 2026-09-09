@@ -15,6 +15,7 @@
 import "server-only";
 
 import {
+  ACTIVITY_FEED_LIMIT,
   countLeadsFiltered,
   getConversionStats,
   getFollowUpCounts,
@@ -29,8 +30,10 @@ import {
   getRecentActivity,
   getRecoveryCandidates,
   getUpcomingAppointmentCount,
+  INSIGHT_CANDIDATE_LEADS_LIMIT,
   listAppointments,
   listOpenFollowUps,
+  lookupLeadsByField,
   searchLeadsFiltered,
   type LeadQueryFilters,
 } from "@/lib/leads/queries";
@@ -48,20 +51,43 @@ import {
   type LeadCard,
 } from "./ranking.ts";
 import {
+  LEAD_LOOKUP_MAX_CANDIDATES,
   resolveTimeRange,
   type LeadFilters,
   type PlannedOperation,
   type TimeRangeKey,
 } from "./plan.ts";
-import { emptyView, type ExecutedOperation } from "./grounding.ts";
+import { emptyView, type ExecutedOperation, type ResultAccuracy } from "./grounding.ts";
 
 const tEn = createTranslator(en);
+
+const APPT_SCAN_CAP = 60;
+const FOLLOWUP_SCAN_CAP = 100;
+
+const PROXY_STALE_WARNING =
+  "'stale_for' matches leads whose LEAD RECORD has not been updated (updated_at) for that long. It is NOT evidence that no one contacted, called or messaged the lead — only that the record shows no recent change.";
 
 export interface ExecutionContext {
   organizationId: string;
   now: Date;
   /** Lead-field keys from the org's EffectiveConfig — the only keys a `custom` filter may target. */
   customFieldKeys: ReadonlySet<string>;
+}
+
+/** Build an outcome with sane defaults for the data-quality fields. */
+function outcome(
+  o: Omit<ExecutedOperation, "accuracy" | "warnings" | "assumptions"> & {
+    accuracy?: ResultAccuracy;
+    warnings?: string[];
+    assumptions?: string[];
+  },
+): ExecutedOperation {
+  return {
+    ...o,
+    accuracy: o.accuracy ?? "exact",
+    warnings: o.warnings ?? [],
+    assumptions: o.assumptions ?? [],
+  };
 }
 
 function reason(key: string | null, params?: Record<string, string | number>): string | null {
@@ -80,7 +106,9 @@ function filterSummary(f: LeadFilters, dropped: string[]): string {
   if (f.opportunity.length) bits.push(`opportunity=${f.opportunity.join("|")}`);
   if (f.source.length) bits.push(`source=${f.source.join("|")}`);
   if (f.createdWithin !== "all_time") bits.push(`created within ${rangeLabel(f.createdWithin)}`);
-  if (f.staleFor !== "all_time") bits.push(`no activity for ${rangeLabel(f.staleFor)}`);
+  if (f.staleFor !== "all_time") {
+    bits.push(`lead record not updated for ${rangeLabel(f.staleFor)} (updated_at proxy)`);
+  }
   if (f.search) bits.push(`text "${f.search}"`);
   if (f.custom) bits.push(`${f.custom.key} contains "${f.custom.value}"`);
   for (const d of dropped) bits.push(`(ignored: ${d})`);
@@ -134,6 +162,7 @@ async function runLeadSearch(
   const usePriority = op.sort === "priority_desc" && !query.custom;
   let sortNote: string = op.sort;
   let cards: LeadCard[];
+  let priorityCandidateCount = 0;
 
   if (usePriority) {
     const created = resolveTimeRange(op.filters.createdWithin, ctx.now);
@@ -144,9 +173,9 @@ async function runLeadSearch(
     const search = op.filters.search?.toLowerCase() ?? null;
     const srcSet = new Set(op.filters.source.map((s) => s.toLowerCase()));
 
-    const candidates = (
-      await getLeadInsightCandidates(ctx.organizationId, ctx.now)
-    ).filter((c) => {
+    const scanned = await getLeadInsightCandidates(ctx.organizationId, ctx.now);
+    priorityCandidateCount = scanned.length;
+    const candidates = scanned.filter((c) => {
       const l = c.lead;
       if (op.filters.status.length && !op.filters.status.includes(l.status)) return false;
       if (
@@ -197,13 +226,41 @@ async function runLeadSearch(
 
   const totalMatching = await countLeadsFiltered(ctx.organizationId, query);
 
-  return {
+  const warnings: string[] = [];
+  const assumptions: string[] = [];
+  let accuracy: ResultAccuracy = "exact";
+
+  if (op.filters.staleFor !== "all_time") {
+    accuracy = "proxy";
+    warnings.push(PROXY_STALE_WARNING);
+  }
+  if (usePriority && priorityCandidateCount >= INSIGHT_CANDIDATE_LEADS_LIMIT) {
+    if (accuracy === "exact") accuracy = "partial";
+    warnings.push(
+      `Priority ranking considered only the ${INSIGHT_CANDIDATE_LEADS_LIMIT} most-recently-updated open leads; some leads outside that window are not ranked.`,
+    );
+  }
+  if (!usePriority && op.sort === "priority_desc") {
+    assumptions.push(
+      "Priority ranking is unavailable with this filter set, so results are ordered by lead score instead.",
+    );
+  }
+  if (totalMatching > cards.length) {
+    assumptions.push(
+      `${totalMatching} leads match; only the top ${cards.length} are shown.`,
+    );
+  }
+
+  return outcome({
     type: "lead_search",
     label: `${filterSummary(op.filters, dropped)}; sorted ${sortNote}; limit ${op.limit}`,
+    accuracy,
+    warnings,
+    assumptions,
     data: {
-      matched_shown: cards.length,
-      total_matching: totalMatching,
-      truncated: totalMatching > cards.length,
+      returned_count: cards.length,
+      total_count: totalMatching,
+      showing_all: totalMatching <= cards.length,
       leads: cards.map((c) => ({
         name: c.name?.trim() || "(unnamed lead)",
         status: c.status || "n/a",
@@ -216,7 +273,7 @@ async function runLeadSearch(
     },
     empty: cards.length === 0,
     view: { ...emptyView(), leads: cards },
-  };
+  });
 }
 
 async function runLeadCount(
@@ -225,13 +282,16 @@ async function runLeadCount(
 ): Promise<ExecutedOperation> {
   const { query, dropped } = toQueryFilters(op.filters, ctx);
   const count = await countLeadsFiltered(ctx.organizationId, query);
-  return {
+  const proxy = op.filters.staleFor !== "all_time";
+  return outcome({
     type: "lead_count",
     label: filterSummary(op.filters, dropped),
+    accuracy: proxy ? "proxy" : "exact",
+    warnings: proxy ? [PROXY_STALE_WARNING] : [],
     data: { count },
     empty: count === 0,
     view: { ...emptyView(), metrics: [{ key: "totalLeads", value: count }] },
-  };
+  });
 }
 
 async function runLeadCountGrouped(
@@ -241,36 +301,44 @@ async function runLeadCountGrouped(
   const window = resolveTimeRange(op.timeRange, ctx.now);
   if (op.groupBy === "status") {
     const { total, byStatus } = await getLeadStatusCounts(ctx.organizationId, window);
-    return {
+    return outcome({
       type: "lead_count_grouped",
       label: `by status, ${rangeLabel(op.timeRange)}`,
       data: { total, by_status: byStatus },
       empty: total === 0,
       view: { ...emptyView(), metrics: leadStatusMetrics(byStatus, total) },
-    };
+    });
   }
   if (op.groupBy === "opportunity") {
     const counts = await getOpportunityCounts(ctx.organizationId, window);
-    return {
+    return outcome({
       type: "lead_count_grouped",
       label: `by opportunity level, ${rangeLabel(op.timeRange)}`,
       data: { total: counts.total, hot: counts.hot, warm: counts.warm, cold: counts.cold },
       empty: counts.total === 0,
       view: { ...emptyView(), metrics: opportunityMetrics(counts, counts.total) },
-    };
+    });
   }
-  const rows = await getLeadSourceCounts(ctx.organizationId, window);
+  const { rows, scanned, capped } = await getLeadSourceCounts(ctx.organizationId, window);
   const total = rows.reduce((s, r) => s + r.count, 0);
-  return {
+  return outcome({
     type: "lead_count_grouped",
     label: `by source, ${rangeLabel(op.timeRange)}`,
+    accuracy: capped ? "partial" : "exact",
+    warnings: capped
+      ? [
+          `Source breakdown is based on the ${scanned} most recent leads (the scan cap), not the whole workspace — the true totals per source may be higher.`,
+        ]
+      : [],
     data: {
       total,
+      scanned,
+      complete: !capped,
       by_source: rows.map((r) => ({ source: r.source ?? "unknown", count: r.count })),
     },
     empty: total === 0,
     view: { ...emptyView(), metrics: leadSourceMetrics(rows) },
-  };
+  });
 }
 
 async function runPipelineMetrics(
@@ -292,9 +360,12 @@ async function runPipelineMetrics(
     upcomingAppointments,
     recoveryOpportunities: recovery.length,
   });
-  return {
+  return outcome({
     type: "pipeline_metrics",
     label: "current pipeline snapshot",
+    assumptions: [
+      `needs_attention / at_risk / recovery_opportunities are computed from the ${INSIGHT_CANDIDATE_LEADS_LIMIT} most-recently-updated open leads.`,
+    ],
     data: {
       total_leads: stats.total,
       new_today: stats.createdToday,
@@ -310,8 +381,11 @@ async function runPipelineMetrics(
     },
     empty: stats.total === 0,
     view: { ...emptyView(), metrics },
-  };
+  });
 }
+
+/** qualified / won are derived from status-change events; new_leads / appointments from row created_at. */
+const EVENT_DERIVED_COMPARE = new Set(["qualified", "won"]);
 
 async function runComparePeriods(
   op: Extract<PlannedOperation, { type: "compare_periods" }>,
@@ -326,9 +400,19 @@ async function runComparePeriods(
   const delta = current - previous;
   const deltaPct =
     previous > 0 ? Math.round((delta / previous) * 100) : current > 0 ? 100 : 0;
-  return {
+  const eventDerived = EVENT_DERIVED_COMPARE.has(op.metric);
+  return outcome({
     type: "compare_periods",
     label: `${op.metric.replace(/_/g, " ")}: this ${op.period} vs previous ${op.period}`,
+    accuracy: eventDerived ? "proxy" : "exact",
+    warnings: eventDerived
+      ? [
+          `"${op.metric}" is counted from recorded status-change events. If a status change was not logged as an event, it is not in these counts.`,
+        ]
+      : [],
+    assumptions: [
+      "This compares counts between two time windows only. It is NOT an explanation of why the numbers differ — never state a cause unless another result in this data set directly supports it.",
+    ],
     data: {
       metric: op.metric,
       period: op.period,
@@ -336,7 +420,6 @@ async function runComparePeriods(
       previous,
       change: delta,
       change_pct: `${deltaPct > 0 ? "+" : ""}${deltaPct}%`,
-      note: "This compares counts between two time windows. It does not explain WHY the numbers differ.",
     },
     empty: current === 0 && previous === 0,
     view: {
@@ -345,7 +428,7 @@ async function runComparePeriods(
         { key: op.metric === "new_leads" ? "newLeads" : op.metric, value: current, delta },
       ],
     },
-  };
+  });
 }
 
 function appointmentWhereWhen(
@@ -362,7 +445,8 @@ async function runAppointmentSearch(
   op: Extract<PlannedOperation, { type: "appointment_search" }>,
   ctx: ExecutionContext,
 ): Promise<ExecutedOperation> {
-  const all = await listAppointments(ctx.organizationId, 60, ctx.now);
+  const all = await listAppointments(ctx.organizationId, APPT_SCAN_CAP, ctx.now);
+  const scanCapped = all.length >= APPT_SCAN_CAP;
   const statusSet = new Set(op.status);
   const matched = all.filter(
     (a) =>
@@ -379,13 +463,21 @@ async function runAppointmentSearch(
     })),
     op.limit,
   );
-  return {
+  return outcome({
     type: "appointment_search",
     label: `${op.when}${op.status.length ? `, status ${op.status.join("|")}` : ""}; limit ${op.limit}`,
+    accuracy: scanCapped ? "partial" : "exact",
+    warnings: scanCapped
+      ? [`Only the ${APPT_SCAN_CAP} nearest appointments were scanned — there may be more than shown.`]
+      : [],
+    assumptions:
+      matched.length > cards.length
+        ? [`${matched.length} appointments match; showing the ${cards.length} soonest.`]
+        : [],
     data: {
-      matched_shown: cards.length,
-      total_matching: matched.length,
-      truncated: all.length === 60,
+      returned_count: cards.length,
+      total_count: scanCapped ? `at least ${matched.length}` : matched.length,
+      showing_all: !scanCapped && matched.length <= cards.length,
       appointments: cards.map((c) => ({
         lead: c.leadName?.trim() || "(unnamed lead)",
         status: c.status,
@@ -394,44 +486,56 @@ async function runAppointmentSearch(
     },
     empty: cards.length === 0,
     view: { ...emptyView(), appointments: cards },
-  };
+  });
 }
 
 async function runAppointmentCount(
   op: Extract<PlannedOperation, { type: "appointment_count" }>,
   ctx: ExecutionContext,
 ): Promise<ExecutedOperation> {
+  // Exact path: the DB head-count of upcoming active appointments.
   if (op.when === "upcoming" && op.status.length === 0) {
     const count = await getUpcomingAppointmentCount(ctx.organizationId);
-    return {
+    return outcome({
       type: "appointment_count",
       label: "upcoming",
-      data: { count },
+      accuracy: "exact",
+      data: { count, exact: true },
       empty: count === 0,
       view: { ...emptyView(), metrics: [{ key: "upcomingAppointments", value: count }] },
-    };
+    });
   }
-  const all = await listAppointments(ctx.organizationId, 60, ctx.now);
+  const all = await listAppointments(ctx.organizationId, APPT_SCAN_CAP, ctx.now);
+  const scanCapped = all.length >= APPT_SCAN_CAP;
   const statusSet = new Set(op.status);
   const count = all.filter(
     (a) =>
       (statusSet.size === 0 || statusSet.has(a.status as never)) &&
       appointmentWhereWhen(op.when, a.startsAt, ctx.now),
   ).length;
-  return {
+  return outcome({
     type: "appointment_count",
     label: `${op.when}${op.status.length ? `, status ${op.status.join("|")}` : ""}`,
-    data: { count, capped_at: all.length === 60 ? 60 : undefined },
-    empty: count === 0,
+    accuracy: scanCapped ? "partial" : "exact",
+    warnings: scanCapped
+      ? [
+          `The appointment scan is capped at ${APPT_SCAN_CAP} rows and it was full, so the true count is HIGHER than ${count}. State this as "at least ${count}", never as an exact number.`,
+        ]
+      : [],
+    data: scanCapped
+      ? { at_least: count, exact: false, capped_at: APPT_SCAN_CAP }
+      : { count, exact: true },
+    empty: count === 0 && !scanCapped,
     view: { ...emptyView(), metrics: [{ key: "upcomingAppointments", value: count }] },
-  };
+  });
 }
 
 async function runFollowupSearch(
   op: Extract<PlannedOperation, { type: "followup_search" }>,
   ctx: ExecutionContext,
 ): Promise<ExecutedOperation> {
-  const open = await listOpenFollowUps(ctx.organizationId, 100, ctx.now);
+  const open = await listOpenFollowUps(ctx.organizationId, FOLLOWUP_SCAN_CAP, ctx.now);
+  const scanCapped = open.length >= FOLLOWUP_SCAN_CAP;
   const matched = open.filter((f) => {
     if (op.state === "overdue") return f.overdue;
     if (op.state === "failed") return f.status === "failed";
@@ -453,12 +557,20 @@ async function runFollowupSearch(
     tag: f.overdue ? "follow_up" : f.status === "failed" ? "failed" : null,
     href: `/dashboard/leads/${f.leadId}`,
   }));
-  return {
+  return outcome({
     type: "followup_search",
     label: `state ${op.state}; limit ${op.limit}`,
+    accuracy: scanCapped ? "partial" : "exact",
+    warnings: scanCapped
+      ? [`Only the ${FOLLOWUP_SCAN_CAP} soonest open follow-ups were scanned — there may be more.`]
+      : [],
+    assumptions:
+      matched.length > cards.length
+        ? [`${matched.length} follow-ups match; showing the first ${cards.length}.`]
+        : [],
     data: {
-      matched_shown: cards.length,
-      total_matching: matched.length,
+      returned_count: cards.length,
+      total_count: scanCapped ? `at least ${matched.length}` : matched.length,
       overdue: open.filter((f) => f.overdue).length,
       failed: open.filter((f) => f.status === "failed").length,
       follow_ups: cards.map((c, i) => ({
@@ -469,34 +581,26 @@ async function runFollowupSearch(
     },
     empty: cards.length === 0,
     view: { ...emptyView(), leads: cards },
-  };
+  });
 }
 
-async function runLeadDetails(
-  op: Extract<PlannedOperation, { type: "lead_details" }>,
+/** Shared detail shaping for `lead_details` and a unique `lead_lookup` match. */
+async function buildLeadDetailOutcome(
+  leadId: string,
   ctx: ExecutionContext,
-): Promise<ExecutedOperation> {
-  const detail = await getLeadDetail(ctx.organizationId, op.leadId);
-  if (!detail) {
-    return {
-      type: "lead_details",
-      label: "one lead",
-      data: { found: false, note: "No lead with that id exists in this workspace." },
-      empty: true,
-      view: emptyView(),
-    };
-  }
+  type: "lead_details" | "lead_lookup",
+): Promise<ExecutedOperation | null> {
+  const detail = await getLeadDetail(ctx.organizationId, leadId);
+  if (!detail) return null;
   const r = detail.record;
   const leadName = r.lead.name?.trim() || null;
   const temperature = String(r.temperature).toLowerCase();
-  const events = detail.events
-    .slice(-6)
-    .map((e) => ({ event: e.eventType, at: e.createdAt }));
+  const events = detail.events.slice(-6).map((e) => ({ event: e.eventType, at: e.createdAt }));
   const nextAppt = detail.appointments
     .filter((a) => Date.parse(a.startsAt) >= ctx.now.getTime())
     .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt))[0];
-  return {
-    type: "lead_details",
+  return outcome({
+    type,
     label: `lead "${leadName ?? "(unnamed)"}"`,
     data: {
       found: true,
@@ -529,7 +633,96 @@ async function runLeadDetails(
         },
       ],
     },
-  };
+  });
+}
+
+async function runLeadDetails(
+  op: Extract<PlannedOperation, { type: "lead_details" }>,
+  ctx: ExecutionContext,
+): Promise<ExecutedOperation> {
+  const built = await buildLeadDetailOutcome(op.leadId, ctx, "lead_details");
+  return (
+    built ??
+    outcome({
+      type: "lead_details",
+      label: "one lead",
+      data: { found: false, note: "No lead with that id exists in this workspace." },
+      empty: true,
+      view: emptyView(),
+    })
+  );
+}
+
+async function runLeadLookup(
+  op: Extract<PlannedOperation, { type: "lead_lookup" }>,
+  ctx: ExecutionContext,
+): Promise<ExecutedOperation> {
+  const rows = await lookupLeadsByField(
+    ctx.organizationId,
+    op.by,
+    op.value,
+    LEAD_LOOKUP_MAX_CANDIDATES,
+  );
+
+  // Exactly one → resolve to full details (no separate lead_details needed).
+  if (rows.length === 1) {
+    const built = await buildLeadDetailOutcome(rows[0].id, ctx, "lead_lookup");
+    if (built) {
+      return {
+        ...built,
+        label: `resolved ${op.by} "${op.value}" → 1 lead`,
+        data: { ...built.data, resolution: "unique" },
+      };
+    }
+  }
+
+  if (rows.length === 0) {
+    return outcome({
+      type: "lead_lookup",
+      label: `${op.by} "${op.value}"`,
+      data: {
+        resolution: "not_found",
+        note: `No lead in this workspace matches that ${op.by}. Tell the user it wasn't found — do not guess.`,
+      },
+      empty: true,
+      view: emptyView(),
+    });
+  }
+
+  // 2+ matches → hand back safe identifying fields; the answer asks which one.
+  const candidates = rows.map((r) => ({
+    name: r.name?.trim() || "(unnamed lead)",
+    status: r.status,
+    opportunity: String(r.temperature).toLowerCase(),
+    source: r.source ?? "unknown",
+    created: r.createdAt.slice(0, 10),
+  }));
+  return outcome({
+    type: "lead_lookup",
+    label: `${op.by} "${op.value}" → ${rows.length} matches`,
+    data: {
+      resolution: "ambiguous",
+      match_count: rows.length,
+      capped: rows.length >= LEAD_LOOKUP_MAX_CANDIDATES,
+      candidates,
+      note: "MULTIPLE leads match. Ask the user which one they mean, listing the candidates by name plus one distinguishing detail. Do NOT pick one yourself and do NOT show any id.",
+    },
+    empty: false,
+    view: {
+      ...emptyView(),
+      leads: rows.map((r) => ({
+        id: r.id,
+        name: r.name?.trim() || null,
+        status: r.status,
+        temperature: String(r.temperature).toLowerCase(),
+        score: r.score,
+        reasonKey: null,
+        reasonParams: undefined,
+        tag: null,
+        href: `/dashboard/leads/${r.id}`,
+      })),
+    },
+  });
 }
 
 async function runConversionSummary(
@@ -539,7 +732,7 @@ async function runConversionSummary(
   const window = resolveTimeRange(op.timeRange, ctx.now);
   const stats = await getConversionStats(ctx.organizationId, window);
   const decided = stats.won + stats.lost;
-  return {
+  return outcome({
     type: "conversion_summary",
     label: rangeLabel(op.timeRange),
     data: {
@@ -553,7 +746,7 @@ async function runConversionSummary(
     },
     empty: stats.total === 0,
     view: { ...emptyView(), metrics: conversionMetrics(stats) },
-  };
+  });
 }
 
 async function runActivitySearch(
@@ -561,14 +754,30 @@ async function runActivitySearch(
   ctx: ExecutionContext,
 ): Promise<ExecutedOperation> {
   const window = resolveTimeRange(op.timeRange, ctx.now);
-  const events = (await getRecentActivity(ctx.organizationId, op.limit)).filter((e) =>
+  const raw = await getRecentActivity(ctx.organizationId, op.limit);
+  const feedCapped = raw.length >= Math.min(op.limit, ACTIVITY_FEED_LIMIT);
+  const events = raw.filter((e) =>
     op.timeRange === "all_time" ? true : inRange(e.createdAt, window.from, window.to),
   );
-  return {
+  // The feed itself is bounded — if it came back full AND nothing was filtered
+  // out by the time window, older events in the window may be missing.
+  const windowIncomplete = feedCapped && events.length === raw.length && op.timeRange !== "all_time";
+  return outcome({
     type: "activity_search",
     label: `${rangeLabel(op.timeRange)}; limit ${op.limit}`,
+    accuracy: feedCapped ? "partial" : "exact",
+    warnings: feedCapped
+      ? [
+          `The activity feed returns at most ${ACTIVITY_FEED_LIMIT} recent events. ${
+            windowIncomplete
+              ? "Older events inside the requested window are not included."
+              : "This is the newest activity, not necessarily every event."
+          }`,
+        ]
+      : [],
     data: {
-      events_shown: events.length,
+      returned_count: events.length,
+      complete: !feedCapped,
       events: events.map((e) => ({
         type: e.eventType,
         lead: e.leadName?.trim() || "(unnamed lead)",
@@ -577,7 +786,7 @@ async function runActivitySearch(
     },
     empty: events.length === 0,
     view: { ...emptyView(), activity: events },
-  };
+  });
 }
 
 // ── dispatch ─────────────────────────────────────────────────────────────────
@@ -603,6 +812,8 @@ export async function executeOperation(
       return runAppointmentCount(op, ctx);
     case "followup_search":
       return runFollowupSearch(op, ctx);
+    case "lead_lookup":
+      return runLeadLookup(op, ctx);
     case "lead_details":
       return runLeadDetails(op, ctx);
     case "conversion_summary":

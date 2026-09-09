@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  CONFIDENCE_CLARIFY_THRESHOLD,
   INTENT_TO_OPERATION,
   MAX_OPERATIONS,
   OPERATION_TYPES,
@@ -70,25 +71,53 @@ test("unknown field on an operation object → rejected", () => {
   if (!r.ok) assert.equal(r.reason, "unknown_field");
 });
 
-test("unknown enum VALUES inside a list are dropped, not fatal", () => {
+test("REGRESSION: an unsupported enum value among valid ones is NEVER silently dropped", () => {
   const r = parsePlan(
-    raw([{ type: "lead_count", filters: { status: ["qualified", "vip", "banned"] } }]),
+    raw([{ type: "lead_count", filters: { opportunity: ["hot", "enterprise"] } }]),
   );
-  assert.equal(r.ok, true);
-  if (r.ok && r.plan.operations[0].type === "lead_count") {
-    assert.deepEqual(r.plan.operations[0].filters.status, ["qualified"]);
+  assert.equal(r.ok, false, "must not execute just the 'hot' part");
+  if (!r.ok) {
+    assert.equal(r.reason, "unsupported_filter_value");
+    assert.equal(r.field, "opportunity");
+    assert.equal(r.value, "enterprise");
   }
 });
 
-test("unsupported sort / group_by / metric → rejected or safely defaulted", () => {
-  // scalar enum with no safe default → reject
-  assert.equal(parsePlan(raw([{ type: "lead_count_grouped", group_by: "ip_address" }])).ok, false);
-  assert.equal(parsePlan(raw([{ type: "compare_periods", metric: "revenue", period: "week" }])).ok, false);
-  // sort has a safe default
-  const r = parsePlan(raw([{ type: "lead_search", filters: {}, sort: "rowid" }]));
+test("unsupported values are rejected across every strict filter/field", () => {
+  const cases: [unknown[], string][] = [
+    [[{ type: "lead_count", filters: { status: ["qualified", "vip"] } }], "status"],
+    [[{ type: "lead_search", filters: {}, sort: "rowid" }], "sort"],
+    [[{ type: "lead_search", filters: { created_within: "since_forever" } }], "created_within"],
+    [[{ type: "lead_search", filters: { stale_for: "ages" } }], "stale_for"],
+    [[{ type: "lead_count_grouped", group_by: "ip_address" }], "group_by"],
+    [[{ type: "compare_periods", metric: "revenue", period: "week" }], "metric"],
+    [[{ type: "compare_periods", metric: "won", period: "decade" }], "period"],
+    [[{ type: "appointment_count", when: "someday" }], "when"],
+    [[{ type: "followup_search", state: "snoozed" }], "state"],
+    [[{ type: "appointment_search", status: ["scheduled", "ghosted"] }], "status"],
+    [[{ type: "lead_lookup", by: "ssn", value: "x" }], "by"],
+  ];
+  for (const [ops, field] of cases) {
+    const r = parsePlan(raw(ops));
+    assert.equal(r.ok, false, `${field} unsupported value must reject`);
+    if (!r.ok) {
+      assert.equal(r.reason, "unsupported_filter_value");
+      assert.equal(r.field, field);
+    }
+  }
+});
+
+test("a missing required scalar (group_by / metric) is rejected, not defaulted", () => {
+  assert.equal(parsePlan(raw([{ type: "lead_count_grouped" }])).ok, false);
+  assert.equal(parsePlan(raw([{ type: "compare_periods", period: "week" }])).ok, false);
+});
+
+test("an absent optional enum is fine (safe default, no clarification)", () => {
+  const r = parsePlan(raw([{ type: "lead_search", filters: { status: ["qualified"] } }]));
   assert.equal(r.ok, true);
   if (r.ok && r.plan.operations[0].type === "lead_search") {
     assert.equal(r.plan.operations[0].sort, "priority_desc");
+    assert.equal(r.plan.operations[0].filters.createdWithin, "all_time");
   }
 });
 
@@ -152,6 +181,54 @@ test("non-object input is rejected", () => {
   assert.deepEqual(parsePlan(null), { ok: false, reason: "not_object" });
   assert.deepEqual(parsePlan("{}"), { ok: false, reason: "not_object" });
   assert.deepEqual(parsePlan([]), { ok: false, reason: "not_object" });
+});
+
+test("confidence: absent → 1; valid → passed through; out-of-range / non-number → rejected", () => {
+  const absent = parsePlan(raw([{ type: "lead_count", filters: {} }]));
+  assert.equal(absent.ok, true);
+  if (absent.ok) assert.equal(absent.plan.confidence, 1);
+
+  const valid = parsePlan(raw([{ type: "lead_count", filters: {} }], { confidence: 0.2 }));
+  assert.equal(valid.ok, true);
+  if (valid.ok) assert.equal(valid.plan.confidence, 0.2);
+
+  for (const bad of [5, -1, 1.5, "high", NaN, Infinity, {}]) {
+    const r = parsePlan(raw([{ type: "lead_count", filters: {} }], { confidence: bad }));
+    assert.equal(r.ok, false, `confidence=${JSON.stringify(bad)} must reject`);
+    if (!r.ok) assert.equal(r.reason, "invalid_confidence");
+  }
+  assert.ok(CONFIDENCE_CLARIFY_THRESHOLD > 0 && CONFIDENCE_CLARIFY_THRESHOLD < 0.6);
+});
+
+test("ADVERSARIAL: a planner-supplied `accuracy` (or org_id) field is rejected as unknown", () => {
+  assert.equal(
+    parsePlan(raw([{ type: "lead_count", filters: {}, accuracy: "exact" }])).ok,
+    false,
+  );
+  assert.equal(
+    parsePlan(raw([{ type: "lead_count", filters: {}, organization_id: "victim-org" }])).ok,
+    false,
+  );
+  assert.equal(
+    parsePlan(raw([{ type: "lead_count", filters: { organization_id: "victim-org" } }])).ok,
+    false,
+  );
+});
+
+test("lead_lookup: valid by/value parses; short or bad values are rejected", () => {
+  const ok = parsePlan(raw([{ type: "lead_lookup", by: "name", value: "  أحمد محمد  " }]));
+  assert.equal(ok.ok, true);
+  if (ok.ok && ok.plan.operations[0].type === "lead_lookup") {
+    assert.equal(ok.plan.operations[0].by, "name");
+    assert.equal(ok.plan.operations[0].value, "أحمد محمد");
+  }
+  const phone = parsePlan(raw([{ type: "lead_lookup", by: "phone", value: "+20 100 123 4567" }]));
+  assert.equal(phone.ok, true);
+  if (phone.ok && phone.plan.operations[0].type === "lead_lookup") {
+    assert.equal(phone.plan.operations[0].value, "+201001234567");
+  }
+  assert.equal(parsePlan(raw([{ type: "lead_lookup", by: "name", value: "a" }])).ok, false);
+  assert.equal(parsePlan(raw([{ type: "lead_lookup", by: "phone", value: "12" }])).ok, false);
 });
 
 test("lead_details requires a real UUID", () => {

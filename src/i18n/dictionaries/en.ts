@@ -812,6 +812,10 @@ export const en = {
       generic:
         "I'm not sure what you're asking about. Could you rephrase it — for example, a lead count, a status breakdown, appointments, or follow-ups?",
       hint: "Try naming what you want to know: totals, a status or source breakdown, priority leads, appointments, or follow-ups.",
+      filterValue:
+        "I can filter by {field}, but \"{value}\" isn't a value I recognise there. Which {field} did you mean?",
+      lowConfidence:
+        "I want to get this right — could you say a bit more about exactly what you're looking for?",
     },
     deterministic: {
       totalLeads: "You have {count} leads.",

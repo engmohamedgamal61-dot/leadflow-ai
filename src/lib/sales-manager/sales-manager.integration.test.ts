@@ -212,6 +212,53 @@ test("operation filters (source / custom_data / stale) are tenant-scoped via RLS
   assert.deepEqual(bCrossProbe.data, []);
 });
 
+test("lead_lookup by name/phone/email is tenant-scoped and returns disambiguation candidates", { skip }, async () => {
+  // Two "IG" leads in org A share a name token; a name lookup returns BOTH (candidates).
+  await admin.from("leads").insert([
+    { organization_id: orgA, name: "Ahmed Mohamed", phone: "+201001234567", email: "ahmed.m@example.test", custom_data: {}, status: "new", temperature: "warm", score: 20 },
+    { organization_id: orgA, name: "Ahmed Ali", phone: "+201009999999", email: "ahmed.a@example.test", custom_data: {}, status: "qualified", temperature: "hot", score: 55 },
+    { organization_id: orgB, name: "Ahmed Bravo", phone: "+201005555555", email: "ahmed.b@example.test", custom_data: {}, status: "new", temperature: "cold", score: 10 },
+  ]);
+
+  // name → two org-A matches (the caller then disambiguates; never auto-picks)
+  const byName = await users.a.client
+    .from("leads")
+    .select("id, name")
+    .eq("organization_id", orgA)
+    .ilike("name", "%Ahmed%")
+    .order("updated_at", { ascending: false })
+    .limit(6);
+  const names = (byName.data ?? []).map((r: { name: string }) => r.name).sort();
+  assert.deepEqual(names, ["Ahmed Ali", "Ahmed Mohamed"]);
+  assert.ok(!names.includes("Ahmed Bravo"), "org B's Ahmed is invisible to org A");
+
+  // phone tail → single exact-ish match, tenant scoped
+  const byPhone = await users.a.client
+    .from("leads")
+    .select("name")
+    .eq("organization_id", orgA)
+    .ilike("phone", "%1001234567")
+    .limit(6);
+  assert.deepEqual((byPhone.data ?? []).map((r: { name: string }) => r.name), ["Ahmed Mohamed"]);
+
+  // email exact (ci) → single match
+  const byEmail = await users.a.client
+    .from("leads")
+    .select("name")
+    .eq("organization_id", orgA)
+    .ilike("email", "AHMED.A@EXAMPLE.TEST")
+    .limit(6);
+  assert.deepEqual((byEmail.data ?? []).map((r: { name: string }) => r.name), ["Ahmed Ali"]);
+
+  // org B cannot reach org A's Ahmeds by name
+  const bProbe = await users.b.client
+    .from("leads")
+    .select("id")
+    .eq("organization_id", orgA)
+    .ilike("name", "%Ahmed%");
+  assert.deepEqual(bProbe.data, []);
+});
+
 test("a sales_manager usage row is recorded, org-scoped, and owner/admin-only", { skip }, async () => {
   const res = await recordAiUsage(
     {
@@ -276,6 +323,15 @@ test("an injected operation from the planner call is rejected, never executed", 
     clarification_question: null,
   });
   assert.equal(injectedFilter.ok, false);
+
+  // an invalid enum hidden among valid ones is refused, never partially run
+  const hidden = parsePlan({
+    operations: [{ type: "lead_search", filters: { opportunity: ["hot", "enterprise"] }, sort: "priority_desc" }],
+    needs_clarification: false,
+    clarification_question: null,
+  });
+  assert.equal(hidden.ok, false);
+  if (!hidden.ok) assert.equal(hidden.reason, "unsupported_filter_value");
 });
 
 test("prompt-injection isolation: another org's data (and injected text) never enters org A's context", { skip }, async () => {
