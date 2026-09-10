@@ -161,3 +161,29 @@ test("a malformed / empty industry slug is rejected — never defaults", { skip 
   const row = await admin.from("organizations").select("industry_template_id").eq("id", orgA).single();
   assert.equal(row.data.industry_template_id, "real-estate");
 });
+
+test("D3: an org whose stored industry_template_id is a format-valid but UNREGISTERED slug degrades to generic — presentation + effective config, never real-estate", { skip }, async () => {
+  // Only a service-role / manual write can produce this (the RPC + onboarding
+  // both validate against the registry) — but if it happens, nothing silently
+  // becomes real-estate.
+  await admin.from("organizations").update({ industry_template_id: "legal-services" }).eq("id", orgA);
+  try {
+    const p = await presentationFor(users.owner.client);
+    assert.equal(p.industryTemplateId, "legal-services");
+    assert.equal(p.presentation.industrySlug, null, "chat shell falls back to neutral generic");
+    assert.deepEqual(p.presentation.suggestedPrompts, []);
+
+    const stored = await admin
+      .from("organization_configs")
+      .select("config")
+      .eq("organization_id", orgA)
+      .single();
+    const eff = effectiveConfigFromStored(orgA, "legal-services", stored.data.config);
+    assert.equal(eff.templateSlug, "generic", "AI config degrades to generic, not real-estate");
+    assert.ok(!eff.leadFields.some((f) => f.key === "budget"));
+    assert.ok(!eff.leadFields.some((f) => f.key === "service"));
+    assert.ok(eff.leadFields.some((f) => f.key === "inquiry"), "the neutral generic template is used");
+  } finally {
+    await admin.from("organizations").update({ industry_template_id: "real-estate" }).eq("id", orgA);
+  }
+});

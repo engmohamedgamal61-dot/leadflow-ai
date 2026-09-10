@@ -20,7 +20,7 @@ const field = (
   ...over,
 });
 
-const RE = getEffectiveConfig();
+const RE = getEffectiveConfig({ organizationId: "t", industryTemplateId: "real-estate" });
 const CLINIC = getEffectiveConfig({
   organizationId: "t",
   industryTemplateId: "clinic",

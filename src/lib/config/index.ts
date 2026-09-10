@@ -1,4 +1,4 @@
-import { DEFAULT_INDUSTRY_SLUG, getIndustryTemplate } from "./registry.ts";
+import { resolveTemplateOrGeneric } from "./registry.ts";
 import { resolveEffectiveConfig } from "./effective-config.ts";
 import type { EffectiveConfig, OrganizationConfig } from "./types.ts";
 
@@ -7,6 +7,9 @@ export {
   getIndustryTemplate,
   listIndustryTemplates,
   hasIndustryTemplate,
+  resolveTemplateOrGeneric,
+  genericTemplate,
+  GENERIC_INDUSTRY_SLUG,
   DEFAULT_INDUSTRY_SLUG,
 } from "./registry.ts";
 export {
@@ -36,20 +39,14 @@ export {
 /**
  * The effective configuration the AI engine runs on.
  *
- * With no organization override this is just the industry template's defaults.
- * When organization persistence lands, pass the stored {@link OrganizationConfig}
- * (loaded by whatever means) and callers stay unchanged.
+ * With no organization, or an organization whose `industryTemplateId` is not a
+ * known template, this resolves to the NEUTRAL {@link genericTemplate} — never
+ * silently to real-estate. When organization persistence lands, pass the stored
+ * {@link OrganizationConfig} and callers stay unchanged.
  */
 export function getEffectiveConfig(
   org: OrganizationConfig | null = null,
 ): EffectiveConfig {
-  const slug = org?.industryTemplateId ?? DEFAULT_INDUSTRY_SLUG;
-  const template =
-    getIndustryTemplate(slug) ?? getIndustryTemplate(DEFAULT_INDUSTRY_SLUG);
-
-  if (!template) {
-    throw new Error(`No industry template found for "${slug}"`);
-  }
-
+  const { template } = resolveTemplateOrGeneric(org?.industryTemplateId);
   return resolveEffectiveConfig(template, org);
 }

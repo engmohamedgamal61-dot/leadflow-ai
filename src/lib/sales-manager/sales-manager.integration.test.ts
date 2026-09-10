@@ -395,3 +395,154 @@ test("a viewer's session cannot read another member's usage-limit config", { ski
     .eq("organization_id", orgA);
   assert.equal(asViewer.data?.length ?? 0, 0, "viewer must not see billing config");
 });
+
+test("D1: a large `stale_for` dataset — the DB path (updated_asc + exact count) returns every stale lead, tenant-scoped", { skip }, async () => {
+  const now = new Date();
+  const days = (n: number) => new Date(now.getTime() - n * 86_400_000).toISOString();
+  // `updated_at` is set at INSERT (the set_updated_at trigger is BEFORE UPDATE
+  // only). 25 leads that have gone quiet (40d) + 6 recently touched (1d).
+  const stale = Array.from({ length: 25 }, (_, i) => ({
+    organization_id: orgA,
+    name: `Quiet ${i}`,
+    status: "qualified",
+    temperature: "hot",
+    score: 50 + (i % 40),
+    updated_at: days(40),
+  }));
+  const fresh = Array.from({ length: 6 }, (_, i) => ({
+    organization_id: orgA,
+    name: `Fresh ${i}`,
+    status: "qualified",
+    temperature: "hot",
+    score: 90,
+    updated_at: days(1),
+  }));
+  const inserted = await admin.from("leads").insert([...stale, ...fresh]).select("id, name");
+  if (inserted.error) throw inserted.error;
+  const staleIds = inserted.data
+    .filter((r: { name: string }) => r.name.startsWith("Quiet "))
+    .map((r: { id: string }) => r.id);
+  const freshIds = inserted.data
+    .filter((r: { name: string }) => r.name.startsWith("Fresh "))
+    .map((r: { id: string }) => r.id);
+
+  const staleBefore = days(30); // "stale_for: last_30_days"
+
+  // countLeadsFiltered pattern — an EXACT head-count, not a capped scan.
+  const count = await users.a.client
+    .from("leads")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", orgA)
+    .in("status", ["qualified"])
+    .lt("updated_at", staleBefore);
+  assert.equal(count.count, 25, "every quiet lead is counted, none of the fresh ones");
+
+  // searchLeadsFiltered pattern with sort updated_asc, limit 8 — the D1 fix path
+  // (NOT the recently-updated priority scan, which would miss all of these).
+  const rows = await users.a.client
+    .from("leads")
+    .select("id, name, updated_at")
+    .eq("organization_id", orgA)
+    .in("status", ["qualified"])
+    .lt("updated_at", staleBefore)
+    .order("updated_at", { ascending: true })
+    .order("id", { ascending: false })
+    .limit(8);
+  assert.equal(rows.error, null);
+  assert.equal(rows.data.length, 8, "a full page of stale leads is returned — never empty / no_data");
+  assert.ok(
+    rows.data.every((r: { name: string }) => r.name.startsWith("Quiet ")),
+    "only stale leads, longest-quiet first",
+  );
+
+  // org B cannot see any of them.
+  const bProbe = await users.b.client
+    .from("leads")
+    .select("id")
+    .eq("organization_id", orgA)
+    .lt("updated_at", staleBefore);
+  assert.deepEqual(bProbe.data, []);
+
+  await admin.from("leads").delete().in("id", [...staleIds, ...freshIds]);
+});
+
+test("D2: past / all appointment queries — the `when` filter runs in SQL before the row limit, so past rows are never crowded out", { skip }, async () => {
+  const now = new Date();
+  const at = (mins: number) => new Date(now.getTime() + mins * 60_000).toISOString();
+  const mk = (offsetMinutes: number) => ({
+    organization_id: orgA,
+    lead_id: aLeadId,
+    starts_at: at(offsetMinutes),
+    ends_at: at(offsetMinutes + 30),
+    status: "scheduled",
+    source: "manual",
+  });
+  // 62 upcoming (well past any old 60-row scan cap) + 4 in the past.
+  const upcoming = Array.from({ length: 62 }, (_, i) => mk(60 + i * 60));
+  const past = Array.from({ length: 4 }, (_, i) => mk(-(60 + i * 60)));
+  const ins = await admin.from("appointments").insert([...upcoming, ...past]).select("id");
+  if (ins.error) throw ins.error;
+  const ids = ins.data.map((r: { id: string }) => r.id);
+  const nowIso = new Date().toISOString();
+
+  // countAppointments pattern — exact head-count per window.
+  const pastCount = await users.a.client
+    .from("appointments")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", orgA)
+    .lt("starts_at", nowIso);
+  assert.equal(pastCount.count, 4, "past count is exact — NOT 0, and never 'at least 0'");
+
+  const upcomingCount = await users.a.client
+    .from("appointments")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", orgA)
+    .gte("starts_at", nowIso);
+  assert.equal(upcomingCount.count, 62);
+
+  const allCount = await users.a.client
+    .from("appointments")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", orgA);
+  assert.equal(allCount.count, 66);
+
+  // listAppointments "past" pattern — SQL-filtered, most-recent first, limit 60.
+  const pastRows = await users.a.client
+    .from("appointments")
+    .select("id, starts_at")
+    .eq("organization_id", orgA)
+    .lt("starts_at", nowIso)
+    .order("starts_at", { ascending: false })
+    .limit(60);
+  assert.equal(pastRows.data.length, 4, "the 62 upcoming rows do not crowd out the past ones");
+
+  // org B sees none of org A's appointments.
+  const bProbe = await users.b.client
+    .from("appointments")
+    .select("id")
+    .eq("organization_id", orgA)
+    .lt("starts_at", nowIso);
+  assert.deepEqual(bProbe.data, []);
+
+  await admin.from("appointments").delete().in("id", ids);
+});
+
+test("tenant scope for an executed operation comes ONLY from the caller's org — a plan cannot carry one, and the same query as org B sees nothing", { skip }, async () => {
+  // parsePlan strips/rejects any org identifier the planner might emit…
+  for (const opType of ["lead_count", "lead_search", "appointment_count", "lead_lookup"]) {
+    const injected = parsePlan({
+      operations: [{ type: opType, organization_id: orgA, org_id: orgA }],
+      needs_clarification: false,
+      clarification_question: null,
+    });
+    assert.equal(injected.ok, false, `${opType} with an org id must be rejected`);
+  }
+  // …so execution is scoped by ExecutionContext.organizationId only. Reproduce a
+  // lead_count for org A's data as org B's user — RLS + the explicit filter both
+  // yield nothing.
+  const asB = await users.b.client
+    .from("leads")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", orgA);
+  assert.equal(asB.count ?? 0, 0);
+});

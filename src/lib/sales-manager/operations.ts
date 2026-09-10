@@ -16,6 +16,7 @@ import "server-only";
 
 import {
   ACTIVITY_FEED_LIMIT,
+  countAppointments,
   countLeadsFiltered,
   getConversionStats,
   getFollowUpCounts,
@@ -36,6 +37,7 @@ import {
   lookupLeadsByField,
   searchLeadsFiltered,
   type LeadQueryFilters,
+  type LeadSearchSort,
 } from "@/lib/leads/queries";
 import { en } from "@/i18n/dictionaries/en";
 import { createTranslator } from "@/i18n/translate";
@@ -46,12 +48,11 @@ import {
   opportunityMetrics,
   pipelineMetrics,
   rankLeadsByPriority,
-  shapeAppointments,
-  shapeLeadList,
   type LeadCard,
 } from "./ranking.ts";
 import {
   LEAD_LOOKUP_MAX_CANDIDATES,
+  priorityRankingApplies,
   resolveTimeRange,
   type LeadFilters,
   type PlannedOperation,
@@ -61,7 +62,6 @@ import { emptyView, type ExecutedOperation, type ResultAccuracy } from "./ground
 
 const tEn = createTranslator(en);
 
-const APPT_SCAN_CAP = 60;
 const FOLLOWUP_SCAN_CAP = 100;
 
 const PROXY_STALE_WARNING =
@@ -159,17 +159,18 @@ async function runLeadSearch(
   ctx: ExecutionContext,
 ): Promise<ExecutedOperation> {
   const { query, dropped } = toQueryFilters(op.filters, ctx);
-  const usePriority = op.sort === "priority_desc" && !query.custom;
+  const staleQuery = op.filters.staleFor !== "all_time";
+  const usePriority = priorityRankingApplies({
+    sort: op.sort,
+    hasCustomFilter: query.custom !== null,
+    staleFor: op.filters.staleFor,
+  });
   let sortNote: string = op.sort;
   let cards: LeadCard[];
   let priorityCandidateCount = 0;
 
   if (usePriority) {
     const created = resolveTimeRange(op.filters.createdWithin, ctx.now);
-    const staleFrom =
-      op.filters.staleFor === "all_time"
-        ? null
-        : resolveTimeRange(op.filters.staleFor, ctx.now).from;
     const search = op.filters.search?.toLowerCase() ?? null;
     const srcSet = new Set(op.filters.source.map((s) => s.toLowerCase()));
 
@@ -191,7 +192,6 @@ async function runLeadSearch(
       ) {
         return false;
       }
-      if (staleFrom && Date.parse(l.updatedAt) >= staleFrom.getTime()) return false;
       if (
         search &&
         !`${l.name ?? ""} ${l.phone ?? ""} ${l.email ?? ""}`.toLowerCase().includes(search)
@@ -202,26 +202,37 @@ async function runLeadSearch(
     });
     cards = rankLeadsByPriority(candidates, op.limit);
   } else {
-    if (op.sort === "priority_desc") sortNote = "score_desc (priority ranking unavailable with this filter)";
-    cards = shapeLeadList(
-      (
-        await searchLeadsFiltered(ctx.organizationId, query, {
-          sort:
-            op.sort === "priority_desc" || op.sort === "score_desc"
-              ? "score_desc"
-              : op.sort,
-          limit: op.limit,
-        })
-      ).map((r) => ({
-        id: r.id,
-        name: r.name,
-        status: r.status,
-        temperature: r.temperature,
-        score: r.score,
-        updatedAt: r.updatedAt,
-      })),
-      op.limit,
-    );
+    // A deterministic DB sort. `priority_desc` can't be honoured directly:
+    //  - a `stale_for` query → oldest last-update first (longest "gone quiet"),
+    //    because the priority scan only sees recently-updated leads;
+    //  - otherwise (a custom_data filter) → by lead score.
+    // Any explicit sort the planner asked for is passed straight through.
+    const dbSort: LeadSearchSort =
+      op.sort === "priority_desc"
+        ? staleQuery
+          ? "updated_asc"
+          : "score_desc"
+        : op.sort;
+    if (op.sort === "priority_desc") {
+      sortNote = staleQuery
+        ? "updated_asc — longest-quiet first (priority ranking cannot rank a staleness query)"
+        : "score_desc (priority ranking unavailable with a custom-field filter)";
+    }
+    const rows = await searchLeadsFiltered(ctx.organizationId, query, {
+      sort: dbSort,
+      limit: op.limit,
+    });
+    cards = rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      status: r.status,
+      temperature: r.temperature,
+      score: r.score,
+      reasonKey: null,
+      reasonParams: undefined,
+      tag: null,
+      href: `/dashboard/leads/${r.id}`,
+    }));
   }
 
   const totalMatching = await countLeadsFiltered(ctx.organizationId, query);
@@ -230,7 +241,7 @@ async function runLeadSearch(
   const assumptions: string[] = [];
   let accuracy: ResultAccuracy = "exact";
 
-  if (op.filters.staleFor !== "all_time") {
+  if (staleQuery) {
     accuracy = "proxy";
     warnings.push(PROXY_STALE_WARNING);
   }
@@ -242,7 +253,9 @@ async function runLeadSearch(
   }
   if (!usePriority && op.sort === "priority_desc") {
     assumptions.push(
-      "Priority ranking is unavailable with this filter set, so results are ordered by lead score instead.",
+      staleQuery
+        ? "Priority ranking cannot rank a staleness query, so results are ordered by how long each lead's record has gone without an update (longest first)."
+        : "Priority ranking is unavailable with this filter set, so results are ordered by lead score instead.",
     );
   }
   if (totalMatching > cards.length) {
@@ -271,7 +284,10 @@ async function runLeadSearch(
           : {}),
       })),
     },
-    empty: cards.length === 0,
+    // Never say "no data" when the exact count proves matches exist: a near-empty
+    // sample slice must still reach the grounded answer so the real total and the
+    // proxy caveat are disclosed.
+    empty: cards.length === 0 && totalMatching === 0,
     view: { ...emptyView(), leads: cards },
   });
 }
@@ -431,60 +447,54 @@ async function runComparePeriods(
   });
 }
 
-function appointmentWhereWhen(
-  when: "upcoming" | "past" | "all",
-  startsAt: string,
-  now: Date,
-): boolean {
-  if (when === "all") return true;
-  const future = Date.parse(startsAt) >= now.getTime();
-  return when === "upcoming" ? future : !future;
-}
-
 async function runAppointmentSearch(
   op: Extract<PlannedOperation, { type: "appointment_search" }>,
   ctx: ExecutionContext,
 ): Promise<ExecutedOperation> {
-  const all = await listAppointments(ctx.organizationId, APPT_SCAN_CAP, ctx.now);
-  const scanCapped = all.length >= APPT_SCAN_CAP;
-  const statusSet = new Set(op.status);
-  const matched = all.filter(
-    (a) =>
-      (statusSet.size === 0 || statusSet.has(a.status as never)) &&
-      appointmentWhereWhen(op.when, a.startsAt, ctx.now),
-  );
-  const cards = shapeAppointments(
-    matched.slice(0, op.limit).map((a) => ({
-      id: a.id,
-      leadId: a.leadId,
-      leadName: a.leadName,
-      startsAt: a.startsAt,
-      status: a.status,
-    })),
-    op.limit,
-  );
+  // The `when` filter is applied in SQL before the row limit, so a "past" query
+  // is never crowded out by upcoming rows. `total` is an exact head-count.
+  const [rows, total] = await Promise.all([
+    listAppointments(ctx.organizationId, {
+      when: op.when,
+      status: op.status,
+      limit: op.limit,
+      now: ctx.now,
+    }),
+    countAppointments(ctx.organizationId, {
+      when: op.when,
+      status: op.status,
+      now: ctx.now,
+    }),
+  ]);
+  const cards = rows.slice(0, op.limit).map((a) => ({
+    id: a.id,
+    leadId: a.leadId,
+    leadName: a.leadName,
+    startsAt: a.startsAt,
+    status: a.status,
+    href: `/dashboard/leads/${a.leadId}`,
+  }));
+  const order =
+    op.when === "past" ? "most recent first" : op.when === "all" ? "upcoming first" : "soonest first";
   return outcome({
     type: "appointment_search",
     label: `${op.when}${op.status.length ? `, status ${op.status.join("|")}` : ""}; limit ${op.limit}`,
-    accuracy: scanCapped ? "partial" : "exact",
-    warnings: scanCapped
-      ? [`Only the ${APPT_SCAN_CAP} nearest appointments were scanned — there may be more than shown.`]
-      : [],
+    accuracy: "exact",
     assumptions:
-      matched.length > cards.length
-        ? [`${matched.length} appointments match; showing the ${cards.length} soonest.`]
+      total > cards.length
+        ? [`${total} appointments match; showing ${cards.length} (${order}).`]
         : [],
     data: {
       returned_count: cards.length,
-      total_count: scanCapped ? `at least ${matched.length}` : matched.length,
-      showing_all: !scanCapped && matched.length <= cards.length,
+      total_count: total,
+      showing_all: total <= cards.length,
       appointments: cards.map((c) => ({
         lead: c.leadName?.trim() || "(unnamed lead)",
         status: c.status,
         starts_at: c.startsAt,
       })),
     },
-    empty: cards.length === 0,
+    empty: cards.length === 0 && total === 0,
     view: { ...emptyView(), appointments: cards },
   });
 }
@@ -493,40 +503,32 @@ async function runAppointmentCount(
   op: Extract<PlannedOperation, { type: "appointment_count" }>,
   ctx: ExecutionContext,
 ): Promise<ExecutedOperation> {
-  // Exact path: the DB head-count of upcoming active appointments.
-  if (op.when === "upcoming" && op.status.length === 0) {
-    const count = await getUpcomingAppointmentCount(ctx.organizationId);
-    return outcome({
-      type: "appointment_count",
-      label: "upcoming",
-      accuracy: "exact",
-      data: { count, exact: true },
-      empty: count === 0,
-      view: { ...emptyView(), metrics: [{ key: "upcomingAppointments", value: count }] },
-    });
-  }
-  const all = await listAppointments(ctx.organizationId, APPT_SCAN_CAP, ctx.now);
-  const scanCapped = all.length >= APPT_SCAN_CAP;
-  const statusSet = new Set(op.status);
-  const count = all.filter(
-    (a) =>
-      (statusSet.size === 0 || statusSet.has(a.status as never)) &&
-      appointmentWhereWhen(op.when, a.startsAt, ctx.now),
-  ).length;
+  // "upcoming, any status" = the active upcoming count on the dashboard card
+  // (scheduled / rescheduled only). Every other combination is an exact
+  // `count: "exact"` head-count over the `when` window — never a capped scan.
+  const count =
+    op.when === "upcoming" && op.status.length === 0
+      ? await getUpcomingAppointmentCount(ctx.organizationId)
+      : await countAppointments(ctx.organizationId, {
+          when: op.when,
+          status: op.status,
+          now: ctx.now,
+        });
   return outcome({
     type: "appointment_count",
     label: `${op.when}${op.status.length ? `, status ${op.status.join("|")}` : ""}`,
-    accuracy: scanCapped ? "partial" : "exact",
-    warnings: scanCapped
-      ? [
-          `The appointment scan is capped at ${APPT_SCAN_CAP} rows and it was full, so the true count is HIGHER than ${count}. State this as "at least ${count}", never as an exact number.`,
-        ]
-      : [],
-    data: scanCapped
-      ? { at_least: count, exact: false, capped_at: APPT_SCAN_CAP }
-      : { count, exact: true },
-    empty: count === 0 && !scanCapped,
-    view: { ...emptyView(), metrics: [{ key: "upcomingAppointments", value: count }] },
+    accuracy: "exact",
+    data: { count, exact: true, when: op.when },
+    empty: count === 0,
+    view: {
+      ...emptyView(),
+      metrics: [
+        {
+          key: op.when === "upcoming" ? "upcomingAppointments" : "appointmentsBooked",
+          value: count,
+        },
+      ],
+    },
   });
 }
 

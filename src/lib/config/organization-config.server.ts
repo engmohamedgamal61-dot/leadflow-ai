@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   getEffectiveConfig,
   enabledLeadFields,
+  resolveTemplateOrGeneric,
   validateEffectiveConfig,
   type EffectiveConfig,
 } from "@/lib/config";
@@ -44,6 +45,15 @@ export async function loadEffectiveConfig(
   organizationId: string,
   industryTemplateId: string,
 ): Promise<EffectiveConfig> {
+  // Flag (don't crash) an organization whose stored industry slug is not a
+  // known template — the engine degrades to the neutral generic template, but
+  // this is almost always a data problem worth fixing.
+  if (!resolveTemplateOrGeneric(industryTemplateId).known) {
+    console.warn(
+      `[config] organization ${organizationId} has an unknown industry_template_id "${industryTemplateId}"; using the neutral generic template`,
+    );
+  }
+
   const stored = await loadStoredConfig(organizationId);
   const merged = effectiveConfigFromStored(
     organizationId,

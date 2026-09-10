@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { buildExtractionSystemPrompt, buildLeadSchema } from "./lead-schema.ts";
 import { getEffectiveConfig } from "./config/index.ts";
 
-const RE = getEffectiveConfig();
+const RE = getEffectiveConfig({ organizationId: "t", industryTemplateId: "real-estate" });
 const CLINIC = getEffectiveConfig({
   organizationId: "t",
   industryTemplateId: "clinic",

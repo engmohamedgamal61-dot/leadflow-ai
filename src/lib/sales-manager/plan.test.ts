@@ -7,6 +7,7 @@ import {
   OPERATION_TYPES,
   PLAN_JSON_SCHEMA,
   parsePlan,
+  priorityRankingApplies,
   resolveTimeRange,
   type PlannedOperation,
 } from "./plan.ts";
@@ -103,6 +104,39 @@ test("unsupported values are rejected across every strict filter/field", () => {
     if (!r.ok) {
       assert.equal(r.reason, "unsupported_filter_value");
       assert.equal(r.field, field);
+    }
+  }
+});
+
+test("an ABSENT top-level time_range defaults to all_time (no clarification)", () => {
+  for (const op of [
+    { type: "pipeline_metrics" },
+    { type: "conversion_summary" },
+    { type: "lead_count_grouped", group_by: "status" },
+    { type: "activity_search" },
+  ]) {
+    const r = parsePlan(raw([op]));
+    assert.equal(r.ok, true, `${op.type} with no time_range must parse`);
+    if (r.ok) {
+      const parsed = r.plan.operations[0] as { timeRange?: string };
+      assert.equal(parsed.timeRange, "all_time");
+    }
+  }
+});
+
+test("a PRESENT-but-unknown top-level time_range rejects the plan — never silently widened to all_time", () => {
+  for (const [op, badValue] of [
+    [{ type: "pipeline_metrics", time_range: "last_quarter" }, "last_quarter"],
+    [{ type: "conversion_summary", time_range: "q3" }, "q3"],
+    [{ type: "lead_count_grouped", group_by: "status", time_range: "ytd" }, "ytd"],
+    [{ type: "activity_search", time_range: "fortnight" }, "fortnight"],
+  ] as [Record<string, unknown>, string][]) {
+    const r = parsePlan(raw([op]));
+    assert.equal(r.ok, false, `${op.type} time_range=${badValue} must reject`);
+    if (!r.ok) {
+      assert.equal(r.reason, "unsupported_filter_value");
+      assert.equal(r.field, "time_range");
+      assert.equal(r.value, badValue);
     }
   }
 });
@@ -251,6 +285,44 @@ test("the JSON schema only advertises the allowlisted operation types", () => {
     [...PLAN_JSON_SCHEMA.properties.operations.items.properties.type.enum].sort(),
     [...OPERATION_TYPES].sort(),
   );
+});
+
+test("priorityRankingApplies: only for priority_desc with no custom filter and no staleness window", () => {
+  // the happy path
+  assert.equal(
+    priorityRankingApplies({ sort: "priority_desc", hasCustomFilter: false, staleFor: "all_time" }),
+    true,
+  );
+  // a staleness query CANNOT use the recently-updated priority scan (D1)
+  assert.equal(
+    priorityRankingApplies({ sort: "priority_desc", hasCustomFilter: false, staleFor: "last_30_days" }),
+    false,
+  );
+  // a custom_data filter has no priority signal
+  assert.equal(
+    priorityRankingApplies({ sort: "priority_desc", hasCustomFilter: true, staleFor: "all_time" }),
+    false,
+  );
+  // an explicit non-priority sort is honoured directly
+  assert.equal(
+    priorityRankingApplies({ sort: "created_desc", hasCustomFilter: false, staleFor: "all_time" }),
+    false,
+  );
+});
+
+test("no operation's field allowlist accepts an organization identifier — tenant scope can never come from the plan", () => {
+  const orgKeys = ["organization_id", "org_id", "organizationId", "organization", "tenant_id"];
+  // Every operation type's allowlist (plan.ts OPERATION_FIELDS) — none may list one.
+  for (const opType of OPERATION_TYPES) {
+    for (const key of orgKeys) {
+      const r = parsePlan(raw([{ type: opType, [key]: "victim-org" }]));
+      assert.equal(r.ok, false, `${opType} + ${key} must be rejected`);
+      if (!r.ok) {
+        assert.equal(r.reason, "unknown_field");
+        assert.equal(r.field, key);
+      }
+    }
+  }
 });
 
 test("resolveTimeRange produces sane rolling windows", () => {

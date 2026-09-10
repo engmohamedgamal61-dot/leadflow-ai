@@ -140,6 +140,9 @@ function deterministicAnswer(
         params: { count: Number(op.data.count ?? 0) },
       };
     case "appointment_count":
+      // The deterministic line is worded for upcoming appointments; a past / all
+      // count goes to the grounded answer so the window is phrased correctly.
+      if (op.data.when !== "upcoming") return null;
       return {
         key: "askLeadFlow.deterministic.appointmentCount",
         params: { count: Number(op.data.count ?? 0) },

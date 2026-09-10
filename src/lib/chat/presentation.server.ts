@@ -12,6 +12,7 @@
 import "server-only";
 
 import { getDictionary } from "@/i18n/server";
+import { hasIndustryTemplate } from "@/lib/config";
 import {
   resolveChatContext,
   type ChatContextInput,
@@ -60,6 +61,12 @@ export async function loadChatPresentation(
   }
 
   const org = ctx.organization;
+  if (org?.industryTemplateId && !hasIndustryTemplate(org.industryTemplateId)) {
+    // Same neutral degradation as the AI config path — surfaced so it can be fixed.
+    console.warn(
+      `[chat] organization ${org.organizationId} has an unknown industry_template_id "${org.industryTemplateId}"; showing the neutral generic chat`,
+    );
+  }
   return {
     presentation: resolveChatPresentation({
       industrySlug: org?.industryTemplateId ?? null,

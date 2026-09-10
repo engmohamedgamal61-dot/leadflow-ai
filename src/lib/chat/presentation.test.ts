@@ -7,6 +7,7 @@ import {
   genericChatPresentation,
   resolveChatPresentation,
 } from "./presentation.ts";
+import { getEffectiveConfig } from "../config/index.ts";
 
 const EN = en as unknown as Dictionary;
 const AR = ar as unknown as Dictionary;
@@ -78,6 +79,25 @@ test("an unknown / null industry → the NEUTRAL generic fallback, never real-es
 test("the generic fallback greeting is the neutral required copy", () => {
   assert.equal(genericChatPresentation(EN).greeting, "Hi! How can I help you today?");
   assert.equal(genericChatPresentation(AR).greeting, "مرحبًا! كيف يمكنني مساعدتك اليوم؟");
+});
+
+test("D3: for an unknown stored industry the chat SHELL and the effective AI CONFIG degrade the SAME way — neither is real-estate", () => {
+  for (const slug of ["legal", "restaurant", "unknown-industry", ""]) {
+    // chat shell → neutral generic
+    const shell = resolveChatPresentation({ industrySlug: slug, businessName: null, dict: EN });
+    assert.equal(shell.industrySlug, null);
+    assert.ok(!REAL_ESTATE_TOKENS.test(allText(shell)));
+
+    // effective AI config → neutral generic template, NOT real-estate
+    const cfg = getEffectiveConfig({ organizationId: "o", industryTemplateId: slug });
+    assert.equal(cfg.templateSlug, "generic", `${slug}: AI config must be generic, not real-estate`);
+    for (const reField of ["budget", "bedrooms", "propertyType", "financing"]) {
+      assert.ok(
+        !cfg.leadFields.some((f) => f.key === reField),
+        `${slug}: the AI must not ask for the real-estate field "${reField}"`,
+      );
+    }
+  }
 });
 
 test("business name is passed through, trimmed, and blank → null", () => {

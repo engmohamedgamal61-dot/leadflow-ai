@@ -357,12 +357,22 @@ function narrowScalarStrict<T extends string>(
   return { ok: false, value: raw.trim() };
 }
 
-/** Non-strict — a bad time range is harmless (defaults to all_time). */
-function narrowTimeRange(raw: unknown): TimeRangeKey {
-  if (typeof raw === "string" && (TIME_RANGE_KEYS as readonly string[]).includes(raw.toLowerCase())) {
-    return raw.toLowerCase() as TimeRangeKey;
-  }
-  return "all_time";
+/**
+ * A top-level `time_range` operation field. Absent → `all_time` (no
+ * clarification). Present but not in {@link TIME_RANGE_KEYS} → FAIL: silently
+ * widening "q3" / "last_quarter" to all-time would answer a different question.
+ */
+function parseTimeRangeField(
+  raw: unknown,
+): { ok: true; value: TimeRangeKey } | OpFail {
+  const r = narrowScalarStrict(raw, TIME_RANGE_KEYS, "all_time");
+  if (r.ok) return { ok: true, value: r.value };
+  return {
+    ok: false,
+    reason: "unsupported_filter_value",
+    field: "time_range",
+    value: r.value,
+  };
 }
 
 function clampLimit(raw: unknown, spec: { max: number; default: number }): number {
@@ -533,20 +543,25 @@ function parseOperation(raw: unknown): { ok: true; op: PlannedOperation } | OpFa
           value: groupBy.ok ? "(missing)" : groupBy.value,
         };
       }
+      const groupedRange = parseTimeRangeField(obj.time_range);
+      if (!groupedRange.ok) return groupedRange;
       return {
         ok: true,
         op: {
           type: "lead_count_grouped",
           groupBy: groupBy.value,
-          timeRange: narrowTimeRange(obj.time_range),
+          timeRange: groupedRange.value,
         },
       };
     }
-    case "pipeline_metrics":
+    case "pipeline_metrics": {
+      const pipelineRange = parseTimeRangeField(obj.time_range);
+      if (!pipelineRange.ok) return pipelineRange;
       return {
         ok: true,
-        op: { type: "pipeline_metrics", timeRange: narrowTimeRange(obj.time_range) },
+        op: { type: "pipeline_metrics", timeRange: pipelineRange.value },
       };
+    }
     case "compare_periods": {
       const metric = narrowScalarStrict(obj.metric, COMPARE_METRICS, "" as CompareMetric);
       if (!metric.ok || !(metric.value as string)) {
@@ -635,20 +650,26 @@ function parseOperation(raw: unknown): { ok: true; op: PlannedOperation } | OpFa
       if (!leadId) return { ok: false, reason: "invalid_operation", field: "lead_id" };
       return { ok: true, op: { type: "lead_details", leadId } };
     }
-    case "conversion_summary":
+    case "conversion_summary": {
+      const conversionRange = parseTimeRangeField(obj.time_range);
+      if (!conversionRange.ok) return conversionRange;
       return {
         ok: true,
-        op: { type: "conversion_summary", timeRange: narrowTimeRange(obj.time_range) },
+        op: { type: "conversion_summary", timeRange: conversionRange.value },
       };
-    case "activity_search":
+    }
+    case "activity_search": {
+      const activityRange = parseTimeRangeField(obj.time_range);
+      if (!activityRange.ok) return activityRange;
       return {
         ok: true,
         op: {
           type: "activity_search",
-          timeRange: narrowTimeRange(obj.time_range),
+          timeRange: activityRange.value,
           limit: clampLimit(obj.limit, LIMITS.activity_search),
         },
       };
+    }
   }
 }
 
@@ -720,6 +741,32 @@ export function parsePlan(raw: unknown): ParsePlanResult {
       confidence: confidence.value,
     },
   };
+}
+
+// ── execution-shape helpers ──────────────────────────────────────────────────
+
+/**
+ * Whether a `lead_search` may use the in-memory priority ranking (the
+ * `getLeadInsightCandidates` scan) rather than a plain DB sort.
+ *
+ * That scan reads the **most-recently-updated** open leads, so it structurally
+ * cannot serve:
+ *   - a `stale_for` query (which wants the LEAST-recently-updated leads — the
+ *     priority scan would return an unrepresentative near-empty slice), or
+ *   - a `custom_data` filter (no priority signal is computed for those).
+ * In both cases the caller falls back to a deterministic DB sort.
+ */
+export function priorityRankingApplies(input: {
+  sort: LeadSort;
+  /** A `custom_data` filter is active after unknown-key dropping. */
+  hasCustomFilter: boolean;
+  staleFor: TimeRangeKey;
+}): boolean {
+  return (
+    input.sort === "priority_desc" &&
+    !input.hasCustomFilter &&
+    input.staleFor === "all_time"
+  );
 }
 
 // ── offline fallback: keyword intent → a single operation ─────────────────────

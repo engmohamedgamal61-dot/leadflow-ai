@@ -1270,40 +1270,51 @@ export async function getUpcomingAppointments(
 }
 
 /**
- * Appointments for the `/dashboard/appointments` view — every status, soonest
- * upcoming first then the most recent past ones. Bounded.
+ * Appointments for the `/dashboard/appointments` view and Ask LeadFlow's
+ * `appointment_search`. The `when` filter is pushed into SQL BEFORE the row
+ * limit, so a "past" query is never crowded out by a wall of upcoming rows.
  */
 export interface AppointmentListRow extends UpcomingAppointmentRow {
   /** Its scheduled start time is in the past. */
   past: boolean;
 }
 
+export type AppointmentWhen = "upcoming" | "past" | "all";
+
+export interface AppointmentListOptions {
+  /** Time window relative to `now`. Default `"all"`. */
+  when?: AppointmentWhen;
+  /** Restrict to these appointment statuses (empty / omitted → every status). */
+  status?: string[];
+  /** Row cap per window. Default 60. */
+  limit?: number;
+  now?: Date;
+}
+
+function appointmentQuery(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  organizationId: string,
+  status: string[] | undefined,
+) {
+  let q = supabase
+    .from("appointments")
+    .select(`${APPOINTMENT_COLUMNS}, leads ( name )`)
+    .eq("organization_id", organizationId);
+  if (status && status.length > 0) q = q.in("status", status);
+  return q;
+}
+
 export async function listAppointments(
   organizationId: string,
-  limit = 60,
-  now: Date = new Date(),
+  opts: AppointmentListOptions = {},
 ): Promise<AppointmentListRow[]> {
+  const when = opts.when ?? "all";
+  const limit = opts.limit ?? 60;
+  const now = opts.now ?? new Date();
   const supabase = await createClient();
   const nowIso = now.toISOString();
-  const [upcoming, past] = await Promise.all([
-    supabase
-      .from("appointments")
-      .select(`${APPOINTMENT_COLUMNS}, leads ( name )`)
-      .eq("organization_id", organizationId)
-      .gte("starts_at", nowIso)
-      .order("starts_at", { ascending: true })
-      .limit(limit),
-    supabase
-      .from("appointments")
-      .select(`${APPOINTMENT_COLUMNS}, leads ( name )`)
-      .eq("organization_id", organizationId)
-      .lt("starts_at", nowIso)
-      .order("starts_at", { ascending: false })
-      .limit(limit),
-  ]);
-  if (upcoming.error) throw upcoming.error;
-  if (past.error) throw past.error;
   const nowMs = now.getTime();
+
   const shape = (r: unknown): AppointmentListRow => {
     const row = toAppointmentRow(r as Parameters<typeof toAppointmentRow>[0]);
     const lead = (r as { leads?: { name: string | null } | null }).leads;
@@ -1313,10 +1324,58 @@ export async function listAppointments(
       past: Date.parse(row.startsAt) < nowMs,
     };
   };
+
+  const upcomingQ = () =>
+    appointmentQuery(supabase, organizationId, opts.status)
+      .gte("starts_at", nowIso)
+      .order("starts_at", { ascending: true })
+      .limit(limit);
+  const pastQ = () =>
+    appointmentQuery(supabase, organizationId, opts.status)
+      .lt("starts_at", nowIso)
+      .order("starts_at", { ascending: false })
+      .limit(limit);
+
+  if (when === "upcoming") {
+    const { data, error } = await upcomingQ();
+    if (error) throw error;
+    return (data ?? []).map(shape);
+  }
+  if (when === "past") {
+    const { data, error } = await pastQ();
+    if (error) throw error;
+    return (data ?? []).map(shape);
+  }
+  // "all" — soonest upcoming first, then the most recent past ones.
+  const [upcoming, past] = await Promise.all([upcomingQ(), pastQ()]);
+  if (upcoming.error) throw upcoming.error;
+  if (past.error) throw past.error;
   return [
     ...(upcoming.data ?? []).map(shape),
     ...(past.data ?? []).map(shape),
-  ].slice(0, limit);
+  ];
+}
+
+/**
+ * Exact, tenant-scoped head-count of appointments in a time window — the
+ * `count: "exact"` path, so a "how many past appointments" answer is never
+ * distorted by a scan cap.
+ */
+export async function countAppointments(
+  organizationId: string,
+  opts: { when?: AppointmentWhen; status?: string[]; now?: Date } = {},
+): Promise<number> {
+  const supabase = await createClient();
+  const nowIso = (opts.now ?? new Date()).toISOString();
+  let q = supabase
+    .from("appointments")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId);
+  if (opts.status && opts.status.length > 0) q = q.in("status", opts.status);
+  if (opts.when === "upcoming") q = q.gte("starts_at", nowIso);
+  else if (opts.when === "past") q = q.lt("starts_at", nowIso);
+  const { count } = await q;
+  return count ?? 0;
 }
 
 /** How many active appointments are still upcoming — for the executive summary card. */

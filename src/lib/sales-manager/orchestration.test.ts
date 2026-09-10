@@ -321,6 +321,82 @@ test("a single PARTIAL / capped result is NOT templated — it goes to the groun
   assert.ok(calls.generateAnswer[0].groundingText.includes("appointment_count"));
 });
 
+test("E1: an unknown top-level time_range → a SPECIFIC clarification naming time_range, nothing executed", async () => {
+  const { deps, calls } = makeDeps({
+    plan: async () => plan([{ type: "pipeline_metrics", time_range: "last_quarter" }]),
+  });
+  const res = await runAsk("how did we do last quarter", deps);
+  assert.equal(res.state, "needs_clarification");
+  assert.equal(res.answerKey, "askLeadFlow.clarify.filterValue");
+  assert.deepEqual(res.answerParams, { field: "time_range", value: "last_quarter" });
+  assert.equal(res.clarifyReason, "unsupported_filter_value:time_range");
+  assert.equal(calls.execute.length, 0);
+});
+
+test("D2: appointment_count for PAST is exact but NOT the 'upcoming' template — it goes to the grounded answer", async () => {
+  const { deps, calls } = makeDeps({
+    plan: async () => plan([{ type: "appointment_count", status: [], when: "past" }]),
+    executed: [
+      execOp(
+        "appointment_count",
+        { count: 47, exact: true, when: "past" },
+        { accuracy: "exact", metrics: [{ key: "appointmentsBooked", value: 47 }] },
+      ),
+    ],
+  });
+  const res = await runAsk("how many past appointments have we had?", deps);
+  assert.equal(res.state, "answered");
+  assert.equal(res.answerKey, null, "the 'upcoming appointments' template must not be used for a past count");
+  assert.equal(calls.generateAnswer.length, 1);
+  assert.ok(calls.generateAnswer[0].groundingText.includes("47"));
+});
+
+test("D2: appointment_count for UPCOMING (exact) still uses the deterministic template, no answer call", async () => {
+  const { deps, calls } = makeDeps({
+    plan: async () => plan([{ type: "appointment_count", status: [], when: "upcoming" }]),
+    executed: [
+      execOp(
+        "appointment_count",
+        { count: 6, exact: true, when: "upcoming" },
+        { accuracy: "exact", metrics: [{ key: "upcomingAppointments", value: 6 }] },
+      ),
+    ],
+  });
+  const res = await runAsk("how many upcoming appointments?", deps);
+  assert.equal(res.state, "answered");
+  assert.equal(res.answerKey, "askLeadFlow.deterministic.appointmentCount");
+  assert.deepEqual(res.answerParams, { count: 6 });
+  assert.equal(calls.generateAnswer.length, 0);
+});
+
+test("D1: a lead_search that returned 0 rows but is NOT flagged empty (its exact count proves matches) → grounded answer, never the no-data line", async () => {
+  const { deps, calls } = makeDeps({
+    plan: async () =>
+      plan([{ type: "lead_search", filters: { stale_for: "last_30_days" }, sort: "priority_desc", limit: 8 }]),
+    executed: [
+      execOp(
+        "lead_search",
+        { returned_count: 0, total_count: 47, showing_all: false, leads: [] },
+        {
+          empty: false, // total_count proves 47 match — must NOT collapse to no_data
+          accuracy: "proxy",
+          warnings: ["updated_at is not a contact signal"],
+          assumptions: ["47 leads match; only the top 0 are shown."],
+        },
+      ),
+    ],
+  });
+  const res = await runAsk("which priority leads have gone quiet for a month?", deps);
+  assert.notEqual(res.state, "no_data");
+  assert.equal(res.state, "answered");
+  assert.equal(calls.generateAnswer.length, 1);
+  assert.ok(calls.generateAnswer[0].groundingText.includes("47"));
+  assert.ok(
+    calls.generateAnswer[0].groundingText.toLowerCase().includes("proxy"),
+    "the stale_for proxy caveat must reach the grounded answer",
+  );
+});
+
 test("lead_lookup ambiguous → grounded answer with candidates (never a canned no-data, never auto-picked)", async () => {
   const { deps, calls } = makeDeps({
     plan: async () => plan([{ type: "lead_lookup", by: "name", value: "أحمد" }]),

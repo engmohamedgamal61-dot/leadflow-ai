@@ -15,7 +15,7 @@
 
 import { resolveEffectiveConfig, enabledLeadFields } from "./effective-config.ts";
 import { validateEffectiveConfig, type ValidationResult } from "./validate.ts";
-import { getIndustryTemplate, DEFAULT_INDUSTRY_SLUG } from "./registry.ts";
+import { resolveTemplateOrGeneric } from "./registry.ts";
 import type {
   AiBehaviorConfig,
   AiBehaviorOverride,
@@ -173,15 +173,18 @@ export function toOrganizationConfig(
   return { organizationId, industryTemplateId, ...stored };
 }
 
-/** Merge a stored blob with its industry template into an EffectiveConfig. */
+/**
+ * Merge a stored blob with its industry template into an EffectiveConfig. An
+ * unknown / missing `industryTemplateId` resolves to the neutral generic
+ * template (never real-estate); overrides that referenced the old industry's
+ * fields become orphans and are ignored by the merge.
+ */
 export function effectiveConfigFromStored(
   organizationId: string,
   industryTemplateId: string,
   stored: StoredOrgConfig,
 ) {
-  const template =
-    getIndustryTemplate(industryTemplateId) ??
-    getIndustryTemplate(DEFAULT_INDUSTRY_SLUG)!;
+  const { template } = resolveTemplateOrGeneric(industryTemplateId);
   return resolveEffectiveConfig(
     template,
     toOrganizationConfig(organizationId, template.slug, stored),

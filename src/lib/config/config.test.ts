@@ -2,10 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   DEFAULT_INDUSTRY_SLUG,
+  genericTemplate,
   getEffectiveConfig,
   getIndustryTemplate,
+  hasIndustryTemplate,
   listIndustryTemplates,
   resolveEffectiveConfig,
+  resolveTemplateOrGeneric,
   validateEffectiveConfig,
   validateIndustryTemplate,
 } from "./index.ts";
@@ -145,15 +148,31 @@ test("malformed input does not crash validation", () => {
   }
 });
 
-test("effective config with no override equals the template defaults", () => {
-  const effective = getEffectiveConfig();
+test("effective config with an explicit industry equals that template's defaults", () => {
+  const effective = getEffectiveConfig({
+    organizationId: "t",
+    industryTemplateId: "real-estate",
+  });
   assert.equal(effective.templateSlug, "real-estate");
-  assert.equal(effective.organizationId, null);
   assert.deepEqual(
     effective.leadFields.map((f) => f.key),
     realEstateTemplate.leadFields.map((f) => f.key),
   );
   assert.deepEqual(effective.scoring, realEstateTemplate.scoring);
+  assert.equal(validateEffectiveConfig(effective).valid, true);
+});
+
+test("effective config with NO organization uses the neutral generic template — never real-estate", () => {
+  const effective = getEffectiveConfig();
+  assert.equal(effective.templateSlug, "generic");
+  assert.equal(effective.organizationId, null);
+  // none of real-estate's industry-specific fields leak in
+  for (const key of ["budget", "bedrooms", "propertyType", "financing", "intent"]) {
+    assert.ok(
+      !effective.leadFields.some((f) => f.key === key),
+      `generic config must not contain the real-estate field "${key}"`,
+    );
+  }
   assert.equal(validateEffectiveConfig(effective).valid, true);
 });
 
@@ -234,12 +253,42 @@ test("resolveEffectiveConfig tolerates a null / empty override", () => {
   );
 });
 
-test("getEffectiveConfig falls back to default for an unknown template id", () => {
-  const effective = getEffectiveConfig({
-    organizationId: "org_y",
-    industryTemplateId: "totally-unknown-industry",
-  });
-  assert.equal(effective.templateSlug, "real-estate");
+test("an unknown stored industry slug degrades to the neutral generic template — NEVER real-estate", () => {
+  for (const slug of ["totally-unknown-industry", "legal", "real_estate", "REAL-ESTATE", ""]) {
+    const effective = getEffectiveConfig({
+      organizationId: "org_y",
+      industryTemplateId: slug,
+    });
+    assert.equal(effective.templateSlug, "generic", `slug "${slug}" must resolve to generic`);
+    assert.ok(
+      !effective.leadFields.some((f) => f.key === "budget"),
+      `slug "${slug}" must not get real-estate's budget field`,
+    );
+  }
+});
+
+test("resolveTemplateOrGeneric: known slug → the template (known:true); anything else → generic (known:false)", () => {
+  assert.deepEqual(
+    { slug: resolveTemplateOrGeneric("clinic").template.slug, known: resolveTemplateOrGeneric("clinic").known },
+    { slug: "clinic", known: true },
+  );
+  assert.deepEqual(
+    { slug: resolveTemplateOrGeneric("real-estate").template.slug, known: resolveTemplateOrGeneric("real-estate").known },
+    { slug: "real-estate", known: true },
+  );
+  for (const bad of ["legal", "", null, undefined]) {
+    const r = resolveTemplateOrGeneric(bad);
+    assert.equal(r.template.slug, "generic");
+    assert.equal(r.known, false);
+  }
+});
+
+test("the generic template is a valid IndustryTemplate but is NOT in the registry", () => {
+  assert.equal(validateIndustryTemplate(genericTemplate).valid, true);
+  assert.equal(genericTemplate.slug, "generic");
+  assert.equal(getIndustryTemplate("generic"), undefined);
+  assert.equal(hasIndustryTemplate("generic"), false);
+  assert.ok(!listIndustryTemplates().some((t) => t.slug === "generic"));
 });
 
 // ── Clinic ────────────────────────────────────────────────────────────────

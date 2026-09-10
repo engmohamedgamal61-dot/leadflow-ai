@@ -9,7 +9,7 @@ import { getEffectiveConfig } from "../config/index.ts";
 import { effectiveConfigFromStored } from "../config/organization-config.ts";
 import type { LeadData } from "../../types/chat.ts";
 
-const RE = getEffectiveConfig();
+const RE = getEffectiveConfig({ organizationId: "o", industryTemplateId: "real-estate" });
 const CLINIC = getEffectiveConfig({ organizationId: "o", industryTemplateId: "clinic" });
 
 const emptyLead: LeadData = {
