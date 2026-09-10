@@ -157,7 +157,7 @@ export const en = {
       "This picks the AI qualification template your workspace starts from. You can fine-tune it later.",
     signedInAs: "Signed in as {email}",
     orgNameLabel: "Organization name",
-    orgNamePlaceholder: "Acme Realty",
+    orgNamePlaceholder: "Acme Inc.",
     industryLabel: "Industry template",
     submit: "Create organization",
     submitting: "Creating organization…",
@@ -644,6 +644,24 @@ export const en = {
       invalid: "Those settings aren't valid.",
       noPermission: "You don't have permission to change these settings.",
       malformed: "Malformed form data.",
+    },
+  },
+
+  settingsIndustry: {
+    title: "Business type",
+    subtitle:
+      "The industry template your assistant, lead fields and scoring are built on. Changing it rebuilds all three.",
+    currentTag: "current",
+    resetWarning:
+      "Changing the business type resets your AI-behavior, qualification and scoring customizations to the new template's defaults. You can re-customize them below afterwards.",
+    save: "Change business type",
+    saving: "Applying…",
+    saved: "Business type updated. Customizations were reset to the new template's defaults.",
+    readonly: "Read-only — an owner or admin can change the business type.",
+    errors: {
+      forbidden: "Only an owner or admin can change the business type.",
+      invalid: "Choose one of the supported business types.",
+      failed: "That change couldn't be applied. Please try again.",
     },
   },
 
@@ -1298,9 +1316,6 @@ export const en = {
     composerLabel: "Message",
     sendMessage: "Send message",
     disclaimer: "LeadFlow AI is an automated assistant and can make mistakes.",
-    greeting: "Hi! 👋 How can I help you today?",
-    emptySubtitle:
-      "Tell LeadFlow AI what you're looking for and it will help narrow down the right property for you.",
     seeExample: "See an example conversation",
     typing: "LeadFlow AI is typing",
     you: "You",
@@ -1319,18 +1334,6 @@ export const en = {
       usageLimitReached:
         "This assistant has reached its usage limit for now. Please try again later.",
     },
-    suggestedPrompts: [
-      "I'm looking for an apartment in Riyadh.",
-      "I want to buy a villa in Jeddah.",
-      "Do you have offices for rent in Riyadh?",
-    ],
-    exampleConversation: [
-      "I'm looking for an apartment in Riyadh.",
-      "Great. Which area are you interested in?",
-      "North Riyadh.",
-      "Perfect. What's your approximate budget?",
-      "Around 800,000 SAR.",
-    ],
   },
 
   errors: {
@@ -1489,15 +1492,64 @@ export const en = {
   },
 
   industries: {
+    // `chat` holds the customer-facing chat SHELL for this industry: the
+    // greeting, the one-line subtitle, the starter prompts and the "see an
+    // example" turns. It is resolved per organization by
+    // `resolveChatPresentation` from the org's `industry_template_id`; an
+    // unknown / missing industry falls back to `industries.generic.chat`.
     "real-estate": {
       name: "Real Estate",
       description:
         "Qualify inbound property buyers and renters: intent, area, budget, property type, bedrooms, financing and timeline.",
+      chat: {
+        greeting: "Hi! 👋 What kind of property are you looking for?",
+        subtitle:
+          "Tell us what you're looking for and we'll help you find the right property.",
+        suggestedPrompts: [
+          "I'm looking for an apartment in Riyadh.",
+          "I want to buy a villa in Jeddah.",
+          "Do you have offices for rent?",
+        ],
+        example: [
+          "I'm looking for an apartment in Riyadh.",
+          "Great — which area are you interested in?",
+          "North Riyadh.",
+          "Perfect. What's your approximate budget?",
+          "Around 800,000 SAR.",
+        ],
+      },
     },
     clinic: {
       name: "Clinic",
       description:
         "Collect a patient's appointment inquiry: service, preferred doctor, date, insurance and urgency.",
+      chat: {
+        greeting: "Hi! 👋 How can we help you book an appointment?",
+        subtitle:
+          "Tell us what you need and we'll help you book the right appointment.",
+        suggestedPrompts: [
+          "I'd like to book a dental cleaning.",
+          "Do you have a dermatologist available this week?",
+          "I need a physiotherapy appointment.",
+        ],
+        example: [
+          "I'd like to book a dental cleaning.",
+          "Of course — do you have a preferred day?",
+          "Sometime next week.",
+          "Got it. Do you have medical insurance?",
+          "Yes, I do.",
+        ],
+      },
+    },
+    generic: {
+      name: "General",
+      description: "A generic lead-intake assistant.",
+      chat: {
+        greeting: "Hi! How can I help you today?",
+        subtitle: "Ask a question to get started.",
+        suggestedPrompts: [],
+        example: [],
+      },
     },
   },
 } as const;

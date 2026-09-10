@@ -24,17 +24,20 @@ interface SubmitButtonProps {
   pending: boolean;
   children: React.ReactNode;
   pendingLabel?: string;
+  /** Block submission for a reason other than "pending" (e.g. a required choice not made). */
+  disabled?: boolean;
 }
 
 export function SubmitButton({
   pending,
   children,
   pendingLabel = "Please wait…",
+  disabled = false,
 }: SubmitButtonProps) {
   return (
     <button
       type="submit"
-      disabled={pending}
+      disabled={pending || disabled}
       className="flex w-full items-center justify-center rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
     >
       {pending ? pendingLabel : children}

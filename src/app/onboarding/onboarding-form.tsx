@@ -21,7 +21,10 @@ const INITIAL: OnboardingFormState = {};
 export function OnboardingForm({ industries }: { industries: IndustryOption[] }) {
   const { t } = useI18n();
   const [state, formAction, pending] = useActionState(onboardAction, INITIAL);
-  const [industry, setIndustry] = useState(industries[0]?.slug ?? "");
+  // No default: the user must explicitly pick an industry. This also means a
+  // form that never hydrated has NO radio checked → the server rejects it
+  // (see `validateIndustrySlug`), so a stale client can't silently pick one.
+  const [industry, setIndustry] = useState("");
 
   const fieldError = (err?: ValidationError) =>
     err ? t(`validation.${err.code}`, err.params) : undefined;
@@ -83,7 +86,11 @@ export function OnboardingForm({ industries }: { industries: IndustryOption[] })
         ) : null}
       </fieldset>
 
-      <SubmitButton pending={pending} pendingLabel={t("onboarding.submitting")}>
+      <SubmitButton
+        pending={pending}
+        disabled={industry === ""}
+        pendingLabel={t("onboarding.submitting")}
+      >
         {t("onboarding.submit")}
       </SubmitButton>
     </form>

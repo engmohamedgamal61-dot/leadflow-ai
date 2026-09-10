@@ -86,3 +86,24 @@ test("validateOnboarding validates name + industry against the registry", () => 
   assert.ok(bad.fieldErrors.name);
   assert.ok(bad.fieldErrors.industry);
 });
+
+test("validateOnboarding: server rejects a missing / non-string / unknown industry", () => {
+  const allowed = ["real-estate", "clinic"];
+  // no selection at all (stale/unhydrated form → no radio checked → nothing submitted)
+  for (const missing of ["", undefined, null] as const) {
+    const r = validateOnboarding("Bright Clinic", missing, allowed);
+    assert.equal(r.ok, false, `industry=${JSON.stringify(missing)} must be rejected`);
+    assert.equal(r.fieldErrors.industry?.code, "industry.required");
+    assert.equal(r.industry, "", "a non-string industry echoes back as empty, never a default");
+  }
+  // a syntactically-valid-but-unsupported slug
+  const unknown = validateOnboarding("Bright Clinic", "spaceship", allowed);
+  assert.equal(unknown.ok, false);
+  assert.equal(unknown.fieldErrors.industry?.code, "industry.invalid");
+});
+
+test("validateOnboarding: an explicit clinic / real-estate choice passes through unchanged", () => {
+  const allowed = ["real-estate", "clinic"];
+  assert.equal(validateOnboarding("A", "clinic", allowed).industry, "clinic");
+  assert.equal(validateOnboarding("A", "real-estate", allowed).industry, "real-estate");
+});

@@ -2,10 +2,12 @@ import type { Metadata } from "next";
 import { requireOrganizationContext, canManageConfig } from "@/lib/org/context";
 import { getIndustryTemplate, effectiveConfigFromStored } from "@/lib/config";
 import { loadStoredConfig } from "@/lib/config/organization-config.server";
+import { selectableIndustrySlugs } from "@/lib/org/industry";
 import { maxScore } from "@/lib/lead-scoring";
 import { AiAgentIcon } from "@/components/icons";
 import { getI18n } from "@/i18n/server";
 import { AiBehaviorForm } from "./ai-behavior-form";
+import { IndustryForm, type IndustryChoice } from "./industry-form";
 import { QualificationForm, type QualRow } from "./qualification-form";
 import { ScoringForm } from "./scoring-form";
 
@@ -56,6 +58,15 @@ export default async function AiSettingsPage() {
     inFlow: templateFlowKeys.has(f.key),
   }));
 
+  const industryChoices: IndustryChoice[] = selectableIndustrySlugs()
+    .map(getIndustryTemplate)
+    .filter((tpl): tpl is NonNullable<typeof tpl> => tpl !== undefined)
+    .map((tpl) => ({
+      slug: tpl.slug,
+      name: tOptional(tpl.nameKey ?? "") ?? tpl.name,
+      description: tOptional(tpl.descriptionKey ?? "") ?? tpl.description,
+    }));
+
   return (
     <div className="space-y-6">
       <div>
@@ -73,15 +84,30 @@ export default async function AiSettingsPage() {
         ) : null}
       </div>
 
+      <IndustryForm
+        current={membership.industryTemplateId}
+        choices={industryChoices}
+        canManage={canManage}
+      />
+
+      {/* Keyed by the template so a Business-type change remounts these forms
+          with the new template's defaults (their state is initialised from
+          props, and the overrides were just reset). */}
       <AiBehaviorForm
+        key={`behavior-${membership.industryTemplateId}`}
         effective={effective.aiBehavior}
         templateDefaults={template.aiBehavior}
         canManage={canManage}
       />
 
-      <QualificationForm rows={rows} canManage={canManage} />
+      <QualificationForm
+        key={`qual-${membership.industryTemplateId}`}
+        rows={rows}
+        canManage={canManage}
+      />
 
       <ScoringForm
+        key={`scoring-${membership.industryTemplateId}`}
         hot={effective.scoring.thresholds.hot}
         warm={effective.scoring.thresholds.warm}
         templateHot={template.scoring.thresholds.hot}

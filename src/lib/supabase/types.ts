@@ -1141,6 +1141,16 @@ export interface Database {
         Returns: Database["public"]["Tables"]["organizations"]["Row"];
       };
       /**
+       * Change the caller's organization's industry template (owner/admin
+       * only; org derived from `auth.uid()`). Resets
+       * `organization_configs.config` to `{}` because overrides are
+       * industry-coupled. See `20260909130000_organization_industry.sql`.
+       */
+      set_organization_industry: {
+        Args: { p_industry_template_id: string };
+        Returns: Database["public"]["Tables"]["organizations"]["Row"];
+      };
+      /**
        * Follow-up scheduler claim (service-role only). Atomically moves a
        * bounded batch of due `pending` follow-ups (plus stuck `processing`
        * rows) to `processing` via `FOR UPDATE SKIP LOCKED` and returns them.

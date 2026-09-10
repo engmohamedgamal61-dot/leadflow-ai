@@ -50,6 +50,7 @@ before(async () => {
   users.push(await makeUser("a"));
   users.push(await makeUser("b"));
   users.push(await makeUser("c")); // never onboards
+  users.push(await makeUser("d")); // used for the "reject missing industry" cases
 });
 
 after(async () => {
@@ -102,6 +103,21 @@ test("industry template selection is honoured (clinic)", { skip }, async () => {
   });
   assert.equal(error, null);
   assert.equal(org.industry_template_id, "clinic");
+});
+
+test("create_organization_with_owner REJECTS a missing / empty / malformed industry — it never defaults to real-estate", { skip }, async () => {
+  const [, , , d] = users;
+  for (const bad of ["", "   ", null, "not a slug!", "Real Estate"]) {
+    const { data, error } = await d.client.rpc("create_organization_with_owner", {
+      p_name: "Should Not Exist",
+      p_industry_template_id: bad,
+    });
+    assert.ok(error, `p_industry_template_id=${JSON.stringify(bad)} must raise`);
+    assert.equal(data, null);
+  }
+  // ...and nothing was created for user d.
+  const rows = await admin.from("organization_members").select("id").eq("user_id", d.id);
+  assert.equal(rows.data.length, 0, "no org created from a rejected industry");
 });
 
 test("a second onboarding for the same user is rejected — no duplicate org", { skip }, async () => {

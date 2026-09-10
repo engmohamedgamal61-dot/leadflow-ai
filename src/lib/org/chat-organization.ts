@@ -105,6 +105,7 @@ export async function resolveChatContext(
     demoOrg: demo
       ? {
           organizationId: demo.organizationId,
+          organizationName: demo.organizationName,
           industryTemplateId: demo.industryTemplateId,
         }
       : null,

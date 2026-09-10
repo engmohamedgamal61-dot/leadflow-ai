@@ -1,13 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   EMPTY_LEAD,
   type AssistantClient,
   type ChatMessage,
   type LeadData,
 } from "@/types/chat";
-import { getEffectiveConfig, type EffectiveConfig } from "@/lib/config";
 import { apiAssistant } from "@/lib/chat/api-assistant";
 import { ASSISTANT_GREETING } from "@/lib/chat/mock-data";
 
@@ -57,8 +56,6 @@ export interface UseChatResult {
   status: ChatStatus;
   isResponding: boolean;
   error: string | null;
-  /** The effective configuration this conversation runs on. */
-  config: EffectiveConfig;
   /** Structured lead data extracted from the conversation so far. */
   lead: LeadData;
   sendMessage: (content: string) => Promise<void>;
@@ -82,16 +79,6 @@ export function useChat({
   const [status, setStatus] = useState<ChatStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [lead, setLead] = useState<LeadData>(EMPTY_LEAD);
-
-  const config = useMemo(
-    () =>
-      getEffectiveConfig(
-        industry
-          ? { organizationId: "ui", industryTemplateId: industry }
-          : null,
-      ),
-    [industry],
-  );
 
   // The persisted conversation id, returned by the server after the first
   // turn and echoed back on subsequent turns so the chat continues one
@@ -219,7 +206,6 @@ export function useChat({
     status,
     isResponding: status !== "idle",
     error,
-    config,
     lead,
     sendMessage,
     setConversation,

@@ -2,6 +2,8 @@ import type { UserMembership } from "@/lib/org/membership";
 
 export interface ChatOrganization {
   organizationId: string;
+  /** The organization's display name — used for the customer chat's branding. */
+  organizationName: string | null;
   industryTemplateId: string;
   /** How the organization was resolved. */
   source: "member" | "widget" | "dev-demo";
@@ -27,6 +29,7 @@ export interface ChatContext {
 
 export interface DemoOrg {
   organizationId: string;
+  organizationName?: string | null;
   industryTemplateId: string;
 }
 
@@ -43,7 +46,10 @@ export interface DemoOrg {
 export function buildChatContext(input: {
   authenticated: boolean;
   membership:
-    | Pick<UserMembership, "organizationId" | "industryTemplateId">
+    | Pick<
+        UserMembership,
+        "organizationId" | "organizationName" | "industryTemplateId"
+      >
     | null;
   /** Resolved from a per-org website widget key (anonymous, but a real tenant). */
   widgetOrg: DemoOrg | null;
@@ -54,6 +60,7 @@ export function buildChatContext(input: {
       organization: input.membership
         ? {
             organizationId: input.membership.organizationId,
+            organizationName: input.membership.organizationName || null,
             industryTemplateId: input.membership.industryTemplateId,
             source: "member",
           }
@@ -68,6 +75,7 @@ export function buildChatContext(input: {
     return {
       organization: {
         organizationId: input.widgetOrg.organizationId,
+        organizationName: input.widgetOrg.organizationName || null,
         industryTemplateId: input.widgetOrg.industryTemplateId,
         source: "widget",
       },
@@ -79,6 +87,7 @@ export function buildChatContext(input: {
     organization: input.demoOrg
       ? {
           organizationId: input.demoOrg.organizationId,
+          organizationName: input.demoOrg.organizationName || null,
           industryTemplateId: input.demoOrg.industryTemplateId,
           source: "dev-demo",
         }

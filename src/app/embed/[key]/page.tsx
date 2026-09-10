@@ -7,6 +7,8 @@ import {
   devOriginsAllowed,
   evaluateWidgetOrigin,
 } from "@/lib/org/widget-origin";
+import { getDictionary } from "@/i18n/server";
+import { resolveChatPresentation } from "@/lib/chat/presentation";
 import { ChatWindow } from "@/components/chat/chat-window";
 
 export const dynamic = "force-dynamic";
@@ -60,9 +62,18 @@ export default async function EmbedWidgetPage({
     if (!decision.allowed) notFound();
   }
 
+  // The customer org is now trusted (resolved server-side from the widget key).
+  // Build its chat presentation — its own template's copy, its own name.
+  const dict = await getDictionary();
+  const presentation = resolveChatPresentation({
+    industrySlug: resolved.industryTemplateId,
+    businessName: resolved.organizationName,
+    dict,
+  });
+
   return (
     <main className="flex min-h-[100dvh] flex-col bg-background">
-      <ChatWindow widgetKey={key} />
+      <ChatWindow widgetKey={key} presentation={presentation} />
     </main>
   );
 }

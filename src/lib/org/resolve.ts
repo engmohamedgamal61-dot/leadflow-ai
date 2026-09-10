@@ -3,6 +3,7 @@ import { createAdminClient } from "../supabase/admin.ts";
 
 export interface ResolvedOrganization {
   organizationId: string;
+  organizationName: string;
   industryTemplateId: string;
   /** How the organization was resolved. Only "dev-demo" until Auth lands. */
   source: "dev-demo";
@@ -66,7 +67,7 @@ export async function resolveDevOrganization(
   try {
     const { data, error } = await admin
       .from("organizations")
-      .select("id, slug, industry_template_id, status")
+      .select("id, name, slug, industry_template_id, status")
       .eq("slug", slug)
       .maybeSingle();
 
@@ -84,6 +85,7 @@ export async function resolveDevOrganization(
 
     return {
       organizationId: data.id,
+      organizationName: data.name,
       industryTemplateId: data.industry_template_id,
       source: "dev-demo",
     };

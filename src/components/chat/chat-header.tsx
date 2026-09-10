@@ -5,11 +5,15 @@ import { LanguageSwitcher } from "@/components/i18n/language-switcher";
 import { useI18n } from "@/i18n/client";
 
 interface ChatHeaderProps {
+  /** Business name — from the org's `ChatPresentation`. Falls back to the product name. */
+  title?: string;
+  /** One-line subtitle — from the org's `ChatPresentation`. */
+  subtitle: string;
   onReset: () => void;
   canReset: boolean;
 }
 
-export function ChatHeader({ onReset, canReset }: ChatHeaderProps) {
+export function ChatHeader({ title, subtitle, onReset, canReset }: ChatHeaderProps) {
   const { t } = useI18n();
 
   return (
@@ -18,11 +22,11 @@ export function ChatHeader({ onReset, canReset }: ChatHeaderProps) {
         <AssistantAvatar size="md" />
         <div className="leading-tight">
           <p className="text-sm font-semibold tracking-tight">
-            {t("chat.headerTitle")}
+            {title?.trim() || t("chat.headerTitle")}
           </p>
           <p className="flex items-center gap-1.5 text-xs text-muted">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            {t("chat.headerSubtitle")}
+            {subtitle}
           </p>
         </div>
       </div>

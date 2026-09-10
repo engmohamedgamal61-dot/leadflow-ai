@@ -11,6 +11,10 @@ import {
   evaluateWidgetOrigin,
   widgetOriginCandidate,
 } from "./widget-origin.ts";
+import { buildChatContext } from "./chat-context.ts";
+import { toMembership, type MembershipJoinRow } from "./membership.ts";
+import { resolveChatPresentation } from "../chat/presentation.ts";
+import { en } from "../../i18n/dictionaries/en.ts";
 
 /**
  * Real-Postgres tests for the pilot-hardening migration
@@ -353,9 +357,68 @@ test("resolveOrgByWidgetKey: null while disabled, resolves to the right org once
   const resolved = await resolveOrgByWidgetKey(admin, key);
   assert.deepEqual(resolved, {
     organizationId: orgA,
+    organizationName: "Pilot IT Org A",
     industryTemplateId: "real-estate",
     allowedOrigins: ["https://shop.acme.example"],
   });
+});
+
+const RE_TOKENS = /apartment|villa|property|real[- ]?estate/i;
+const CLINIC_TOKENS = /dental|dermatolog|physiotherap|clinic|appointment/i;
+
+// Reproduces `getUserMembership`: the RLS session client can only ever read
+// the caller's own membership row.
+async function presentationFor(client: AnyClient) {
+  const { data } = await client
+    .from("organization_members")
+    .select("role, organizations ( id, name, slug, industry_template_id, status )")
+    .order("created_at", { ascending: true })
+    .limit(1);
+  const membership = toMembership(data?.[0] as unknown as MembershipJoinRow);
+  const ctx = buildChatContext({
+    authenticated: true,
+    membership,
+    widgetOrg: null,
+    demoOrg: null,
+  });
+  return resolveChatPresentation({
+    industrySlug: ctx.organization?.industryTemplateId ?? null,
+    businessName: ctx.organization?.organizationName ?? null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dict: en as any,
+  });
+}
+
+test("chat presentation is per-organization: A (real-estate) and B (clinic) get their own shell", { skip }, async () => {
+  const a = await presentationFor(users.a.client);
+  const b = await presentationFor(users.b.client);
+
+  const aText = [a.greeting, a.subtitle, ...a.suggestedPrompts].join(" ");
+  const bText = [b.greeting, b.subtitle, ...b.suggestedPrompts].join(" ");
+
+  assert.equal(a.industrySlug, "real-estate");
+  assert.equal(a.businessName, "Pilot IT Org A");
+  assert.ok(RE_TOKENS.test(aText), "org A gets real-estate copy");
+  assert.ok(!CLINIC_TOKENS.test(aText), "org A must NOT get clinic copy");
+
+  assert.equal(b.industrySlug, "clinic");
+  assert.equal(b.businessName, "Pilot IT Org B");
+  assert.ok(CLINIC_TOKENS.test(bText), "org B gets clinic copy");
+  assert.ok(!RE_TOKENS.test(bText), "org B must NOT get real-estate copy");
+
+  assert.notDeepEqual(a.suggestedPrompts, b.suggestedPrompts);
+});
+
+test("org B's session can never read org A's chat config inputs (RLS)", { skip }, async () => {
+  const asB = await users.b.client
+    .from("organizations")
+    .select("id, name, industry_template_id")
+    .eq("id", orgA);
+  assert.deepEqual(asB.data, [], "org B cannot read org A's organization row");
+
+  const viewerC = await presentationFor(users.c.client);
+  assert.equal(viewerC.industrySlug, "real-estate", "a viewer in A still gets A's shell, not a default");
+  assert.equal(viewerC.businessName, "Pilot IT Org A");
 });
 
 test("a suspended organization's widget key stops resolving", { skip }, async () => {
