@@ -58,15 +58,16 @@ export function ChatWindow({
 
   // The dev-only debug panel wants a config to show fields/scoring. Resolve it
   // from the server-decided industry slug (public static template data — NOT an
-  // org id, so no cross-tenant risk). Stored per-org overrides are not applied
-  // here; the panel is a dev aid, not the source of truth.
+  // org id, so no cross-tenant risk). A generic / unknown industry
+  // (`industrySlug === null`) resolves to the NEUTRAL generic template, never
+  // the real-estate default. Stored per-org overrides are not applied here; the
+  // panel is a dev aid, not the source of truth.
   const debugConfig = useMemo(
     () =>
-      getEffectiveConfig(
-        presentation.industrySlug
-          ? { organizationId: "ui", industryTemplateId: presentation.industrySlug }
-          : null,
-      ),
+      getEffectiveConfig({
+        organizationId: "ui",
+        industryTemplateId: presentation.industrySlug ?? "",
+      }),
     [presentation.industrySlug],
   );
 

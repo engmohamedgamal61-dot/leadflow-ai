@@ -54,7 +54,7 @@ test("anonymous request with a widget key → the customer org (incl. name), hin
   assert.equal(ctx.industryHintAllowed, false, "the widget org's template wins, not the client hint");
 });
 
-test("anonymous request uses the demo org and MAY use the industry hint", () => {
+test("anonymous request WITH a resolved demo org MAY use the industry hint (a dev/demo context exists)", () => {
   const ctx = buildChatContext({ authenticated: false, membership: null, widgetOrg: null, demoOrg: demo });
   assert.deepEqual(ctx.organization, {
     organizationId: "org_demo",
@@ -74,8 +74,24 @@ test("a membership with no name yields organizationName: null (not a crash)", ()
   assert.equal(ctx.organization?.organizationName, null);
 });
 
-test("anonymous request with no demo org → config-only, hint still allowed", () => {
+test("anonymous request with NO demo org (production) → config-only AND the industry hint is inert", () => {
   const ctx = buildChatContext({ authenticated: false, membership: null, widgetOrg: null, demoOrg: null });
   assert.equal(ctx.organization, null);
-  assert.equal(ctx.industryHintAllowed, true);
+  assert.equal(
+    ctx.industryHintAllowed,
+    false,
+    "no demo org resolved → ?industry= must not switch AI behaviour",
+  );
+});
+
+test("industryHintAllowed is true ONLY when a demo org resolved — never for authenticated / widget / bare-anonymous", () => {
+  const cases: [Parameters<typeof buildChatContext>[0], boolean][] = [
+    [{ authenticated: true, membership, widgetOrg: null, demoOrg: demo }, false],
+    [{ authenticated: false, membership: null, widgetOrg: widget, demoOrg: demo }, false],
+    [{ authenticated: false, membership: null, widgetOrg: null, demoOrg: null }, false],
+    [{ authenticated: false, membership: null, widgetOrg: null, demoOrg: demo }, true],
+  ];
+  for (const [input, expected] of cases) {
+    assert.equal(buildChatContext(input).industryHintAllowed, expected);
+  }
 });

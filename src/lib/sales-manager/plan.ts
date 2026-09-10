@@ -116,6 +116,13 @@ export const LEAD_LOOKUP_BY = ["name", "phone", "email"] as const;
 export type LeadLookupBy = (typeof LEAD_LOOKUP_BY)[number];
 
 /**
+ * A phone `lead_lookup` needs at least this many digits. A shorter value would
+ * match a broad suffix of numbers; the caller asks the user to give more of the
+ * number instead. Re-enforced in `lookupLeadsByField`.
+ */
+export const LEAD_LOOKUP_MIN_PHONE_DIGITS = 6;
+
+/**
  * Below this planner-reported confidence the orchestrator asks a clarifying
  * question instead of executing a possibly-wrong query. Deliberately
  * conservative — harmless wording differences must NOT trigger a clarification.
@@ -634,7 +641,11 @@ function parseOperation(raw: unknown): { ok: true; op: PlannedOperation } | OpFa
         by.value === "phone"
           ? (typeof obj.value === "string" ? obj.value.replace(/[^\d+]/g, "").slice(0, 24) : "")
           : (cleanText(obj.value, 120) ?? "");
-      if (value.replace(/\D/g, "").length < 3 && by.value === "phone") {
+      if (
+        by.value === "phone" &&
+        value.replace(/\D/g, "").length < LEAD_LOOKUP_MIN_PHONE_DIGITS
+      ) {
+        // Too few digits → a broad suffix match. Ask for more of the number.
         return { ok: false, reason: "invalid_operation", field: "value" };
       }
       if (by.value !== "phone" && value.length < 2) {

@@ -13,20 +13,20 @@ import {
 } from "@/components/dashboard/badges";
 import { AiAgentIcon, ArrowIcon, LeadsIcon } from "@/components/icons";
 import { askLeadFlowAction, type AskHistoryTurn } from "@/lib/sales-manager/actions";
+import { toPlannerHistory } from "@/lib/sales-manager/ask-history";
 import type { AskResult } from "@/lib/sales-manager/orchestration";
 
-/** Last few turns as plain text — for follow-up understanding only, never facts. */
-function toHistory(turns: Turn[], t: (key: string) => string): AskHistoryTurn[] {
-  const out: AskHistoryTurn[] = [];
-  for (const turn of turns) {
-    if (turn.status !== "done" || !turn.result) continue;
-    out.push({ role: "user", content: turn.question });
-    const answer =
-      turn.result.answer ??
-      (turn.result.answerKey ? t(turn.result.answerKey) : "");
-    if (answer) out.push({ role: "assistant", content: answer });
-  }
-  return out.slice(-6);
+/** Last few completed turns as plain text — for follow-up understanding only, never facts. */
+function toHistory(
+  turns: Turn[],
+  t: (key: string, params?: Record<string, string | number>) => string,
+): AskHistoryTurn[] {
+  return toPlannerHistory(
+    turns
+      .filter((turn) => turn.status === "done" && !!turn.result)
+      .map((turn) => ({ question: turn.question, result: turn.result! })),
+    t,
+  );
 }
 
 interface Turn {

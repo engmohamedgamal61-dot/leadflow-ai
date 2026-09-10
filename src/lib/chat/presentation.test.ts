@@ -100,6 +100,25 @@ test("D3: for an unknown stored industry the chat SHELL and the effective AI CON
   }
 });
 
+test("P2: the dev debug-panel config resolution (ChatWindow) for a generic presentation is generic — never real-estate", () => {
+  // ChatWindow does exactly: getEffectiveConfig({ organizationId: "ui", industryTemplateId: presentation.industrySlug ?? "" })
+  const generic = resolveChatPresentation({ industrySlug: "unknown-thing", businessName: null, dict: EN });
+  assert.equal(generic.industrySlug, null);
+  const panelCfg = getEffectiveConfig({
+    organizationId: "ui",
+    industryTemplateId: generic.industrySlug ?? "",
+  });
+  assert.equal(panelCfg.templateSlug, "generic");
+  assert.ok(!panelCfg.leadFields.some((f) => f.key === "budget"));
+
+  // a real industry still resolves to its own template
+  const clinic = resolveChatPresentation({ industrySlug: "clinic", businessName: null, dict: EN });
+  assert.equal(
+    getEffectiveConfig({ organizationId: "ui", industryTemplateId: clinic.industrySlug ?? "" }).templateSlug,
+    "clinic",
+  );
+});
+
 test("business name is passed through, trimmed, and blank → null", () => {
   assert.equal(
     resolveChatPresentation({ industrySlug: "clinic", businessName: "  Nova Clinic  ", dict: EN })

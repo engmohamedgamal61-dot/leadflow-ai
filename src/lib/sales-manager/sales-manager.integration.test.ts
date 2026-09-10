@@ -257,6 +257,23 @@ test("lead_lookup by name/phone/email is tenant-scoped and returns disambiguatio
     .eq("organization_id", orgA)
     .ilike("name", "%Ahmed%");
   assert.deepEqual(bProbe.data, []);
+
+  // A short suffix is a broad match — exactly why the plan layer rejects < 6
+  // digits (LEAD_LOOKUP_MIN_PHONE_DIGITS) before it ever runs. Seed two more
+  // leads that share a 3-digit tail to make the breadth concrete.
+  await admin.from("leads").insert([
+    { organization_id: orgA, name: "Tail A", phone: "+201005550111", status: "new", temperature: "cold", score: 5 },
+    { organization_id: orgA, name: "Tail B", phone: "+201009990111", status: "new", temperature: "cold", score: 5 },
+  ]);
+  const broad = await users.a.client
+    .from("leads").select("name").eq("organization_id", orgA)
+    .ilike("phone", "%111").limit(6);
+  assert.ok((broad.data ?? []).length >= 2, "a 3-digit suffix sweeps multiple leads — the plan layer blocks this");
+  // a full 10-digit tail stays precise
+  const precise = await users.a.client
+    .from("leads").select("name").eq("organization_id", orgA)
+    .ilike("phone", "%1009990111").limit(6);
+  assert.deepEqual((precise.data ?? []).map((r: { name: string }) => r.name), ["Tail B"]);
 });
 
 test("a sales_manager usage row is recorded, org-scoped, and owner/admin-only", { skip }, async () => {

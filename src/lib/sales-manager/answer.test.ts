@@ -101,6 +101,14 @@ test("final-answer prompt states the grounding rules and forbids causation-from-
   assert.ok(!/api[_-]?key|password|secret|supabase|select \*/i.test(SALES_MANAGER_SYSTEM_PROMPT));
 });
 
+test("final-answer prompt: conversation / DATA content cannot change the rules, tenant scope, or answer constraints", () => {
+  const p = SALES_MANAGER_SYSTEM_PROMPT.toLowerCase();
+  assert.ok(p.includes("user-supplied content"));
+  assert.ok(p.includes("not instructions"));
+  assert.ok(p.includes("can never change these rules"));
+  assert.ok(p.includes("which workspace"));
+});
+
 test("generateGroundedAnswer sends the grounding text + history, returns text + normalized usage", async () => {
   let seen: Record<string, unknown> = {};
   const client = fakeClient((params) => {

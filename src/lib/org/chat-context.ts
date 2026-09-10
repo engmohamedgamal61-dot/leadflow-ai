@@ -39,9 +39,10 @@ export interface DemoOrg {
  * context.
  *
  * The one rule that matters for security: `industryHintAllowed` is `true` ONLY
- * for anonymous requests. An authenticated user's organization and industry
- * always come from their membership — the `industry` param is inert, and a
- * client-supplied organization id is never consulted anywhere.
+ * when a dev/demo organization actually resolved (anonymous, no widget key,
+ * demo chat enabled). An authenticated user, a widget request, and a production
+ * anonymous request with no demo org all get `false` — the `industry` param is
+ * inert and a client-supplied organization id is never consulted anywhere.
  */
 export function buildChatContext(input: {
   authenticated: boolean;
@@ -83,6 +84,10 @@ export function buildChatContext(input: {
     };
   }
 
+  // Anonymous, no widget key. The `industry` hint may influence the effective
+  // config ONLY when a dev/demo org actually resolved from it — otherwise (e.g.
+  // production, where `resolveDevOrganization` returns null) there is no org,
+  // nothing is persisted, and `?industry=` must not switch the AI's behaviour.
   return {
     organization: input.demoOrg
       ? {
@@ -92,6 +97,6 @@ export function buildChatContext(input: {
           source: "dev-demo",
         }
       : null,
-    industryHintAllowed: true,
+    industryHintAllowed: input.demoOrg !== null,
   };
 }

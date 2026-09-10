@@ -395,10 +395,17 @@ function phoneTail(raw: string): string {
 }
 
 /**
+ * Minimum digits for a phone lookup — fewer would match a broad suffix of
+ * numbers. Kept in sync with `sales-manager/plan.ts`
+ * (`LEAD_LOOKUP_MIN_PHONE_DIGITS`), which rejects a shorter value up front.
+ */
+const MIN_PHONE_LOOKUP_DIGITS = 6;
+
+/**
  * Resolve a HUMAN reference (name / phone / email) to lead rows, tenant-scoped
  * and aggressively bounded. NOT a fuzzy database-wide search:
  *  - email → case-insensitive exact match
- *  - phone → normalized-tail match (handles +20 / 0 prefixes)
+ *  - phone → normalized-tail match (handles +20 / 0 prefixes), ≥6 digits
  *  - name  → contains-match on the sanitised value, newest first
  * Returns at most {@link cap} rows; the caller disambiguates / says "not found".
  */
@@ -423,7 +430,7 @@ export async function lookupLeadsByField(
     query = query.ilike("email", clean.replace(/[%,()*]/g, ""));
   } else if (by === "phone") {
     const tail = phoneTail(clean);
-    if (tail.length < 3) return [];
+    if (tail.length < MIN_PHONE_LOOKUP_DIGITS) return [];
     query = query.ilike("phone", `%${tail}`);
   } else {
     query = query.ilike("name", `%${clean.replace(/[%,()*]/g, "")}%`);

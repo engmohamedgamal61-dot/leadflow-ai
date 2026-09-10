@@ -265,6 +265,22 @@ test("lead_lookup: valid by/value parses; short or bad values are rejected", () 
   assert.equal(parsePlan(raw([{ type: "lead_lookup", by: "phone", value: "12" }])).ok, false);
 });
 
+test("lead_lookup by phone needs at least 6 digits — a shorter value is rejected, not run as a broad suffix match", () => {
+  for (const short of ["12", "345", "1 2 3 4 5", "+12345", "(123) 4"]) {
+    const r = parsePlan(raw([{ type: "lead_lookup", by: "phone", value: short }]));
+    assert.equal(r.ok, false, `phone "${short}" (< 6 digits) must be rejected`);
+    if (!r.ok) {
+      assert.equal(r.reason, "invalid_operation");
+      assert.equal(r.field, "value");
+    }
+  }
+  // exactly 6 digits and more are fine
+  for (const okVal of ["123456", "0100 123 4567", "+20-100-999-9999"]) {
+    const r = parsePlan(raw([{ type: "lead_lookup", by: "phone", value: okVal }]));
+    assert.equal(r.ok, true, `phone "${okVal}" (>= 6 digits) must parse`);
+  }
+});
+
 test("lead_details requires a real UUID", () => {
   assert.equal(
     parsePlan(raw([{ type: "lead_details", lead_id: "550e8400-e29b-41d4-a716-446655440000" }])).ok,
