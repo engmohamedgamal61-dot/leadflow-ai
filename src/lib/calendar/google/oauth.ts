@@ -245,6 +245,33 @@ export async function fetchAccountEmail(accessToken: string): Promise<string | n
   }
 }
 
+/**
+ * The connected calendar's own IANA timezone (Google's `calendars.get`
+ * `timeZone` field) — read ONCE at connect time so a new connection reflects
+ * the real account/calendar, not a hardcoded default. `null` on any failure;
+ * the caller (the OAuth callback route) falls back to a safe default and
+ * validates the result before storing it — this function never guesses.
+ */
+export async function fetchCalendarTimeZone(
+  accessToken: string,
+  calendarId: string,
+): Promise<string | null> {
+  // Deliberately NOT "Asia/Riyadh" — a distinct mock value proves the real
+  // connect flow reads this field rather than falling through to the default.
+  if (isMock()) return "Europe/London";
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (!res.ok) return null;
+    const json = (await res.json()) as { timeZone?: string };
+    return typeof json.timeZone === "string" ? json.timeZone : null;
+  } catch {
+    return null;
+  }
+}
+
 /** True when the token expires within the next 2 minutes (refresh margin). */
 export function isTokenExpiring(
   expiresAt: string | null,

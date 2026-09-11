@@ -71,6 +71,11 @@ export async function updateCalendarSettingsAction(
   const { error } = await supabase
     .from("organization_calendar_connections")
     .update({
+      // Keep the display column and the settings-jsonb timezone in lockstep —
+      // same rule as `connections.ts`'s `upsertConnection`: they must never
+      // diverge, since the display column is what the dashboard's summary
+      // shows but `settings.timezone` is what booking actually uses.
+      timezone: v.clean.timezone,
       settings: v.clean as unknown as TablesInsert<"organization_calendar_connections">["settings"],
     })
     .eq("organization_id", guard.membership.organizationId)

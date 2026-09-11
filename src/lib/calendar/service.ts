@@ -224,9 +224,17 @@ export async function bookAppointment(
   const { data, error } = await ctx.db.from("appointments").insert(row).select("id");
 
   if (error) {
+    // The Google event was already created above — the DB row is the only
+    // thing that failed, so ANY insert failure here leaves a real calendar
+    // event with no matching LeadFlow appointment unless we clean it up.
+    // (The one case that's correct to keep is folded in below: an idempotent
+    // retry's duplicate event is deleted too, since the ORIGINAL request's
+    // event is the one of record.) Best-effort — a delete failure is logged
+    // by the provider layer, never thrown here.
+    await provider.deleteEvent(connection, created.providerEventId).catch(() => undefined);
+
     // Hard guard: the DB caught a concurrent double-book the soft check missed.
     if ((error as { code?: string }).code === EXCLUSION_VIOLATION) {
-      await provider.deleteEvent(connection, created.providerEventId).catch(() => undefined);
       return { status: "failed", detailCode: "errors.calendar.slotTaken" };
     }
     // Idempotency race: a retry of the same requestId already created it.
@@ -238,7 +246,6 @@ export async function bookAppointment(
         .eq("creation_request_id", ctx.requestId)
         .maybeSingle();
       if (existing.data) {
-        await provider.deleteEvent(connection, created.providerEventId).catch(() => undefined);
         return {
           status: "skipped",
           appointmentId: existing.data.id,

@@ -7,7 +7,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@/lib/supabase/types";
+import type { Database, TablesInsert } from "@/lib/supabase/types";
 import type { CalendarConnectionRecord, CalendarProviderId } from "./provider.ts";
 import { decryptToken, encryptToken, tokenEncryptionKey } from "./crypto.ts";
 import { parseCalendarSettings, type CalendarSettings } from "./config.ts";
@@ -122,12 +122,33 @@ export interface UpsertConnectionInput {
   tokenExpiresAt: string;
 }
 
-/** Store a newly-authorized connection (OAuth callback). */
+/**
+ * Store a newly-authorized connection (OAuth callback).
+ *
+ * `input.timezone` updates BOTH the top-level `timezone` column (the
+ * dashboard-display value) AND `settings.timezone` (what availability
+ * computation and the Google event's own timezone actually use) — they must
+ * never diverge. On a first connect there's no prior `settings` row, so this
+ * becomes the full default settings with the real timezone substituted in. On
+ * a reconnect, any working-hours/slot-size customization the org already made
+ * is preserved — only the timezone is refreshed, since re-authorizing is the
+ * moment we have a fresh, authoritative signal for it.
+ */
 export async function upsertConnection(
   db: Db,
   input: UpsertConnectionInput,
 ): Promise<{ ok: true } | { ok: false; detail: string }> {
   const key = tokenEncryptionKey();
+
+  const { data: existing } = await db
+    .from("organization_calendar_connections")
+    .select("settings")
+    .eq("organization_id", input.organizationId)
+    .maybeSingle();
+  const existingSettings =
+    existing?.settings && typeof existing.settings === "object" ? existing.settings : {};
+  const settings = parseCalendarSettings({ ...existingSettings, timezone: input.timezone });
+
   const { error } = await db.from("organization_calendar_connections").upsert(
     {
       organization_id: input.organizationId,
@@ -135,6 +156,7 @@ export async function upsertConnection(
       calendar_id: input.calendarId,
       calendar_email: input.calendarEmail,
       timezone: input.timezone,
+      settings: settings as unknown as TablesInsert<"organization_calendar_connections">["settings"],
       access_token_encrypted: encryptToken(input.accessToken, key),
       refresh_token_encrypted: encryptToken(input.refreshToken, key),
       token_expires_at: input.tokenExpiresAt,

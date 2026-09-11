@@ -38,7 +38,8 @@ export const LIMITS = {
   minNoticeMinutesMax: 10_080, // 7 days
 };
 
-function isValidTimeZone(tz: unknown): tz is string {
+/** Exported for connect-time validation of a provider-reported timezone (e.g. `google/oauth.ts`). */
+export function isValidTimeZone(tz: unknown): tz is string {
   if (typeof tz !== "string" || !tz) return false;
   try {
     Intl.DateTimeFormat(undefined, { timeZone: tz });

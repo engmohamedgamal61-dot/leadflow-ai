@@ -48,6 +48,22 @@ function minutesToLabel(minutes: number): string {
   return `${h}:${m}`;
 }
 
+/**
+ * The full IANA timezone list, via the runtime's own `Intl.supportedValuesOf`
+ * — no hardcoded list to keep in sync. Older browsers without that API (or
+ * any unexpected failure) fall back to just the connection's current value,
+ * so the field always renders something valid rather than breaking the form.
+ */
+function timezoneOptions(current: string): string[] {
+  try {
+    const supported =
+      typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
+    return supported.includes(current) ? supported : [current, ...supported];
+  } catch {
+    return [current];
+  }
+}
+
 const STATUS_STYLE: Record<string, string> = {
   connected: "bg-emerald-500/15 text-emerald-700",
   disconnected: "bg-border/50 text-muted",
@@ -266,7 +282,20 @@ export function GoogleCalendarSettings({
                 </label>
               </div>
 
-              <input type="hidden" name="timezone" value={settings.timezone} />
+              <label className="block space-y-1">
+                <span className="text-xs font-medium text-muted">{t("calendar.fields.timezone")}</span>
+                <select
+                  name="timezone"
+                  defaultValue={settings.timezone}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent/60"
+                >
+                  {timezoneOptions(settings.timezone).map((tz) => (
+                    <option key={tz} value={tz}>
+                      {tz}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
               <button
                 type="submit"

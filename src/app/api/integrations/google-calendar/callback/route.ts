@@ -4,9 +4,11 @@ import { canManageConfig } from "@/lib/org/roles";
 import {
   exchangeCodeForTokens,
   fetchAccountEmail,
+  fetchCalendarTimeZone,
   verifyState,
 } from "@/lib/calendar/google/oauth";
 import { tokenEncryptionKey } from "@/lib/calendar/crypto";
+import { DEFAULT_CALENDAR_SETTINGS, isValidTimeZone } from "@/lib/calendar/config";
 import { upsertConnection } from "@/lib/calendar/connections";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { appBaseUrl } from "@/lib/app-url";
@@ -63,6 +65,15 @@ export async function GET(request: NextRequest) {
 
   const calendarEmail = await fetchAccountEmail(exchanged.tokens.accessToken);
 
+  // Real, account-reported timezone — never a hardcoded region. Only falls
+  // back to the generic default when Google didn't report a valid one (rare:
+  // network hiccup, unusual account state), and that fallback is itself
+  // validated rather than assumed.
+  const googleTimeZone = await fetchCalendarTimeZone(exchanged.tokens.accessToken, "primary");
+  const timezone = isValidTimeZone(googleTimeZone)
+    ? googleTimeZone
+    : DEFAULT_CALENDAR_SETTINGS.timezone;
+
   const db = createAdminClient();
   const result = await upsertConnection(db, {
     organizationId: membership.organizationId,
@@ -72,7 +83,7 @@ export async function GET(request: NextRequest) {
     // default calendar, which is what most small teams actually want.
     calendarId: "primary",
     calendarEmail,
-    timezone: "Asia/Riyadh",
+    timezone,
     accessToken: exchanged.tokens.accessToken,
     refreshToken: exchanged.tokens.refreshToken,
     tokenExpiresAt: exchanged.tokens.expiresAt,

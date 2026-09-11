@@ -64,9 +64,15 @@ export default async function AppointmentsPage() {
                         {a.leadName ?? t("common.unnamedLead")}
                       </p>
                       <p
-                        className={`mt-0.5 text-xs tabular-nums ${past ? "text-muted/70" : "text-muted"}`}
+                        className={`mt-0.5 flex items-center gap-1.5 text-xs tabular-nums ${past ? "text-muted/70" : "text-muted"}`}
                       >
                         {formatDateTime(a.startsAt, locale)}
+                        <span aria-hidden className="text-muted/50">
+                          ·
+                        </span>
+                        <span className="normal-case">
+                          {tOptional(`followUps.source.${a.source}`) ?? a.source}
+                        </span>
                       </p>
                     </div>
                     <span
