@@ -70,7 +70,11 @@ export function devOriginsAllowed(): boolean {
 }
 
 export type WidgetOriginDecision =
-  | { allowed: true; origin: string; reason: "allowlisted" | "dev-localhost" }
+  | {
+      allowed: true;
+      origin: string;
+      reason: "allowlisted" | "dev-localhost" | "no-allowlist";
+    }
   | {
       allowed: false;
       reason: "missing" | "malformed" | "not-allowed";
@@ -78,27 +82,58 @@ export type WidgetOriginDecision =
     };
 
 /**
+ * `https://acme.com` and `https://www.acme.com` are the same site to a human —
+ * expand each allowlist entry to both forms (scheme is left exact: an `http`
+ * entry never authorises `https` or vice versa).
+ */
+function expandWwwVariants(origin: string): string[] {
+  try {
+    const url = new URL(origin);
+    const host = url.hostname.toLowerCase();
+    const other = host.startsWith("www.")
+      ? host.slice(4)
+      : `www.${host}`;
+    const port = url.port ? `:${url.port}` : "";
+    return [origin, `${url.protocol}//${other}${port}`];
+  } catch {
+    return [origin];
+  }
+}
+
+/**
  * Decide whether `candidate` (a raw origin/URL string, or nothing) is allowed
  * to use a widget whose configured origins are `allowedOrigins`.
  *
- * - nothing supplied            → `missing`
- * - supplied but not a URL      → `malformed`
- * - exact origin match in list  → allowed (`allowlisted`)
- * - loopback + `allowDevOrigins`→ allowed (`dev-localhost`)
- * - otherwise                   → `not-allowed`
+ * - nothing supplied              → `missing`
+ * - supplied but not a URL        → `malformed`
+ * - `allowedOrigins` empty + `emptyAllowsAll` → allowed (`no-allowlist`)
+ * - origin (www-insensitive) in list         → allowed (`allowlisted`)
+ * - loopback + `allowDevOrigins`             → allowed (`dev-localhost`)
+ * - otherwise                                → `not-allowed`
  *
- * An empty `allowedOrigins` therefore blocks every real origin — a widget with
- * no configured sites is closed, not open.
+ * `emptyAllowsAll` is the MVP default for the chat/embed paths: a widget with
+ * no configured sites runs anywhere. A NON-empty list is always strictly
+ * enforced. Without the flag an empty list blocks everything (the stricter
+ * default the dashboard writes for).
  */
 export function evaluateWidgetOrigin(
   candidate: string | null | undefined,
   allowedOrigins: readonly string[],
-  opts: { allowDevOrigins?: boolean } = {},
+  opts: { allowDevOrigins?: boolean; emptyAllowsAll?: boolean } = {},
 ): WidgetOriginDecision {
   const supplied = typeof candidate === "string" && candidate.trim() !== "";
   const origin = normalizeOrigin(candidate);
 
+  const configured = allowedOrigins
+    .map((o) => normalizeOrigin(o))
+    .filter((o): o is string => o !== null);
+
   if (!origin) {
+    // With no allowlist and `emptyAllowsAll`, a missing/opaque origin (direct
+    // visit, sandboxed frame) is still allowed — there is nothing to check.
+    if (configured.length === 0 && (opts.emptyAllowsAll ?? false)) {
+      return { allowed: true, origin: origin ?? "", reason: "no-allowlist" };
+    }
     return {
       allowed: false,
       reason: supplied && candidate!.trim().toLowerCase() !== "null" ? "malformed" : "missing",
@@ -106,12 +141,11 @@ export function evaluateWidgetOrigin(
     };
   }
 
-  const allowSet = new Set(
-    allowedOrigins
-      .map((o) => normalizeOrigin(o))
-      .filter((o): o is string => o !== null),
-  );
+  if (configured.length === 0 && (opts.emptyAllowsAll ?? false)) {
+    return { allowed: true, origin, reason: "no-allowlist" };
+  }
 
+  const allowSet = new Set(configured.flatMap(expandWwwVariants));
   if (allowSet.has(origin)) {
     return { allowed: true, origin, reason: "allowlisted" };
   }

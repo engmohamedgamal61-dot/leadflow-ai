@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import type { ChatMessage } from "@/types/chat";
 import { useChat } from "@/hooks/use-chat";
 import { useI18n } from "@/i18n/client";
@@ -20,7 +20,7 @@ const NO_SUBSCRIBE = () => () => {};
  * cross-browser fallback. Used only to tell the server which site the widget
  * is embedded on so it can enforce the org's allowed-origins list. SSR-safe.
  */
-const readEmbeddingOrigin = (): string | undefined => {
+const readEmbeddingOrigin = (fallback?: string): string | undefined => {
   try {
     const ancestors = window.location.ancestorOrigins;
     if (ancestors && ancestors.length > 0 && ancestors[0]) return ancestors[0];
@@ -32,15 +32,45 @@ const readEmbeddingOrigin = (): string | undefined => {
   } catch {
     /* malformed referrer */
   }
-  return undefined;
+  // Last resort: the origin the widget script passed as `?parentOrigin`
+  // (survives a strict `Referrer-Policy` and browsers without ancestorOrigins).
+  return fallback || undefined;
 };
 
-function useEmbeddingOrigin(enabled: boolean): string | undefined {
+function useEmbeddingOrigin(
+  enabled: boolean,
+  fallback?: string,
+): string | undefined {
   return useSyncExternalStore(
     NO_SUBSCRIBE,
-    () => (enabled ? readEmbeddingOrigin() : undefined),
-    () => undefined,
+    () => (enabled ? readEmbeddingOrigin(fallback) : undefined),
+    () => (enabled ? fallback || undefined : undefined),
   );
+}
+
+/**
+ * Keyboard events don't cross an iframe boundary on their own — once focus is
+ * inside this document (e.g. the composer), `widget.js`'s own Escape listener
+ * on the HOST page never sees the keypress. Bridge it with `postMessage` so
+ * Escape closes the panel no matter where focus is. A no-op outside an
+ * embedded widget (`window.parent === window`) or a direct `/embed` visit.
+ * `widget.js` only trusts a message whose `event.source` is its own iframe.
+ */
+function useEscapeClosesEmbed(enabled: boolean): void {
+  useEffect(() => {
+    if (!enabled) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      try {
+        if (window.parent === window) return;
+        window.parent.postMessage({ source: "leadflow-widget", type: "close" }, "*");
+      } catch {
+        /* cross-origin parent access is fine — postMessage doesn't need it */
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [enabled]);
 }
 
 export function ChatWindow({
@@ -48,13 +78,17 @@ export function ChatWindow({
   widgetKey,
   /** Dev-only demo switch, forwarded to `/api/chat` for the anonymous demo path. */
   industryHint,
+  /** Embedding page origin passed by `widget.js` (`?parentOrigin`) — origin-check fallback. */
+  pageOriginHint,
 }: {
   presentation: ChatPresentation;
   widgetKey?: string;
   industryHint?: string | null;
+  pageOriginHint?: string;
 }) {
   const { dict, tOptional } = useI18n();
-  const pageOrigin = useEmbeddingOrigin(Boolean(widgetKey));
+  const pageOrigin = useEmbeddingOrigin(Boolean(widgetKey), pageOriginHint);
+  useEscapeClosesEmbed(Boolean(widgetKey));
 
   // The dev-only debug panel wants a config to show fields/scoring. Resolve it
   // from the server-decided industry slug (public static template data — NOT an
@@ -80,6 +114,7 @@ export function ChatWindow({
     sendMessage,
     setConversation,
     reset,
+    retry,
   } = useChat({
     industry: industryHint ?? undefined,
     widgetKey,
@@ -119,7 +154,12 @@ export function ChatWindow({
 
         <div className="flex-1 overflow-y-auto">
           {hasUserMessages ? (
-            <MessageList messages={messages} status={status} error={error} />
+            <MessageList
+              messages={messages}
+              status={status}
+              error={error}
+              onRetry={error ? retry : undefined}
+            />
           ) : (
             <EmptyState
               greeting={presentation.greeting}

@@ -9,6 +9,10 @@ import {
 } from "@/types/chat";
 import { apiAssistant } from "@/lib/chat/api-assistant";
 import { ASSISTANT_GREETING } from "@/lib/chat/mock-data";
+import {
+  readStoredConversationId,
+  writeStoredConversationId,
+} from "@/lib/chat/widget-conversation-storage";
 
 /** Deterministic id so the SSR and first client render agree. */
 function greetingMessage(text: string): ChatMessage {
@@ -61,6 +65,8 @@ export interface UseChatResult {
   sendMessage: (content: string) => Promise<void>;
   setConversation: (messages: ChatMessage[]) => void;
   reset: () => void;
+  /** Re-send the message that most recently failed. No-op if nothing failed. */
+  retry: () => void;
 }
 
 export function useChat({
@@ -82,8 +88,16 @@ export function useChat({
 
   // The persisted conversation id, returned by the server after the first
   // turn and echoed back on subsequent turns so the chat continues one
-  // conversation. Kept in a ref — it is not rendered.
+  // conversation. Kept in a ref — it is not rendered. For the embeddable
+  // widget it is also restored from / written to localStorage (in an effect,
+  // since refs must not be read/written during render) so the same visitor
+  // continues one conversation across reloads.
   const conversationIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    conversationIdRef.current = readStoredConversationId(widgetKey);
+    // Only meaningful on mount — a mid-session widgetKey change isn't expected.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // True from the moment a turn's visible reply finishes until that turn's
   // trailing conversationId arrives. The composer is re-enabled as soon as the
@@ -100,6 +114,10 @@ export function useChat({
     messagesRef.current = messages;
     statusRef.current = status;
   }, [messages, status]);
+
+  // The content of the turn that most recently failed, for the "Retry" button
+  // next to the error message. Cleared on a successful send.
+  const lastFailedContentRef = useRef<string | null>(null);
 
   const sendMessage = useCallback(
     async (content: string) => {
@@ -151,6 +169,7 @@ export function useChat({
           onLead: setLead,
           onConversation: (id) => {
             conversationIdRef.current = id;
+            writeStoredConversationId(widgetKey, id);
             awaitingConversationRef.current = false;
           },
           industry,
@@ -167,7 +186,9 @@ export function useChat({
               : message,
           ),
         );
+        lastFailedContentRef.current = null;
       } catch (err) {
+        lastFailedContentRef.current = trimmed;
         setError(
           err instanceof Error && err.message
             ? resolveError(err.message)
@@ -187,19 +208,28 @@ export function useChat({
     [client, industry, widgetKey, pageOrigin, errorFallback, resolveError],
   );
 
-  const setConversation = useCallback((next: ChatMessage[]) => {
-    messagesRef.current = next;
-    statusRef.current = "idle";
-    conversationIdRef.current = null;
-    setError(null);
-    setStatus("idle");
-    setLead(EMPTY_LEAD);
-    setMessages(next);
-  }, []);
+  const setConversation = useCallback(
+    (next: ChatMessage[]) => {
+      messagesRef.current = next;
+      statusRef.current = "idle";
+      conversationIdRef.current = null;
+      writeStoredConversationId(widgetKey, null);
+      setError(null);
+      setStatus("idle");
+      setLead(EMPTY_LEAD);
+      setMessages(next);
+    },
+    [widgetKey],
+  );
 
   const reset = useCallback(() => {
     setConversation([greetingMessage(greeting)]);
   }, [setConversation, greeting]);
+
+  const retry = useCallback(() => {
+    const content = lastFailedContentRef.current;
+    if (content) void sendMessage(content);
+  }, [sendMessage]);
 
   return {
     messages,
@@ -210,5 +240,6 @@ export function useChat({
     sendMessage,
     setConversation,
     reset,
+    retry,
   };
 }

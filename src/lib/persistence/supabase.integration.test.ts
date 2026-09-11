@@ -272,3 +272,168 @@ test("concurrent identical requests do not duplicate anything (real Postgres)", 
     await db.from("organizations").delete().eq("id", cOrgId);
   }
 });
+
+// ── lead de-duplication (a widget visitor returning in a fresh browser) ────
+
+function widgetTurn(orgId: string, lead: LeadData, extra: Record<string, unknown> = {}) {
+  return {
+    organizationId: orgId,
+    conversationId: null,
+    requestId: crypto.randomUUID(),
+    channel: "web",
+    source: "widget",
+    userMessage: "hello",
+    assistantMessage: "hi, how can I help?",
+    lead,
+    score: 20,
+    temperature: "COLD" as const,
+    ...extra,
+  };
+}
+
+const blankLead = (over: Partial<LeadData>): LeadData => ({
+  name: null,
+  phone: null,
+  email: null,
+  intent: null,
+  customData: {},
+  ...over,
+});
+
+test("dedup: a returning visitor with the SAME email (any case) reuses their existing lead, in a NEW conversation", { skip }, async () => {
+  const org = await db
+    .from("organizations")
+    .insert({ name: "IT Dedup Email", slug: `${SLUG}-dedup-email`, industry_template_id: "real-estate" })
+    .select("id")
+    .single();
+  const dOrg = org.data.id;
+  try {
+    const t1 = await persistChatTurn(
+      db,
+      widgetTurn(dOrg, blankLead({ name: "Ali", email: "Ali@Example.com" })),
+    );
+    // A brand new browser session: no conversationId echoed, no requestId reuse.
+    const t2 = await persistChatTurn(
+      db,
+      widgetTurn(dOrg, blankLead({ name: "Ali", email: "ali@example.com" })),
+    );
+
+    assert.notEqual(t2.conversationId, t1.conversationId, "a distinct conversation");
+    assert.equal(t2.leadId, t1.leadId, "the SAME lead — no duplicate");
+    assert.equal(t2.leadCreated, false);
+
+    const leads = await db.from("leads").select("id").eq("organization_id", dOrg);
+    assert.equal(leads.data.length, 1, "exactly one lead for this email");
+    const convs = await db.from("conversations").select("id").eq("organization_id", dOrg);
+    assert.equal(convs.data.length, 2, "two conversations, one lead");
+  } finally {
+    await db.from("organizations").delete().eq("id", dOrg);
+  }
+});
+
+test("dedup: a Saudi number in ANY common format (+9665.., 009665.., 9665.., 05.., 5..) matches the same lead", { skip }, async () => {
+  const org = await db
+    .from("organizations")
+    .insert({ name: "IT Dedup Phone", slug: `${SLUG}-dedup-phone`, industry_template_id: "real-estate" })
+    .select("id")
+    .single();
+  const dOrg = org.data.id;
+  try {
+    const first = await persistChatTurn(
+      db,
+      widgetTurn(dOrg, blankLead({ name: "Sara", phone: "+966501234567" })),
+    );
+
+    const variants = ["00966501234567", "966501234567", "0501234567", "501234567"];
+    for (const phone of variants) {
+      const t = await persistChatTurn(db, widgetTurn(dOrg, blankLead({ name: "Sara", phone })));
+      assert.equal(t.leadId, first.leadId, `phone "${phone}" must match the same lead`);
+      assert.notEqual(t.conversationId, first.conversationId);
+    }
+
+    const leads = await db.from("leads").select("id, phone").eq("organization_id", dOrg);
+    assert.equal(leads.data.length, 1, "every format collapsed onto one lead");
+    // the stored phone is whatever the FIRST turn extracted — later turns update it
+    assert.equal(leads.data[0].phone, variants[variants.length - 1]);
+  } finally {
+    await db.from("organizations").delete().eq("id", dOrg);
+  }
+});
+
+test("dedup: DIFFERENT Saudi numbers (sharing no 9-digit tail) never merge", { skip }, async () => {
+  const org = await db
+    .from("organizations")
+    .insert({ name: "IT Dedup Phone Distinct", slug: `${SLUG}-dedup-phone-2`, industry_template_id: "real-estate" })
+    .select("id")
+    .single();
+  const dOrg = org.data.id;
+  try {
+    const a = await persistChatTurn(
+      db,
+      widgetTurn(dOrg, blankLead({ name: "Khalid", phone: "+966501111111" })),
+    );
+    const b = await persistChatTurn(
+      db,
+      widgetTurn(dOrg, blankLead({ name: "Nasser", phone: "+966502222222" })),
+    );
+    assert.notEqual(a.leadId, b.leadId);
+
+    const leads = await db.from("leads").select("id").eq("organization_id", dOrg);
+    assert.equal(leads.data.length, 2);
+  } finally {
+    await db.from("organizations").delete().eq("id", dOrg);
+  }
+});
+
+test("dedup: no contact info yet → each anonymous session gets its OWN lead (never merged)", { skip }, async () => {
+  const org = await db
+    .from("organizations")
+    .insert({ name: "IT Dedup None", slug: `${SLUG}-dedup-none`, industry_template_id: "real-estate" })
+    .select("id")
+    .single();
+  const dOrg = org.data.id;
+  try {
+    const a = await persistChatTurn(db, widgetTurn(dOrg, blankLead({ name: "Visitor" })));
+    const b = await persistChatTurn(db, widgetTurn(dOrg, blankLead({ name: "Visitor" })));
+    assert.notEqual(a.leadId, b.leadId, "no phone/email → never dedup, even with the same name");
+
+    const leads = await db.from("leads").select("id").eq("organization_id", dOrg);
+    assert.equal(leads.data.length, 2);
+  } finally {
+    await db.from("organizations").delete().eq("id", dOrg);
+  }
+});
+
+test("dedup NEVER crosses organizations — the same email in org B creates its OWN lead", { skip }, async () => {
+  const a = await db
+    .from("organizations")
+    .insert({ name: "IT Dedup Cross A", slug: `${SLUG}-dedup-x-a`, industry_template_id: "real-estate" })
+    .select("id")
+    .single();
+  const b = await db
+    .from("organizations")
+    .insert({ name: "IT Dedup Cross B", slug: `${SLUG}-dedup-x-b`, industry_template_id: "clinic" })
+    .select("id")
+    .single();
+  const orgA = a.data.id;
+  const orgB = b.data.id;
+  try {
+    const inA = await persistChatTurn(
+      db,
+      widgetTurn(orgA, blankLead({ name: "Shared", email: "shared@example.test" })),
+    );
+    const inB = await persistChatTurn(
+      db,
+      widgetTurn(orgB, blankLead({ name: "Shared", email: "shared@example.test" })),
+    );
+    assert.notEqual(inA.leadId, inB.leadId, "org B never merges into org A's lead");
+
+    const leadsA = await db.from("leads").select("id").eq("organization_id", orgA);
+    const leadsB = await db.from("leads").select("id").eq("organization_id", orgB);
+    assert.equal(leadsA.data.length, 1);
+    assert.equal(leadsB.data.length, 1);
+  } finally {
+    await db.from("organizations").delete().eq("id", orgA);
+    await db.from("organizations").delete().eq("id", orgB);
+  }
+});

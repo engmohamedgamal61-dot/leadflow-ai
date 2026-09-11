@@ -34,7 +34,10 @@ export function ChatComposer({ onSend, disabled = false }: ChatComposerProps) {
   return (
     <form
       onSubmit={handleSubmit}
-      className="border-t border-border px-3 py-3 sm:px-4 sm:py-4"
+      // The extra bottom padding only matters full-bleed on mobile (a direct
+      // /embed visit on a notched phone); env() resolves to 0 everywhere else,
+      // including the desktop card view, so this is a no-op there.
+      className="border-t border-border px-3 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:px-4 sm:py-4"
     >
       <div className="flex items-end gap-2 rounded-2xl border border-border bg-surface px-3 py-2 transition-colors focus-within:border-accent/60">
         <textarea

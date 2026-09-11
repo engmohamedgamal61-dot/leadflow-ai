@@ -110,6 +110,12 @@ export interface FinalizeTurnInput {
   /** The raw latest user message (for persistence). */
   userMessage: string;
   channel: string;
+  /**
+   * Lead `source` for a newly created lead. Defaults to `"chat"` for the web
+   * channel and the channel name otherwise. The website widget passes
+   * `"widget"` so its leads are attributed distinctly.
+   */
+  source?: string | null;
   conversationId: string | null;
   requestId: string | null;
   externalContactId?: string | null;
@@ -162,7 +168,8 @@ export async function finalizeConversationTurn(
       conversationId: input.conversationId,
       requestId: input.requestId,
       channel: input.channel,
-      source: input.channel === "web" ? "chat" : input.channel,
+      source:
+        input.source ?? (input.channel === "web" ? "chat" : input.channel),
       userMessage: input.userMessage,
       assistantMessage: input.replyText,
       lead,

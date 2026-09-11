@@ -16,22 +16,28 @@ interface ChatHeaderProps {
 export function ChatHeader({ title, subtitle, onReset, canReset }: ChatHeaderProps) {
   const { t } = useI18n();
 
+  // `pt-[calc(...)]` below clears the notch on a direct full-bleed mobile
+  // /embed visit; env() is 0 everywhere else (including the desktop card
+  // view), so this changes nothing there.
   return (
-    <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-6 sm:py-4">
-      <div className="flex items-center gap-3">
+    <header className="flex items-center justify-between gap-3 border-b border-border px-4 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] pb-3 sm:px-6 sm:py-4">
+      <div className="flex min-w-0 items-center gap-3">
         <AssistantAvatar size="md" />
-        <div className="leading-tight">
-          <p className="text-sm font-semibold tracking-tight">
+        <div className="min-w-0 leading-tight">
+          <p
+            className="truncate text-sm font-semibold tracking-tight"
+            title={title?.trim() || undefined}
+          >
             {title?.trim() || t("chat.headerTitle")}
           </p>
           <p className="flex items-center gap-1.5 text-xs text-muted">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            {subtitle}
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
+            <span className="truncate">{subtitle}</span>
           </p>
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         <LanguageSwitcher size="compact" />
         <button
           type="button"

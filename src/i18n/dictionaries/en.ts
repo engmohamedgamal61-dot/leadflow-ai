@@ -1286,11 +1286,11 @@ export const en = {
     enable: "Enable widget",
     disable: "Disable widget",
     embedTitle: "Embed code",
-    embedHint: "Paste this where you want the chat to appear on your site.",
+    embedHint:
+      "Paste this into your site's HTML, just before </body>. It adds a chat button in the corner — no framework needed.",
     copy: "Copy",
     copySnippet: "Copy embed code",
-    previewHint: "Preview it:",
-    openPreview: "open the widget",
+    previewButton: "Preview the widget",
     keyTitle: "Widget key",
     rotateKey: "Rotate key",
     copyKey: "Copy key",
@@ -1298,13 +1298,21 @@ export const en = {
       "Rotating the key immediately breaks the old embed code — update your site afterwards.",
     originsTitle: "Allowed sites",
     originsHint:
-      "One site per line (e.g. https://www.acme.com). The widget only runs on these origins — leave it empty and the widget is blocked everywhere.",
-    originsRequired:
-      "The widget is on but no sites are allowed, so it's currently blocked everywhere. Add the site you're embedding it on.",
+      "One site per line (e.g. https://www.acme.com). Leave it empty to allow the widget on any site; add sites here to lock it to only those.",
+    originsOpenHint:
+      "No sites listed — the widget currently runs anywhere it's embedded. Add your site to restrict it.",
     errors: {
       notAllowed: "Only an owner or admin can manage the widget.",
       saveFailed: "Could not save. Please try again.",
       invalidOrigins: "Some entries aren't valid site URLs",
+    },
+    // Shown to a VISITOR inside the widget panel — never an internal reason
+    // (disabled vs. unknown vs. suspended all look the same from here).
+    unavailable: {
+      title: "Chat is not available right now",
+      body: "Please check back later, or contact the business directly.",
+      originBlockedTitle: "Chat isn't set up for this site yet",
+      originBlockedBody: "The business hasn't enabled this website for their chat widget.",
     },
   },
 

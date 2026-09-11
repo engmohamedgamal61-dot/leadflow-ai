@@ -84,6 +84,17 @@ test("anonymous request with NO demo org (production) → config-only AND the in
   );
 });
 
+test("REQUIREMENT: a signed-in user's own org can never be overridden by a widgetKey in the same request", () => {
+  // Simulates an authenticated visitor whose request body ALSO carried someone
+  // else's widgetKey (e.g. testing the embed page while logged in, or a
+  // crafted request) — resolveChatContext checks auth first; here we prove the
+  // pure decision layer ignores widgetOrg whenever authenticated is true.
+  const ctx = buildChatContext({ authenticated: true, membership, widgetOrg: widget, demoOrg: null });
+  assert.equal(ctx.organization?.organizationId, membership.organizationId);
+  assert.equal(ctx.organization?.source, "member");
+  assert.notEqual(ctx.organization?.organizationId, widget.organizationId);
+});
+
 test("industryHintAllowed is true ONLY when a demo org resolved — never for authenticated / widget / bare-anonymous", () => {
   const cases: [Parameters<typeof buildChatContext>[0], boolean][] = [
     [{ authenticated: true, membership, widgetOrg: null, demoOrg: demo }, false],

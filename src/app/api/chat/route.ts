@@ -11,7 +11,10 @@ import {
   getAvailabilityForPrompt,
 } from "@/lib/chat/conversation-service";
 import { getEffectiveConfig, hasIndustryTemplate } from "@/lib/config";
-import { loadEffectiveConfig } from "@/lib/config/organization-config.server";
+import {
+  loadEffectiveConfig,
+  loadEffectiveConfigForWidget,
+} from "@/lib/config/organization-config.server";
 import { resolveChatContext } from "@/lib/org/chat-organization";
 import { widgetOriginCandidate } from "@/lib/org/widget-origin";
 import { appBaseUrlOrNull } from "@/lib/app-url";
@@ -244,28 +247,36 @@ export async function POST(request: NextRequest) {
 
   const hintSlug = industryHintAllowed ? parsed.industry : null;
 
-  // The AI engine runs on one EffectiveConfig. For an authenticated member it
-  // is `IndustryTemplate + stored organization overrides` (system prompt,
-  // extraction, qualification flow and scoring all consume the same object).
-  // The anonymous/demo path is unchanged: template defaults, optionally the
-  // industry hint. `loadEffectiveConfig` falls back to template defaults if the
-  // stored overrides are missing or invalid.
+  // The AI engine runs on one EffectiveConfig = `IndustryTemplate + stored
+  // organization overrides` (system prompt, extraction, qualification flow and
+  // scoring all consume the same object).
+  //  - authenticated member → overrides read under RLS (session client)
+  //  - website widget       → overrides read as the server (admin client), so
+  //    an anonymous visitor still gets the org's saved persona / flow / scoring
+  //  - anonymous / demo      → template defaults, optionally the industry hint
+  // Every path falls back to template defaults if the overrides are missing or
+  // invalid.
   const config =
-    organization && organization.source === "member"
+    organization?.source === "member"
       ? await loadEffectiveConfig(
           organization.organizationId,
           organization.industryTemplateId,
         )
-      : getEffectiveConfig(
-          organization
-            ? {
-                organizationId: organization.organizationId,
-                industryTemplateId: organization.industryTemplateId,
-              }
-            : hintSlug
-              ? { organizationId: "request", industryTemplateId: hintSlug }
-              : null,
-        );
+      : organization?.source === "widget"
+        ? await loadEffectiveConfigForWidget(
+            organization.organizationId,
+            organization.industryTemplateId,
+          )
+        : getEffectiveConfig(
+            organization
+              ? {
+                  organizationId: organization.organizationId,
+                  industryTemplateId: organization.industryTemplateId,
+                }
+              : hintSlug
+                ? { organizationId: "request", industryTemplateId: hintSlug }
+                : null,
+          );
 
   // Real appointment availability, if a calendar is connected — one data
   // lookup (not an extra Anthropic call) so the AI can never invent a slot.
@@ -393,6 +404,7 @@ export async function POST(request: NextRequest) {
         replyUsage,
         userMessage: lastUserMessage,
         channel: "web",
+        source: organization?.source === "widget" ? "widget" : undefined,
         conversationId: parsed.conversationId,
         requestId: parsed.requestId,
       });

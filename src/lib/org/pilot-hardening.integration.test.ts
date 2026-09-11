@@ -15,6 +15,7 @@ import { buildChatContext } from "./chat-context.ts";
 import { toMembership, type MembershipJoinRow } from "./membership.ts";
 import { resolveChatPresentation } from "../chat/presentation.ts";
 import { en } from "../../i18n/dictionaries/en.ts";
+import { ar } from "../../i18n/dictionaries/ar.ts";
 
 /**
  * Real-Postgres tests for the pilot-hardening migration
@@ -496,4 +497,134 @@ test("widget origin allowlist: what /api/chat enforces, end to end from the DB",
     evaluateWidgetOrigin("https://shop.acme.example", clearedOrigins).allowed,
     false,
   );
+});
+
+test("MVP: emptyAllowsAll lets a widget with NO configured sites run anywhere; a configured allowlist stays strictly enforced", { skip }, async () => {
+  const row = await admin
+    .from("organization_widget_settings")
+    .select("widget_key, allowed_origins")
+    .eq("organization_id", orgA)
+    .single();
+  assert.deepEqual(row.data.allowed_origins, [], "picking up where the previous test left the row");
+  const key = row.data.widget_key as string;
+
+  const openResolved = await resolveOrgByWidgetKey(admin, key);
+  assert.ok(openResolved);
+  assert.equal(
+    evaluateWidgetOrigin("https://anyone.example", openResolved!.allowedOrigins, {
+      emptyAllowsAll: true,
+    }).allowed,
+    true,
+    "no sites configured → the MVP default allows every origin",
+  );
+
+  await admin
+    .from("organization_widget_settings")
+    .update({ allowed_origins: ["https://shop.acme.example"] })
+    .eq("organization_id", orgA);
+  const lockedResolved = await resolveOrgByWidgetKey(admin, key);
+  assert.equal(
+    evaluateWidgetOrigin("https://evil.example", lockedResolved!.allowedOrigins, {
+      emptyAllowsAll: true,
+    }).allowed,
+    false,
+    "a configured allowlist is enforced even with emptyAllowsAll set",
+  );
+  assert.equal(
+    evaluateWidgetOrigin("https://shop.acme.example", lockedResolved!.allowedOrigins, {
+      emptyAllowsAll: true,
+    }).allowed,
+    true,
+  );
+
+  await admin
+    .from("organization_widget_settings")
+    .update({ allowed_origins: [] })
+    .eq("organization_id", orgA);
+});
+
+test("org A's widget key can never resolve org B, and a lead captured through org A's widget stays out of org B's reach", { skip }, async () => {
+  const rowA = await admin
+    .from("organization_widget_settings")
+    .select("widget_key")
+    .eq("organization_id", orgA)
+    .single();
+  const keyA = rowA.data.widget_key as string;
+
+  const resolved = await resolveOrgByWidgetKey(admin, keyA);
+  assert.equal(resolved!.organizationId, orgA);
+  assert.notEqual(resolved!.organizationId, orgB);
+
+  // A lead captured through org A's widget (service-role write — the same
+  // trust boundary `persistChatTurn` uses) is invisible to org B's session.
+  const lead = await admin
+    .from("leads")
+    .insert({ organization_id: orgA, name: "Widget Lead A", source: "widget" })
+    .select("id")
+    .single();
+  assert.equal(lead.error, null);
+  try {
+    const asB = await users.b.client.from("leads").select("id").eq("id", lead.data.id);
+    assert.deepEqual(asB.data, [], "org B's session cannot see org A's widget-captured lead");
+    const asA = await users.a.client.from("leads").select("id").eq("id", lead.data.id);
+    assert.equal(asA.data?.length, 1, "org A's own session can see it");
+  } finally {
+    await admin.from("leads").delete().eq("id", lead.data.id);
+  }
+});
+
+test("chat presentation resolved THROUGH a widget key matches that org's own industry, in EN and AR", { skip }, async () => {
+  // Give org B (clinic) a widget too.
+  const createdB = await users.b.client
+    .from("organization_widget_settings")
+    .insert({ organization_id: orgB, enabled: true })
+    .select("widget_key")
+    .single();
+  assert.equal(createdB.error, null);
+  const keyB = createdB.data.widget_key as string;
+
+  const rowA = await admin
+    .from("organization_widget_settings")
+    .select("widget_key")
+    .eq("organization_id", orgA)
+    .single();
+  const resolvedA = await resolveOrgByWidgetKey(admin, rowA.data.widget_key as string);
+  const resolvedB = await resolveOrgByWidgetKey(admin, keyB);
+  assert.ok(resolvedA && resolvedB);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const dict of [en, ar] as any[]) {
+    const pA = resolveChatPresentation({
+      industrySlug: resolvedA!.industryTemplateId,
+      businessName: resolvedA!.organizationName,
+      dict,
+    });
+    const pB = resolveChatPresentation({
+      industrySlug: resolvedB!.industryTemplateId,
+      businessName: resolvedB!.organizationName,
+      dict,
+    });
+    assert.equal(pA.industrySlug, "real-estate");
+    assert.equal(pA.businessName, "Pilot IT Org A");
+    assert.equal(pB.industrySlug, "clinic");
+    assert.equal(pB.businessName, "Pilot IT Org B");
+    assert.notDeepEqual(pA.suggestedPrompts, pB.suggestedPrompts);
+    assert.ok(pA.greeting.length > 0 && pB.greeting.length > 0);
+  }
+
+  // The same org's presentation differs between EN and AR (nothing untranslated).
+  const enA = resolveChatPresentation({
+    industrySlug: resolvedA!.industryTemplateId,
+    businessName: resolvedA!.organizationName,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dict: en as any,
+  });
+  const arA = resolveChatPresentation({
+    industrySlug: resolvedA!.industryTemplateId,
+    businessName: resolvedA!.organizationName,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dict: ar as any,
+  });
+  assert.notEqual(enA.greeting, arA.greeting);
+  assert.notDeepEqual(enA.suggestedPrompts, arA.suggestedPrompts);
 });

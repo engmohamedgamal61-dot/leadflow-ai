@@ -68,7 +68,7 @@ export async function resolveChatContext(
         const decision = evaluateWidgetOrigin(
           input.widgetOrigin,
           widgetOrg.allowedOrigins,
-          { allowDevOrigins: devOriginsAllowed() },
+          { allowDevOrigins: devOriginsAllowed(), emptyAllowsAll: true },
         );
         if (!decision.allowed) {
           return {

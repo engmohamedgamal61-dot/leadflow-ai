@@ -8,8 +8,26 @@ import type { LeadData } from "../../types/chat.ts";
 type Row = Record<string, unknown>;
 type Store = Record<string, Row[]>;
 
+/** SQL ILIKE (`%`/`_` wildcards, `\`-escaped) → a case-insensitive whole-string regex. */
+function likeToRegex(pattern: string): RegExp {
+  let re = "";
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    if (c === "\\" && i + 1 < pattern.length) {
+      re += pattern[++i].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    } else if (c === "%") {
+      re += ".*";
+    } else if (c === "_") {
+      re += ".";
+    } else {
+      re += c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+  }
+  return new RegExp(`^${re}$`, "i");
+}
+
 class FakeQuery {
-  private filters: [string, unknown][] = [];
+  private filters: [string, unknown, "eq" | "ilike"][] = [];
   private op: "select" | "insert" | "update" | "upsert" = "select";
   private values: Row | Row[] = {};
   private orderDesc = false;
@@ -29,7 +47,11 @@ class FakeQuery {
     return this;
   }
   eq(col: string, val: unknown) {
-    this.filters.push([col, val]);
+    this.filters.push([col, val, "eq"]);
+    return this;
+  }
+  ilike(col: string, pattern: string) {
+    this.filters.push([col, pattern, "ilike"]);
     return this;
   }
   order(_col: string, opts: { ascending: boolean }) {
@@ -75,7 +97,13 @@ class FakeQuery {
 
   private rows(): Row[] {
     return (this.store[this.table] ?? []).filter((r) =>
-      this.filters.every(([c, v]) => r[c] === v),
+      this.filters.every(([c, v, kind]) => {
+        if (kind === "ilike") {
+          const val = r[c];
+          return typeof val === "string" && typeof v === "string" && likeToRegex(v).test(val);
+        }
+        return r[c] === v;
+      }),
     );
   }
 
@@ -310,6 +338,116 @@ test("clinic lead persists through the same function", async () => {
   assert.equal(row.intent, null);
   assert.deepEqual(row.custom_data, clinicLead.customData);
   assert.equal("service" in row, false); // still only custom_data, no column
+});
+
+// ── lead de-duplication (fake DB — wiring; real-Postgres cases live in
+//    supabase.integration.test.ts) ───────────────────────────────────────────
+
+test("dedup: a second, unrelated conversation with the SAME email reuses the first lead", async () => {
+  const db = new FakeSupabase();
+  const first = await persistChatTurn(
+    db as unknown as Db,
+    baseInput({
+      requestId: crypto.randomUUID(),
+      lead: { ...reLead, email: "Same@Example.com" },
+    }),
+  );
+  const second = await persistChatTurn(
+    db as unknown as Db,
+    baseInput({
+      requestId: crypto.randomUUID(),
+      lead: { ...reLead, name: "Different Name", email: "same@example.com" },
+    }),
+  );
+
+  assert.notEqual(second.conversationId, first.conversationId);
+  assert.equal(second.leadId, first.leadId, "matched by email, case-insensitively");
+  assert.equal(second.leadCreated, false);
+  assert.equal(db.store.leads.length, 1);
+  assert.equal(db.store.conversations.length, 2);
+});
+
+test("dedup: a Saudi phone in a different format (0.. vs +9665..) still reuses the first lead", async () => {
+  const db = new FakeSupabase();
+  const first = await persistChatTurn(
+    db as unknown as Db,
+    baseInput({
+      requestId: crypto.randomUUID(),
+      lead: { ...reLead, email: null, phone: "+966501234567" },
+    }),
+  );
+  const second = await persistChatTurn(
+    db as unknown as Db,
+    baseInput({
+      requestId: crypto.randomUUID(),
+      lead: { ...reLead, email: null, phone: "0501234567" },
+    }),
+  );
+
+  assert.equal(second.leadId, first.leadId);
+  assert.equal(db.store.leads.length, 1);
+});
+
+test("dedup: with no email/phone yet, two separate sessions never merge", async () => {
+  const db = new FakeSupabase();
+  const first = await persistChatTurn(
+    db as unknown as Db,
+    baseInput({ requestId: crypto.randomUUID(), lead: { ...reLead, phone: null, email: null } }),
+  );
+  const second = await persistChatTurn(
+    db as unknown as Db,
+    baseInput({ requestId: crypto.randomUUID(), lead: { ...reLead, phone: null, email: null } }),
+  );
+
+  assert.notEqual(second.leadId, first.leadId);
+  assert.equal(db.store.leads.length, 2);
+});
+
+test("dedup: never crosses organizations, even with an identical email", async () => {
+  const db = new FakeSupabase();
+  const inA = await persistChatTurn(
+    db as unknown as Db,
+    baseInput({
+      organizationId: "org-a",
+      requestId: crypto.randomUUID(),
+      lead: { ...reLead, email: "shared@example.test" },
+    }),
+  );
+  const inB = await persistChatTurn(
+    db as unknown as Db,
+    baseInput({
+      organizationId: "org-b",
+      requestId: crypto.randomUUID(),
+      lead: { ...reLead, email: "shared@example.test" },
+    }),
+  );
+
+  assert.notEqual(inA.leadId, inB.leadId);
+  assert.equal(
+    db.store.leads.find((l) => l.id === inB.leadId)?.organization_id,
+    "org-b",
+  );
+});
+
+test("dedup: an existing conversationId always wins — no dedup lookup, no merge", async () => {
+  const db = new FakeSupabase();
+  const first = await persistChatTurn(
+    db as unknown as Db,
+    baseInput({ requestId: crypto.randomUUID(), lead: { ...reLead, email: "a@b.com" } }),
+  );
+  // A second, unrelated lead with a DIFFERENT email in the SAME conversation —
+  // it must update that conversation's own lead, never dedup-match anything.
+  const second = await persistChatTurn(
+    db as unknown as Db,
+    baseInput({
+      conversationId: first.conversationId,
+      requestId: crypto.randomUUID(),
+      lead: { ...reLead, email: "b@c.com" },
+    }),
+  );
+  assert.equal(second.leadId, first.leadId);
+  assert.equal(db.store.leads.length, 1);
+  assert.equal(db.store.leads[0].email, "b@c.com");
 });
 
 // ── concurrency / idempotency ───────────────────────────────────────────────

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { requireOrganizationContext, canManageConfig } from "@/lib/org/context";
 import { createClient } from "@/lib/supabase/server";
 import { ensureWidgetSettings, getWidgetSettings } from "@/lib/org/widget";
+import { widgetEmbedSnippet, widgetPreviewUrl } from "@/lib/org/widget-embed";
 import { appBaseUrlOrNull } from "@/lib/app-url";
 import { WidgetIcon } from "@/components/icons";
 import { getI18n } from "@/i18n/server";
@@ -47,15 +48,13 @@ export default async function WidgetSettingsPage() {
         </p>
       ) : (
         (() => {
-          const base = appBaseUrlOrNull() ?? "";
-          const widgetUrl = `${base}/embed/${settings.widgetKey}`;
-          const snippet = `<iframe src="${widgetUrl}" width="400" height="640" style="border:0;border-radius:12px" title="Chat"></iframe>`;
+          const base = appBaseUrlOrNull();
           return (
             <WidgetForm
               enabled={settings.enabled}
               widgetKey={settings.widgetKey}
-              embedSnippet={snippet}
-              widgetUrl={widgetUrl}
+              embedSnippet={widgetEmbedSnippet(base, settings.widgetKey)}
+              previewUrl={widgetPreviewUrl(base, settings.widgetKey)}
               originsText={settings.allowedOrigins.join("\n")}
             />
           );

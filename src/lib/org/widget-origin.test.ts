@@ -63,9 +63,39 @@ test("malformed origin → malformed", () => {
   assert.equal(evaluateWidgetOrigin("data:text/html,x", ACME).reason, "malformed");
 });
 
-test("empty allowlist blocks every real origin (closed, not open)", () => {
+test("empty allowlist blocks every real origin by default (closed, not open)", () => {
   assert.equal(evaluateWidgetOrigin("https://www.acme.com", []).allowed, false);
   assert.equal(evaluateWidgetOrigin("https://www.acme.com", []).reason, "not-allowed");
+});
+
+test("MVP widget/embed policy: emptyAllowsAll lets an unconfigured widget run anywhere", () => {
+  const d = evaluateWidgetOrigin("https://anywhere.example", [], { emptyAllowsAll: true });
+  assert.deepEqual(d, { allowed: true, origin: "https://anywhere.example", reason: "no-allowlist" });
+  // even a missing/opaque origin is fine when there's nothing to check against
+  assert.equal(evaluateWidgetOrigin(undefined, [], { emptyAllowsAll: true }).allowed, true);
+  assert.equal(evaluateWidgetOrigin("null", [], { emptyAllowsAll: true }).allowed, true);
+});
+
+test("emptyAllowsAll never overrides a NON-empty allowlist — it stays strictly enforced", () => {
+  const d = evaluateWidgetOrigin("https://evil.example", ACME, { emptyAllowsAll: true });
+  assert.equal(d.allowed, false);
+  assert.equal(d.reason, "not-allowed");
+  assert.equal(
+    evaluateWidgetOrigin("https://www.acme.com", ACME, { emptyAllowsAll: true }).allowed,
+    true,
+  );
+});
+
+test("www / non-www of an allowlisted host are treated as the same site (scheme stays exact)", () => {
+  const bare = ["https://acme.com"];
+  assert.equal(evaluateWidgetOrigin("https://www.acme.com", bare).allowed, true);
+  assert.equal(evaluateWidgetOrigin("https://acme.com", bare).allowed, true);
+  // a different scheme is NOT auto-allowed even with the same host
+  assert.equal(evaluateWidgetOrigin("http://acme.com", bare).allowed, false);
+  assert.equal(evaluateWidgetOrigin("http://www.acme.com", bare).allowed, false);
+
+  const withWww = ["https://www.shop.acme.com"];
+  assert.equal(evaluateWidgetOrigin("https://shop.acme.com", withWww).allowed, true);
 });
 
 test("localhost/dev: allowed only when allowDevOrigins is set", () => {

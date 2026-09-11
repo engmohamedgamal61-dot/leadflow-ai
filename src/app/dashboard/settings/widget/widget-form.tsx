@@ -40,13 +40,13 @@ export function WidgetForm({
   enabled,
   widgetKey,
   embedSnippet,
-  widgetUrl,
+  previewUrl,
   originsText,
 }: {
   enabled: boolean;
   widgetKey: string;
   embedSnippet: string;
-  widgetUrl: string;
+  previewUrl: string;
   originsText: string;
 }) {
   const { t } = useI18n();
@@ -94,17 +94,14 @@ export function WidgetForm({
         <h2 className="text-sm font-semibold text-foreground">{t("widget.embedTitle")}</h2>
         <p className="text-xs text-muted">{t("widget.embedHint")}</p>
         <CopyBox value={embedSnippet} label={t("widget.copySnippet")} />
-        <p className="text-[11px] text-muted">
-          {t("widget.previewHint")}{" "}
-          <a
-            href={widgetUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="text-accent hover:underline"
-          >
-            {t("widget.openPreview")}
-          </a>
-        </p>
+        <a
+          href={previewUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:border-accent/40"
+        >
+          {t("widget.previewButton")}
+        </a>
       </section>
 
       <section className="space-y-3 rounded-xl border border-border bg-surface p-4">
@@ -131,8 +128,8 @@ export function WidgetForm({
         <h2 className="text-sm font-semibold text-foreground">{t("widget.originsTitle")}</h2>
         <p className="text-xs text-muted">{t("widget.originsHint")}</p>
         {enabled && !originsText.trim() ? (
-          <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-400">
-            {t("widget.originsRequired")}
+          <p className="rounded-md border border-border bg-background px-2.5 py-1.5 text-xs text-muted">
+            {t("widget.originsOpenHint")}
           </p>
         ) : null}
         <form action={originsAction} className="space-y-2">

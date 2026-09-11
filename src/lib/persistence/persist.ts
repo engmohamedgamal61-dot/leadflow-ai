@@ -2,6 +2,11 @@
 // `node --test`. Type-only imports are erased and may use the `@/` alias.
 import { leadWriteToInsert } from "../supabase/mappers.ts";
 import { computeLeadEvents, type LeadSnapshot } from "./events.ts";
+import {
+  escapeLike,
+  pickDedupMatch,
+  type DedupMatch,
+} from "./lead-dedup.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LeadData } from "@/types/chat";
 import type { LeadTemperature } from "@/lib/lead-scoring";
@@ -81,6 +86,33 @@ function alreadyPersisted(
 }
 
 /**
+ * Find an existing lead for this org by a contact key. Tenant-scoped
+ * (`organization_id`) + bounded. Returns the id only on an UNAMBIGUOUS match
+ * (exactly one row) — 0 or 2+ → create a fresh lead rather than merge wrongly.
+ */
+async function findLeadByContact(
+  db: Db,
+  organizationId: string,
+  match: DedupMatch,
+): Promise<string | null> {
+  const base = db
+    .from("leads")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .order("updated_at", { ascending: false })
+    .limit(2);
+
+  const query =
+    match.by === "email"
+      ? base.ilike("email", escapeLike(match.value))
+      : base.ilike("phone", `%${escapeLike(match.matchKey)}`);
+
+  const { data, error } = await query;
+  if (error) throw new PersistenceError("dedup lead lookup", error);
+  return data && data.length === 1 ? data[0].id : null;
+}
+
+/**
  * Persist one completed chat turn: upsert the lead, reuse or create the
  * conversation, append the completed user + assistant messages, and record
  * lead events for any state changes.
@@ -152,6 +184,21 @@ export async function persistChatTurn(
     if (data) {
       conversationId = data.id;
       leadId = data.lead_id;
+    }
+  }
+
+  // No conversation matched → we would create a new lead. First try to attach
+  // this conversation to an EXISTING lead for the same org, matched by contact
+  // detail (a widget visitor often returns in a fresh browser session). Phone
+  // matching is format-agnostic — see `lead-dedup.ts`.
+  if (leadId === null) {
+    const match = pickDedupMatch({
+      email: input.lead.email,
+      phone: input.lead.phone,
+    });
+    if (match) {
+      const matched = await findLeadByContact(db, input.organizationId, match);
+      if (matched) leadId = matched;
     }
   }
 
