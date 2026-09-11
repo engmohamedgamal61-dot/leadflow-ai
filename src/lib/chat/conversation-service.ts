@@ -14,7 +14,7 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { CHAT_MODEL, MAX_TOKENS } from "@/lib/chat/anthropic";
+import { CHAT_MODEL, MAX_TOKENS, requestCallOptions } from "@/lib/chat/anthropic";
 import { buildSystemPrompt, type AvailableSlot } from "@/lib/chat/system-prompt";
 import { extractLeadAndActions } from "@/lib/chat/agent-extraction";
 import type { EffectiveConfig } from "@/lib/config";
@@ -27,6 +27,8 @@ import { recordAiUsage } from "@/lib/metering/service";
 import { normalizeAnthropicUsage } from "@/lib/metering/types";
 import type { TokenUsage } from "@/lib/metering/pricing";
 import type { Database } from "@/lib/supabase/types";
+import { logEvent } from "@/lib/observability/log";
+import { reportError } from "@/lib/observability/report";
 
 const FALLBACK_REPLY =
   "Thanks for your message. Could you tell me a bit more about what you're looking for?";
@@ -74,27 +76,47 @@ export async function generateAssistantReply(
   config: EffectiveConfig,
   messages: Anthropic.MessageParam[],
   availableSlots?: AvailableSlot[],
+  /** Log-correlation only — never required. */
+  logContext: { requestId?: string | null; organizationId?: string | null } = {},
 ): Promise<AssistantReply> {
+  const startedAt = Date.now();
   try {
-    const response = await client.messages.create({
-      model: CHAT_MODEL,
-      max_tokens: MAX_TOKENS,
-      system: buildSystemPrompt(config, { availableSlots }),
-      thinking: { type: "disabled" },
-      messages,
-    });
+    const response = await client.messages.create(
+      {
+        model: CHAT_MODEL,
+        max_tokens: MAX_TOKENS,
+        system: buildSystemPrompt(config, { availableSlots }),
+        thinking: { type: "disabled" },
+        messages,
+      },
+      requestCallOptions(),
+    );
     const text = response.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text)
       .join("")
       .trim();
+    logEvent({
+      event: "anthropic.chat_reply",
+      requestId: logContext.requestId,
+      organizationId: logContext.organizationId,
+      channel: "whatsapp",
+      model: CHAT_MODEL,
+      durationMs: Date.now() - startedAt,
+    });
     return {
       text: text || FALLBACK_REPLY,
       usage: normalizeAnthropicUsage(response.usage),
       model: CHAT_MODEL,
     };
   } catch (error) {
-    console.error("reply generation failed:", error);
+    void reportError(error, {
+      scope: "chat.generate-assistant-reply",
+      requestId: logContext.requestId,
+      organizationId: logContext.organizationId,
+      channel: "whatsapp",
+      durationMs: Date.now() - startedAt,
+    });
     return { text: FALLBACK_REPLY, usage: null, model: CHAT_MODEL };
   }
 }
@@ -129,6 +151,13 @@ export interface FinalizeTurnInput {
   replyUsage?: TokenUsage | null;
   /** Model used for the reply call (defaults to the chat model). */
   replyModel?: string;
+  /**
+   * Best-effort cancellation for the extraction call below — the inbound
+   * HTTP request's `AbortSignal`, when the caller has one (the web route
+   * does; the WhatsApp webhook runs fire-and-forget in `after()` and has
+   * none). Never required: omitted, the call just runs to completion.
+   */
+  signal?: AbortSignal | null;
 }
 
 export interface FinalizeTurnResult {
@@ -146,6 +175,7 @@ export interface FinalizeTurnResult {
 export async function finalizeConversationTurn(
   input: FinalizeTurnInput,
 ): Promise<FinalizeTurnResult> {
+  const extractionStartedAt = Date.now();
   const {
     lead,
     proposedActions,
@@ -155,7 +185,16 @@ export async function finalizeConversationTurn(
     input.client,
     [...input.historyMessages, { role: "assistant", content: input.replyText }],
     input.config,
+    { signal: input.signal },
   );
+  logEvent({
+    event: "anthropic.lead_extraction",
+    requestId: input.requestId,
+    organizationId: input.organizationId,
+    channel: input.channel,
+    model: extractionModel,
+    durationMs: Date.now() - extractionStartedAt,
+  });
 
   let conversationId = input.conversationId;
   let leadId: string | null = null;
@@ -163,6 +202,7 @@ export async function finalizeConversationTurn(
 
   if (input.organizationId) {
     const { score, temperature } = calculateLeadScore(lead, input.config.scoring);
+    const persistStartedAt = Date.now();
     const persisted = await persistCompletedTurn({
       organizationId: input.organizationId,
       conversationId: input.conversationId,
@@ -177,6 +217,13 @@ export async function finalizeConversationTurn(
       temperature,
       externalContactId: input.externalContactId ?? null,
       userProviderMessageId: input.userProviderMessageId ?? null,
+    });
+    logEvent({
+      event: "db.persist_completed_turn",
+      requestId: input.requestId,
+      organizationId: input.organizationId,
+      channel: input.channel,
+      durationMs: Date.now() - persistStartedAt,
     });
     if (persisted) {
       conversationId = persisted.conversationId;

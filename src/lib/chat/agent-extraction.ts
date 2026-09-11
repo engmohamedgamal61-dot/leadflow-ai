@@ -1,15 +1,17 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { CHAT_MODEL } from "@/lib/chat/anthropic";
+// Relative value imports so this module (and its test) run under `node --test`.
+import { CHAT_MODEL, requestCallOptions } from "./anthropic.ts";
+import { reportError } from "../observability/report.ts";
 import type { EffectiveConfig } from "@/lib/config";
 import {
   buildAgentExtractionSchema,
   buildExtractionSystemPrompt,
-} from "@/lib/lead-schema";
-import { assembleLead } from "@/lib/lead-normalization";
-import { parseProposedActions, type ProposedAction } from "@/lib/agent/actions";
-import { normalizeAnthropicUsage } from "@/lib/metering/types";
+} from "../lead-schema.ts";
+import { assembleLead } from "../lead-normalization.ts";
+import { parseProposedActions, type ProposedAction } from "../agent/actions.ts";
+import { normalizeAnthropicUsage } from "../metering/types.ts";
 import type { TokenUsage } from "@/lib/metering/pricing";
-import { EMPTY_LEAD, type LeadData } from "@/types/chat";
+import { EMPTY_LEAD, type LeadData } from "../../types/chat.ts";
 
 const EXTRACTION_MAX_TOKENS = 640;
 
@@ -48,34 +50,44 @@ export interface AgentExtraction {
  *
  * Never throws: returns an empty lead and no actions on any failure.
  */
+export interface ExtractLeadAndActionsOptions {
+  now?: Date;
+  /** Best-effort cancellation — see `FinalizeTurnInput.signal` in conversation-service.ts. */
+  signal?: AbortSignal | null;
+}
+
 export async function extractLeadAndActions(
   client: Anthropic,
   messages: Anthropic.MessageParam[],
   config: EffectiveConfig,
-  now: Date = new Date(),
+  options: ExtractLeadAndActionsOptions = {},
 ): Promise<AgentExtraction> {
+  const now = options.now ?? new Date();
   try {
     const enabledFields = config.leadFields.filter((field) => field.enabled);
     const schema = buildAgentExtractionSchema(enabledFields);
 
-    const response = await client.messages.create({
-      model: CHAT_MODEL,
-      max_tokens: EXTRACTION_MAX_TOKENS,
-      thinking: { type: "disabled" },
-      system: `${buildExtractionSystemPrompt(config)}
+    const response = await client.messages.create(
+      {
+        model: CHAT_MODEL,
+        max_tokens: EXTRACTION_MAX_TOKENS,
+        thinking: { type: "disabled" },
+        system: `${buildExtractionSystemPrompt(config)}
 
 The current date and time is ${now.toISOString()} (UTC). Resolve any relative time the prospect gives ("tomorrow", "next week", "in 3 days") against it.
 You may also propose business actions in "proposed_actions" ONLY when the prospect clearly asked for one. Do not propose actions speculatively; an empty array is the normal case.`,
-      output_config: { format: { type: "json_schema", schema } },
-      messages: [
-        ...messages,
-        {
-          role: "user",
-          content:
-            "Return the JSON: the lead data, and proposed_actions (usually empty).",
-        },
-      ],
-    });
+        output_config: { format: { type: "json_schema", schema } },
+        messages: [
+          ...messages,
+          {
+            role: "user",
+            content:
+              "Return the JSON: the lead data, and proposed_actions (usually empty).",
+          },
+        ],
+      },
+      requestCallOptions(options.signal),
+    );
 
     const text = response.content
       .filter((block): block is Anthropic.TextBlock => block.type === "text")
@@ -103,7 +115,7 @@ You may also propose business actions in "proposed_actions" ONLY when the prospe
 
     return { lead, proposedActions: actions, rejectedActions: rejected, usage, model: CHAT_MODEL };
   } catch (error) {
-    console.error("agent extraction failed", error);
+    void reportError(error, { scope: "chat.agent-extraction" });
     return { lead: EMPTY_LEAD, proposedActions: [], rejectedActions: [], usage: null, model: CHAT_MODEL };
   }
 }

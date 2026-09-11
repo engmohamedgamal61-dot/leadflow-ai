@@ -1205,6 +1205,15 @@ export interface Database {
           total_cost_usd: number;
         }[];
       };
+      /**
+       * Deletes `private.rate_limits` rows whose window started more than
+       * `p_older_than_seconds` ago (service-role only). Returns the number of
+       * rows deleted. See `20260911120000_rate_limit_cleanup.sql`.
+       */
+      cleanup_expired_rate_limits: {
+        Args: { p_older_than_seconds: number };
+        Returns: number;
+      };
     };
     Enums: {
       organization_status: OrganizationStatus;

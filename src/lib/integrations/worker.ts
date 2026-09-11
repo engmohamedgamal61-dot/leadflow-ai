@@ -13,6 +13,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Tables } from "@/lib/supabase/types";
 import { createAdminClient } from "../supabase/admin.ts";
 import { reportError } from "../observability/report.ts";
+import { logEvent } from "../observability/log.ts";
 import {
   resolveDeliveryBatchSize,
   resolveStuckAfterMs,
@@ -78,10 +79,18 @@ export async function runIntegrationHub(
 
   // ── phase 1: fan-out ──────────────────────────────────────────────────
   if (!opts.skipFanout) {
+    const fanoutStartedAt = Date.now();
     try {
       const f = await fanOutOutbox(db);
       summary.outboxProcessed = f.outboxProcessed;
       summary.deliveriesCreated = f.deliveriesCreated;
+      logEvent({
+        event: "db.integrations_fanout",
+        requestId: runId,
+        outboxProcessed: f.outboxProcessed,
+        deliveriesCreated: f.deliveriesCreated,
+        durationMs: Date.now() - fanoutStartedAt,
+      });
     } catch (err) {
       void reportError(err, { scope: "integrations.worker", phase: "fanout", runId });
     }
@@ -94,9 +103,15 @@ export async function runIntegrationHub(
     opts.stuckAfterMs ??
     resolveStuckAfterMs(process.env.INTEGRATION_HUB_STUCK_DELIVERING_MS);
 
+  const claimStartedAt = Date.now();
   const { data: claimed, error } = await db.rpc("claim_integration_deliveries", {
     p_limit: batchSize,
     p_stuck_after: `${Math.round(stuckAfterMs / 1000)} seconds`,
+  });
+  logEvent({
+    event: "db.claim_integration_deliveries",
+    requestId: runId,
+    durationMs: Date.now() - claimStartedAt,
   });
   if (error) {
     void reportError(error, { scope: "integrations.worker", phase: "claim", runId });
@@ -174,9 +189,18 @@ export async function runIntegrationHub(
   }
 
   summary.durationMs = Date.now() - started;
-  console.log(
-    `[integration-hub] run=${runId} outbox=${summary.outboxProcessed} created=${summary.deliveriesCreated} claimed=${summary.claimed} ok=${summary.succeeded} retry=${summary.retryScheduled} dead=${summary.dead} skipped=${summary.skipped} duration=${summary.durationMs}ms`,
-  );
+  logEvent({
+    event: "integrations.worker.run",
+    requestId: runId,
+    outboxProcessed: summary.outboxProcessed,
+    deliveriesCreated: summary.deliveriesCreated,
+    claimed: summary.claimed,
+    succeeded: summary.succeeded,
+    retryScheduled: summary.retryScheduled,
+    dead: summary.dead,
+    skipped: summary.skipped,
+    durationMs: summary.durationMs,
+  });
   return summary;
 }
 

@@ -15,6 +15,14 @@ Set these on the deployment (see `.env.example` for the annotated list):
 - `FOLLOW_UP_CRON_SECRET` — `openssl rand -hex 32`. Point a scheduler (Vercel
   Cron, Supabase Cron, GitHub Actions) at `POST /api/internal/follow-ups/run`
   with header `Authorization: Bearer <secret>` every 5–15 minutes.
+- `INTEGRATION_HUB_CRON_SECRET` — same shape, pointed at
+  `POST /api/internal/integrations/run`, every 1–2 minutes.
+- `RATE_LIMIT_CLEANUP_CRON_SECRET` — same shape, pointed at
+  `POST /api/internal/rate-limits/cleanup`, once daily.
+
+See **`docs/PRODUCTION-HARDENING.md`** for exact cadences, the Vercel plan
+requirement for the two frequent crons, and the `vercel.json` config already
+in the repo if deploying to Vercel.
 
 Apply migrations: `npx supabase db push` (or run `supabase/migrations/*.sql` in
 order via the SQL editor).
@@ -99,6 +107,9 @@ secrets redacted. Without it, the same reports still go to stderr as structured
 - [ ] Password reset email received and working end to end.
 - [ ] `SIGNUP_INVITE_CODE` set (if signup should be closed).
 - [ ] Cron hitting the follow-up run route (check the response counts).
+- [ ] Cron hitting the integration hub run route (check the response counts) —
+      only needed if the Integration Hub is in use.
+- [ ] Cron hitting the rate-limit cleanup route (check `{ deleted, ... }`).
 - [ ] `OPS_ALERT_WEBHOOK_URL` set, or stderr logs captured.
 - [ ] Customer org created, AI configured, at least one channel connected.
 - [ ] Widget enabled and embedded on a test page; a test chat produces a lead

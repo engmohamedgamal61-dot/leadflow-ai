@@ -13,8 +13,9 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 // Relative value imports so this module + its tests run under `node --test`.
-import { CHAT_MODEL } from "../chat/anthropic.ts";
+import { CHAT_MODEL, requestCallOptions } from "../chat/anthropic.ts";
 import { normalizeAnthropicUsage } from "../metering/types.ts";
+import { reportError } from "../observability/report.ts";
 import { OPERATION_TYPES } from "./plan.ts";
 import type { TokenUsage } from "@/lib/metering/pricing";
 import type { Locale } from "@/i18n/config";
@@ -132,26 +133,29 @@ export async function planQuestion(
     // that a strict JSON schema can't express cleanly, and `parsePlan` is the
     // real trust boundary. The prompt pins the shape; we parse the first
     // JSON object out of the reply.
-    const response = await client.messages.create({
-      model,
-      max_tokens: options.maxTokens ?? PLANNER_MAX_TOKENS,
-      system: `${PLANNER_SYSTEM_PROMPT}\n\nCurrent time: ${now.toISOString()} (UTC).${customFieldsNote}`,
-      thinking: { type: "disabled" },
-      messages: [
-        ...priorTurns,
-        {
-          role: "user",
-          content: `Plan this question (use the conversation above for context if it is a follow-up):\n\n${question}\n\nReturn ONLY the JSON plan object.`,
-        },
-      ],
-    });
+    const response = await client.messages.create(
+      {
+        model,
+        max_tokens: options.maxTokens ?? PLANNER_MAX_TOKENS,
+        system: `${PLANNER_SYSTEM_PROMPT}\n\nCurrent time: ${now.toISOString()} (UTC).${customFieldsNote}`,
+        thinking: { type: "disabled" },
+        messages: [
+          ...priorTurns,
+          {
+            role: "user",
+            content: `Plan this question (use the conversation above for context if it is a follow-up):\n\n${question}\n\nReturn ONLY the JSON plan object.`,
+          },
+        ],
+      },
+      requestCallOptions(),
+    );
     const text = response.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text)
       .join("");
     return { raw: firstJsonObject(text), usage: normalizeAnthropicUsage(response.usage), model };
   } catch (error) {
-    console.error("[sales-manager] planning failed:", error);
+    void reportError(error, { scope: "sales-manager.plan-question" });
     return { raw: null, usage: null, model };
   }
 }
@@ -218,19 +222,22 @@ export async function generateGroundedAnswer(
     .slice(-4)
     .map((t) => ({ role: t.role, content: t.content.slice(0, 1000) }));
   try {
-    const response = await client.messages.create({
-      model,
-      max_tokens: options.maxTokens ?? SALES_MANAGER_MAX_TOKENS,
-      system: SALES_MANAGER_SYSTEM_PROMPT,
-      thinking: { type: "disabled" },
-      messages: [
-        ...priorTurns,
-        {
-          role: "user",
-          content: `${input.groundingText}\n\nWrite the answer now, following every grounding rule. The user's language looks like ${langHint} — mirror whatever language their latest message used.`,
-        },
-      ],
-    });
+    const response = await client.messages.create(
+      {
+        model,
+        max_tokens: options.maxTokens ?? SALES_MANAGER_MAX_TOKENS,
+        system: SALES_MANAGER_SYSTEM_PROMPT,
+        thinking: { type: "disabled" },
+        messages: [
+          ...priorTurns,
+          {
+            role: "user",
+            content: `${input.groundingText}\n\nWrite the answer now, following every grounding rule. The user's language looks like ${langHint} — mirror whatever language their latest message used.`,
+          },
+        ],
+      },
+      requestCallOptions(),
+    );
     const text = response.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text)
@@ -238,7 +245,7 @@ export async function generateGroundedAnswer(
       .trim();
     return { text, usage: normalizeAnthropicUsage(response.usage), model };
   } catch (error) {
-    console.error("[sales-manager] answer generation failed:", error);
+    void reportError(error, { scope: "sales-manager.generate-grounded-answer" });
     return { text: "", usage: null, model };
   }
 }

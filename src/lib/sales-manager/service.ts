@@ -20,6 +20,7 @@ import { routeQuestion } from "./intents.ts";
 import { INTENT_TO_OPERATION, type PlannedOperation } from "./plan.ts";
 import { executeOperation, type ExecutionContext } from "./operations.ts";
 import { runAsk, type AskResult, type ConversationTurn } from "./orchestration.ts";
+import { logEvent } from "@/lib/observability/log";
 
 export interface AskLeadFlowInput {
   question: string;
@@ -75,10 +76,20 @@ export async function askLeadFlow(input: AskLeadFlowInput): Promise<AskResult> {
       } catch {
         return { raw: null, usage: null, model: CHAT_MODEL };
       }
-      return planQuestion(client, question, history, {
+      const startedAt = Date.now();
+      const result = await planQuestion(client, question, history, {
         now,
         customFields: [...customFieldKeys],
       });
+      logEvent({
+        event: "anthropic.sales_manager_plan",
+        requestId,
+        organizationId: input.organizationId,
+        channel: "dashboard",
+        model: result.model,
+        durationMs: Date.now() - startedAt,
+      });
+      return result;
     },
 
     execute: async (operations) =>
@@ -96,11 +107,21 @@ export async function askLeadFlow(input: AskLeadFlowInput): Promise<AskResult> {
       } catch {
         return { text: "", usage: null, model: CHAT_MODEL };
       }
-      return generateGroundedAnswer(client, {
+      const startedAt = Date.now();
+      const result = await generateGroundedAnswer(client, {
         groundingText,
         history,
         locale: input.locale,
       });
+      logEvent({
+        event: "anthropic.sales_manager_answer",
+        requestId,
+        organizationId: input.organizationId,
+        channel: "dashboard",
+        model: result.model,
+        durationMs: Date.now() - startedAt,
+      });
+      return result;
     },
 
     recordUsage: async ({ kind, model, usage, requestId: rid }) => {

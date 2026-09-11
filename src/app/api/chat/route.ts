@@ -4,7 +4,9 @@ import {
   CHAT_MODEL,
   MAX_TOKENS,
   getAnthropicClient,
+  streamCallOptions,
 } from "@/lib/chat/anthropic";
+import { logEvent } from "@/lib/observability/log";
 import { buildSystemPrompt } from "@/lib/chat/system-prompt";
 import {
   finalizeConversationTurn,
@@ -173,6 +175,12 @@ export async function POST(request: NextRequest) {
     return Response.json({ errorCode: "chat.errors.invalidRequest" }, { status: 400 });
   }
 
+  // Log-correlation id only — distinct from `parsed.requestId`, the client-
+  // supplied per-turn idempotency key that persistence/metering use as-is
+  // (including when absent). Generating one here just guarantees every
+  // request has a correlator in the logs even if the client didn't send one.
+  const requestId = parsed.requestId ?? crypto.randomUUID();
+
   const messages = toAnthropicMessages(parsed.turns);
   if (messages.length === 0) {
     return Response.json(
@@ -311,13 +319,23 @@ export async function POST(request: NextRequest) {
 
   // Thinking disabled: a lead-qualification chat is a low-complexity task and
   // real-time responsiveness matters more than deliberation.
-  const stream = client.messages.stream({
-    model: CHAT_MODEL,
-    max_tokens: MAX_TOKENS,
-    system: buildSystemPrompt(config, { availableSlots }),
-    thinking: { type: "disabled" },
-    messages,
-  });
+  //
+  // `streamCallOptions(request.signal)` bounds the call to
+  // ANTHROPIC_STREAM_TIMEOUT_MS (well under the platform function timeout and
+  // the browser's own 45s give-up) and threads the inbound request's abort
+  // signal through, so a client that disconnects before the first chunk stops
+  // the Anthropic call too — see docs/PRODUCTION-HARDENING.md.
+  const anthropicStartedAt = Date.now();
+  const stream = client.messages.stream(
+    {
+      model: CHAT_MODEL,
+      max_tokens: MAX_TOKENS,
+      system: buildSystemPrompt(config, { availableSlots }),
+      thinking: { type: "disabled" },
+      messages,
+    },
+    streamCallOptions(request.signal),
+  );
 
   const events = stream[Symbol.asyncIterator]();
 
@@ -339,8 +357,11 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     void reportError(error, {
       scope: "chat.route",
+      requestId,
+      organizationId: organization?.organizationId ?? null,
       channel: "web",
       orgSource: organization?.source ?? "none",
+      durationMs: Date.now() - anthropicStartedAt,
     });
     stream.abort();
     return errorResponse(error);
@@ -374,10 +395,26 @@ export async function POST(request: NextRequest) {
           }
         }
       } catch (error) {
-        void reportError(error, { scope: "chat.route", phase: "stream", channel: "web" });
+        void reportError(error, {
+          scope: "chat.route",
+          phase: "stream",
+          requestId,
+          organizationId: organization?.organizationId ?? null,
+          channel: "web",
+          durationMs: Date.now() - anthropicStartedAt,
+        });
         controller.error(error);
         return;
       }
+
+      logEvent({
+        event: "anthropic.chat_reply",
+        requestId,
+        organizationId: organization?.organizationId ?? null,
+        channel: "web",
+        model: CHAT_MODEL,
+        durationMs: Date.now() - anthropicStartedAt,
+      });
 
       // The completed message carries this reply call's own token usage — for
       // cost metering, recorded once in `finalizeConversationTurn`. Not an
@@ -392,6 +429,10 @@ export async function POST(request: NextRequest) {
       // Second pass — shared by every channel: ONE structured-output call
       // (extraction + proposed actions, not an extra request), deterministic
       // scoring, persistence, and agent-action execution. Never throws.
+      // `signal: request.signal` is best-effort request cancellation: when the
+      // platform still reports the client as connected here, an already-
+      // disconnected client aborts this call too instead of silently paying
+      // for an Anthropic call nobody will see the result of.
       const lastUserMessage =
         [...parsed.turns].reverse().find((turn) => turn.role === "user")
           ?.content ?? "";
@@ -407,6 +448,7 @@ export async function POST(request: NextRequest) {
         source: organization?.source === "widget" ? "widget" : undefined,
         conversationId: parsed.conversationId,
         requestId: parsed.requestId,
+        signal: request.signal,
       });
 
       controller.enqueue(

@@ -8,6 +8,7 @@ import {
   isAlreadyMemberError,
   mapOnboardingErrorCode,
 } from "@/lib/org/onboarding-errors";
+import { ensureDefaultUsageLimits } from "@/lib/metering/default-limits";
 import type { FieldErrors } from "@/lib/auth/validation";
 
 export type OnboardingOutcome =
@@ -68,5 +69,12 @@ export async function onboardCurrentUser(
   if (!org?.id) {
     return { status: "error", errorCode: "onboarding.errors.generic" };
   }
+
+  // New organizations must not be unlimited by default — best-effort and
+  // non-fatal (see ensureDefaultUsageLimits): a failure here never blocks
+  // onboarding, it just leaves the org unlimited the way every org was
+  // before this existed.
+  await ensureDefaultUsageLimits(supabase, org.id);
+
   return { status: "created", organizationId: org.id };
 }

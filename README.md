@@ -29,6 +29,8 @@ Open [http://localhost:3000](http://localhost:3000).
 | `SUPABASE_SERVICE_ROLE_KEY`     | Yes      | Server-only. Bypasses RLS — never expose to the client.            |
 | `APP_BASE_URL`                  | Yes      | This deployment's public origin. Builds OAuth + auth-email links.  |
 | `FOLLOW_UP_CRON_SECRET`         | Yes\*    | Bearer secret for the follow-up scheduler cron route.              |
+| `INTEGRATION_HUB_CRON_SECRET`   | Yes\*    | Bearer secret for the Integration Hub worker cron route.           |
+| `RATE_LIMIT_CLEANUP_CRON_SECRET`| Yes\*    | Bearer secret for the rate-limit cleanup cron route.                |
 | `SIGNUP_INVITE_CODE`            | No       | When set, public `/signup` requires this code (team invites bypass it). |
 | `OPS_ALERT_WEBHOOK_URL`         | No       | `https://` webhook for operational error alerts (Slack/Discord-shaped). |
 | `CHAT_RATE_LIMIT_PER_IP`        | No       | Per-IP burst cap on `/api/chat` (default 20 / 60s).                |
@@ -36,6 +38,10 @@ Open [http://localhost:3000](http://localhost:3000).
 WhatsApp and Google Calendar have their own credential groups — see `.env.example`.
 
 **Deploying for a customer pilot?** Follow [`docs/PILOT-SETUP.md`](docs/PILOT-SETUP.md).
+**Cron cadence, Anthropic timeouts, observability, default usage caps, and
+rate-limit cleanup** are documented in
+[`docs/PRODUCTION-HARDENING.md`](docs/PRODUCTION-HARDENING.md), including the
+env vars not listed above.
 
 ## Scripts
 

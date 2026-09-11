@@ -7,9 +7,15 @@ import {
   planQuestion,
 } from "./answer.ts";
 import { OPERATION_TYPES } from "./plan.ts";
+import {
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  DEFAULT_REQUEST_MAX_RETRIES,
+} from "../chat/anthropic.ts";
 
-function fakeClient(create: (params: unknown) => unknown) {
-  return { messages: { create: async (p: unknown) => create(p) } };
+// `opts`, when a test cares about it, is the second (`RequestOptions`) argument
+// `.create()` was called with — most tests only assert on `params`.
+function fakeClient(create: (params: unknown, opts?: unknown) => unknown) {
+  return { messages: { create: async (p: unknown, o: unknown) => create(p, o) } };
 }
 
 test("planner prompt: classifies only, never answers, never leaks internals, lists every operation", () => {
@@ -167,4 +173,29 @@ test("generateGroundedAnswer never throws — empty text on API failure", async 
   );
   assert.equal(out.text, "");
   assert.equal(out.usage, null);
+});
+
+test("planQuestion and generateGroundedAnswer apply the single-shot Anthropic timeout/retry policy", async () => {
+  let planOpts: Record<string, unknown> = {};
+  const planClient = fakeClient((_p, o) => {
+    planOpts = o as Record<string, unknown>;
+    return { content: [{ type: "text", text: "{}" }], usage: null };
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await planQuestion(planClient as any, "how many leads?");
+  assert.equal(planOpts.timeout, DEFAULT_REQUEST_TIMEOUT_MS);
+  assert.equal(planOpts.maxRetries, DEFAULT_REQUEST_MAX_RETRIES);
+
+  let answerOpts: Record<string, unknown> = {};
+  const answerClient = fakeClient((_p, o) => {
+    answerOpts = o as Record<string, unknown>;
+    return { content: [{ type: "text", text: "ok" }], usage: null };
+  });
+  await generateGroundedAnswer(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    answerClient as any,
+    { groundingText: "DATA", locale: "en" },
+  );
+  assert.equal(answerOpts.timeout, DEFAULT_REQUEST_TIMEOUT_MS);
+  assert.equal(answerOpts.maxRetries, DEFAULT_REQUEST_MAX_RETRIES);
 });

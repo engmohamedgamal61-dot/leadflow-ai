@@ -4,6 +4,14 @@
     {
       "path": "/api/internal/follow-ups/run",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/internal/integrations/run",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/internal/rate-limits/cleanup",
+      "schedule": "0 3 * * *"
     }
   ]
 }

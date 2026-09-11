@@ -19,6 +19,7 @@ import type {
   UpdateEventInput,
 } from "../provider.ts";
 import { refreshAccessToken, isTokenExpiring } from "./oauth.ts";
+import { logEvent } from "../../observability/log.ts";
 
 const API_BASE = "https://www.googleapis.com/calendar/v3";
 
@@ -69,6 +70,7 @@ function eventBody(input: { summary?: string; description?: string; startsAt: st
 /** Real transport: calls the live Google Calendar API. Never logs the token. */
 export const fetchGoogleTransport: GoogleHttpTransport = {
   async freeBusy({ accessToken, calendarId, range }) {
+    const startedAt = Date.now();
     try {
       const res = await fetch(`${API_BASE}/freeBusy`, {
         method: "POST",
@@ -83,6 +85,7 @@ export const fetchGoogleTransport: GoogleHttpTransport = {
         calendars?: Record<string, { busy?: { start: string; end: string }[] }>;
         error?: { message?: string };
       } | null;
+      logEvent({ event: "calendar.google.freeBusy", status: res.status, durationMs: Date.now() - startedAt });
       if (!res.ok) {
         return { ok: false, detail: (json?.error?.message ?? `HTTP ${res.status}`).slice(0, 200) };
       }
@@ -92,48 +95,57 @@ export const fetchGoogleTransport: GoogleHttpTransport = {
       }));
       return { ok: true, busy };
     } catch (error) {
+      logEvent({ event: "calendar.google.freeBusy", status: "error", durationMs: Date.now() - startedAt });
       return { ok: false, detail: error instanceof Error ? error.message.slice(0, 200) : "network error" };
     }
   },
 
   async insertEvent({ accessToken, calendarId, event }) {
+    const startedAt = Date.now();
     try {
       const res = await fetch(
         `${API_BASE}/calendars/${encodeURIComponent(calendarId)}/events`,
         { method: "POST", headers: authHeaders(accessToken), body: JSON.stringify(eventBody(event)) },
       );
       const json = (await readJson(res)) as { id?: string; error?: { message?: string } } | null;
+      logEvent({ event: "calendar.google.insertEvent", status: res.status, durationMs: Date.now() - startedAt });
       if (!res.ok || !json?.id) {
         return { ok: false, errorDetail: (json?.error?.message ?? `HTTP ${res.status}`).slice(0, 200) };
       }
       return { ok: true, providerEventId: json.id };
     } catch (error) {
+      logEvent({ event: "calendar.google.insertEvent", status: "error", durationMs: Date.now() - startedAt });
       return { ok: false, errorDetail: error instanceof Error ? error.message.slice(0, 200) : "network error" };
     }
   },
 
   async patchEvent({ accessToken, calendarId, event }) {
+    const startedAt = Date.now();
     try {
       const res = await fetch(
         `${API_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(event.providerEventId)}`,
         { method: "PATCH", headers: authHeaders(accessToken), body: JSON.stringify(eventBody(event)) },
       );
       const json = (await readJson(res)) as { id?: string; error?: { message?: string } } | null;
+      logEvent({ event: "calendar.google.patchEvent", status: res.status, durationMs: Date.now() - startedAt });
       if (!res.ok) {
         return { ok: false, errorDetail: (json?.error?.message ?? `HTTP ${res.status}`).slice(0, 200) };
       }
       return { ok: true, providerEventId: json?.id ?? event.providerEventId };
     } catch (error) {
+      logEvent({ event: "calendar.google.patchEvent", status: "error", durationMs: Date.now() - startedAt });
       return { ok: false, errorDetail: error instanceof Error ? error.message.slice(0, 200) : "network error" };
     }
   },
 
   async deleteEvent({ accessToken, calendarId, providerEventId }) {
+    const startedAt = Date.now();
     try {
       const res = await fetch(
         `${API_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(providerEventId)}`,
         { method: "DELETE", headers: authHeaders(accessToken) },
       );
+      logEvent({ event: "calendar.google.deleteEvent", status: res.status, durationMs: Date.now() - startedAt });
       // Google returns 410 Gone for an already-deleted event — treat as success.
       if (!res.ok && res.status !== 404 && res.status !== 410) {
         const json = (await readJson(res)) as { error?: { message?: string } } | null;
@@ -141,6 +153,7 @@ export const fetchGoogleTransport: GoogleHttpTransport = {
       }
       return { ok: true };
     } catch (error) {
+      logEvent({ event: "calendar.google.deleteEvent", status: "error", durationMs: Date.now() - startedAt });
       return { ok: false, errorDetail: error instanceof Error ? error.message.slice(0, 200) : "network error" };
     }
   },

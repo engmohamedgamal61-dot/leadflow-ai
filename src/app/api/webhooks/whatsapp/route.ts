@@ -7,6 +7,7 @@ import { resolveOrgByPhoneNumberId } from "@/lib/whatsapp/connections";
 import { processInboundWhatsAppMessage } from "@/lib/whatsapp/inbound";
 import { applyStatusUpdate } from "@/lib/whatsapp/status";
 import { reportError } from "@/lib/observability/report";
+import { logEvent } from "@/lib/observability/log";
 import { BODY_LIMITS, bodyTooLargeResponse, readLimitedText } from "@/lib/security/body-limit";
 
 export const runtime = "nodejs";
@@ -72,7 +73,11 @@ export async function POST(request: NextRequest): Promise<Response> {
     return Response.json({ ok: true });
   }
 
-  // Ack immediately; process off the response path.
+  // Ack immediately; process off the response path. `requestId` here is a
+  // log-correlation id for this webhook delivery batch — distinct from the
+  // per-message `requestId` (`uuidFromProviderId`, in `inbound.ts`) that
+  // persistence/metering actually key on.
+  const requestId = crypto.randomUUID();
   after(async () => {
    try {
     const started = Date.now();
@@ -121,11 +126,15 @@ export async function POST(request: NextRequest): Promise<Response> {
       }
     }
 
-    console.log(
-      `[whatsapp] webhook processed=${processed} skipped=${skipped} duration=${Date.now() - started}ms`,
-    );
+    logEvent({
+      event: "whatsapp.webhook.batch",
+      requestId,
+      processed,
+      skipped,
+      durationMs: Date.now() - started,
+    });
    } catch (err) {
-     await reportError(err, { scope: "whatsapp.webhook" });
+     await reportError(err, { scope: "whatsapp.webhook", requestId });
    }
   });
 

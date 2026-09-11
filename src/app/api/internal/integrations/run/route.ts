@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
-import { checkCronSecret } from "@/lib/follow-ups/auth";
-import { runIntegrationHub } from "@/lib/integrations/worker";
+// Relative value imports so this route (and its test) run under `node --test`.
+import { checkCronSecret } from "../../../../../lib/follow-ups/auth.ts";
+import { runIntegrationHub } from "../../../../../lib/integrations/worker.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

@@ -130,7 +130,10 @@ export async function processInboundWhatsAppMessage(
   //    once here — a data lookup, not an extra Anthropic call — so the AI is
   //    never able to invent a time.
   const availableSlots = await getAvailabilityForPrompt(db, organizationId);
-  const reply = await generateAssistantReply(anthropic, config, historyMessages, availableSlots);
+  const reply = await generateAssistantReply(anthropic, config, historyMessages, availableSlots, {
+    requestId,
+    organizationId,
+  });
   const replyText = reply.text;
 
   // 7. Persist + extraction + scoring + agent actions (shared, one more call).

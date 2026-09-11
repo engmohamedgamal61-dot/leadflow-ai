@@ -21,7 +21,7 @@ placeholders only** — none of them may appear in production.
 |---|---|
 | `ANTHROPIC_API_KEY` | Anthropic console. (The one in `.env.local` was pasted in chat historically — treat as burned.) |
 | `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SUPABASE_URL` | the production Supabase project's own keys (Settings → API). The local demo keys are rejected at boot. |
-| `FOLLOW_UP_CRON_SECRET`, `INTEGRATION_HUB_CRON_SECRET` | `openssl rand -hex 32` |
+| `FOLLOW_UP_CRON_SECRET`, `INTEGRATION_HUB_CRON_SECRET`, `RATE_LIMIT_CLEANUP_CRON_SECRET` | `openssl rand -hex 32` |
 | `CALENDAR_TOKEN_ENCRYPTION_KEY`, `INTEGRATION_TOKEN_ENCRYPTION_KEY`, `WHATSAPP_TOKEN_ENCRYPTION_KEY` | `openssl rand -hex 32` (64 hex chars each — enforced). Required even before Calendar/Hub/WhatsApp are used: an org can enable them from the dashboard at any time and a missing key would tempt an unencrypted hotfix. |
 | `WHATSAPP_APP_SECRET`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | from the Meta app — only when WhatsApp is onboarded (missing → warning, placeholder → fatal). |
 | `GOOGLE_CALENDAR_CLIENT_ID` / `_SECRET` | Google Cloud OAuth client — only when Calendar is onboarded. |
