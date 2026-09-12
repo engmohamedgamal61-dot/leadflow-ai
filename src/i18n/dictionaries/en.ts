@@ -1341,6 +1341,8 @@ export const en = {
       originBlocked: "This chat isn't available on this website.",
       usageLimitReached:
         "This assistant has reached its usage limit for now. Please try again later.",
+      persistenceFailed:
+        "Your message was answered, but we couldn't save this conversation. Please retry.",
     },
   },
 

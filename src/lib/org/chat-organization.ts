@@ -2,12 +2,13 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveDevOrganization } from "@/lib/org/resolve";
 import { getUserMembership } from "@/lib/org/membership.server";
-import { resolveOrgByWidgetKey } from "@/lib/org/widget";
+import { resolveOrgByWidgetKey, WidgetLookupError } from "@/lib/org/widget";
 import {
   devOriginsAllowed,
   evaluateWidgetOrigin,
 } from "@/lib/org/widget-origin";
 import { buildChatContext, type ChatContext } from "@/lib/org/chat-context";
+import { reportError } from "@/lib/observability/report";
 
 export type { ChatContext, ChatOrganization } from "@/lib/org/chat-context";
 
@@ -21,6 +22,8 @@ export interface ChatContextInput {
    * anonymous widget-key path.
    */
   widgetOrigin: string | null;
+  /** Log-correlation id for a degraded-lookup alert, if one is needed. */
+  requestId?: string | null;
 }
 
 /**
@@ -84,8 +87,24 @@ export async function resolveChatContext(
           demoOrg: null,
         });
       }
-    } catch {
-      // Supabase unavailable — fall through to the demo path.
+    } catch (error) {
+      // A real lookup failure (e.g. Supabase unreachable) — never a bare
+      // "unknown key". Alert ops (deduped — a sustained outage would
+      // otherwise fire one alert per chat turn) and tell the caller this
+      // turn is degraded instead of silently falling through as if it were
+      // an ordinary anonymous chat.
+      if (error instanceof WidgetLookupError) {
+        void reportError(error.cause ?? error, {
+          scope: "chat.org-lookup",
+          requestId: input.requestId ?? null,
+          widgetKeyPresent: true,
+          severity: "high",
+          alertDedupKey: "chat.org-lookup.failed",
+          alertDedupWindowMs: 60_000,
+        });
+        return { organization: null, industryHintAllowed: false, orgLookupDegraded: true };
+      }
+      // Anything else unexpected — fall through to the demo path, unchanged.
     }
     // An unknown/disabled widget key: do NOT silently fall back to a demo org
     // (that would leak a stranger's chat into the demo). Config-only, no persist.

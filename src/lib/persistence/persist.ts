@@ -73,6 +73,39 @@ export class PersistenceError extends Error {
   }
 }
 
+export type PersistenceFailureReason = "transient" | "permanent";
+
+interface PostgrestLikeError {
+  code?: string | null;
+  message?: string;
+}
+
+function isPostgrestLikeError(value: unknown): value is PostgrestLikeError {
+  return typeof value === "object" && value !== null && ("code" in value || "message" in value);
+}
+
+/**
+ * Best-effort classification for alert triage — NOT what makes a retry safe.
+ * Retrying is ALWAYS safe here regardless of this classification, via the
+ * requestId/contact-key idempotency guarantees documented on
+ * {@link persistChatTurn} — this only picks the "reason" tag a caller logs.
+ *
+ *  - "permanent": the database was reached and rejected the write for a
+ *    structural reason — a real Postgres/PostgREST error code is present.
+ *    Retrying the identical request will most likely fail the same way.
+ *  - "transient": everything else. Most commonly the database/network was
+ *    unreachable at all — a fetch-level failure carries no Postgres error
+ *    code. Treated as the safer default: an unrecognized shape is assumed
+ *    worth escalating/retrying rather than silently downgraded.
+ */
+export function classifyPersistenceFailure(error: unknown): PersistenceFailureReason {
+  const cause = error instanceof PersistenceError ? error.cause : error;
+  if (isPostgrestLikeError(cause) && typeof cause.code === "string" && cause.code.length > 0) {
+    return "permanent";
+  }
+  return "transient";
+}
+
 interface RecentMessage {
   role: string;
   content: string;

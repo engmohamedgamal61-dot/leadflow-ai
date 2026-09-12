@@ -117,9 +117,26 @@ export async function updateWidgetSettings(
 }
 
 /**
+ * Thrown when the widget lookup query itself fails (Supabase/network
+ * unreachable) — distinct from a normal "no such key" result, so a caller
+ * can tell an outage apart from a stranger hitting chat with a bogus key.
+ * See `chat-organization.ts`'s catch block, which is the only place this is
+ * caught, and docs on the Supabase-outage hardening work.
+ */
+export class WidgetLookupError extends Error {
+  readonly cause?: unknown;
+  constructor(cause?: unknown) {
+    super("widget lookup failed");
+    this.name = "WidgetLookupError";
+    this.cause = cause;
+  }
+}
+
+/**
  * Anonymous resolution for `/api/chat` — admin client, no session. Returns
  * `null` for an unknown key, a disabled widget, a non-UUID, or a suspended
- * organization.
+ * organization. Throws {@link WidgetLookupError} if the query itself failed
+ * (e.g. Supabase unreachable) — never conflated with a legitimate "not found".
  */
 export async function resolveOrgByWidgetKey(
   db: Db,
@@ -131,7 +148,8 @@ export async function resolveOrgByWidgetKey(
     .select("enabled, allowed_origins, organizations ( id, name, industry_template_id, status )")
     .eq("widget_key", widgetKey)
     .maybeSingle();
-  if (error || !data || !data.enabled) return null;
+  if (error) throw new WidgetLookupError(error);
+  if (!data || !data.enabled) return null;
   const org = (data as {
     organizations?: {
       id: string;

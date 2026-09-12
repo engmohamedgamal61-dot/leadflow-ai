@@ -29,6 +29,18 @@ export function redactSecrets(input: string): string {
 export interface ErrorContext {
   /** Where it happened, e.g. "chat.route", "whatsapp.webhook", "scheduler". */
   scope: string;
+  /**
+   * When set, the OUTBOUND ops alert webhook (never the structured log below
+   * — that always fires) is skipped if this exact key already alerted within
+   * the last `alertDedupWindowMs` (default 60_000ms). Best-effort, in-memory,
+   * per warm process only — it will not dedupe across separate serverless
+   * instances, and resets on cold start. That's enough to stop a sustained
+   * outage from firing one Slack message per request without adding any new
+   * infrastructure; it is not a substitute for a real alert manager's
+   * deduplication if one is ever added.
+   */
+  alertDedupKey?: string;
+  alertDedupWindowMs?: number;
   /** Extra safe, non-PII breadcrumbs (ids, counts, statuses). */
   [key: string]: string | number | boolean | null | undefined;
 }
@@ -42,8 +54,11 @@ interface StructuredReport {
   at: string;
 }
 
+// Dedup control fields — never part of the logged/alerted context itself.
+const CONTROL_KEYS = new Set(["scope", "alertDedupKey", "alertDedupWindowMs"]);
+
 function toStructured(error: unknown, context: ErrorContext): StructuredReport {
-  const { scope, ...rest } = context;
+  const { scope } = context;
   const message =
     error instanceof Error ? error.message : typeof error === "string" ? error : "unknown error";
   const stack =
@@ -52,8 +67,8 @@ function toStructured(error: unknown, context: ErrorContext): StructuredReport {
       : null;
 
   const safeContext: Record<string, string | number | boolean | null> = {};
-  for (const [k, v] of Object.entries(rest)) {
-    if (v === undefined) continue;
+  for (const [k, v] of Object.entries(context)) {
+    if (v === undefined || CONTROL_KEYS.has(k)) continue;
     safeContext[k] = typeof v === "string" ? redactSecrets(v) : v;
   }
 
@@ -89,16 +104,39 @@ async function postWebhook(url: string, report: StructuredReport): Promise<void>
   }
 }
 
+const DEFAULT_ALERT_DEDUP_WINDOW_MS = 60_000;
+// key -> epoch ms it last alerted. Best-effort, per warm process — see
+// `ErrorContext.alertDedupKey`'s doc comment for what this does and doesn't cover.
+const lastAlertedAt = new Map<string, number>();
+
+/** True the FIRST time (and again after the window elapses) for a given key. */
+function shouldAlert(key: string, windowMs: number): boolean {
+  const now = Date.now();
+  const last = lastAlertedAt.get(key);
+  if (last !== undefined && now - last < windowMs) return false;
+  lastAlertedAt.set(key, now);
+  return true;
+}
+
 /**
  * Report a server-side error. Fire-and-forget: callers should NOT await this
  * on a hot path (`void reportError(...)`). Safe to await in an `after()` block.
+ *
+ * The structured log line ALWAYS happens. The outbound alert webhook is
+ * skipped when `context.alertDedupKey` was already alerted within
+ * `context.alertDedupWindowMs` (default 60s) — see `ErrorContext` for why.
  */
 export async function reportError(error: unknown, context: ErrorContext): Promise<void> {
   const report = toStructured(error, context);
   console.error(`[ops] ${JSON.stringify(report)}`);
 
   const url = process.env.OPS_ALERT_WEBHOOK_URL;
-  if (url && /^https:\/\//.test(url)) {
-    await postWebhook(url, report);
+  if (!url || !/^https:\/\//.test(url)) return;
+
+  if (context.alertDedupKey) {
+    const windowMs = context.alertDedupWindowMs ?? DEFAULT_ALERT_DEDUP_WINDOW_MS;
+    if (!shouldAlert(context.alertDedupKey, windowMs)) return;
   }
+
+  await postWebhook(url, report);
 }

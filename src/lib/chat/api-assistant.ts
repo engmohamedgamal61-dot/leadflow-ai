@@ -1,14 +1,12 @@
-import {
-  LEAD_DELIMITER,
-  type AssistantClient,
-  type ChatMessage,
-  type LeadData,
-  type SendOptions,
-} from "@/types/chat";
+// LEAD_DELIMITER is a value import — relative path so this module (and its
+// tests) run under `node --test`. The rest are type-only and erased.
+import { LEAD_DELIMITER } from "../../types/chat.ts";
+import type { AssistantClient, ChatMessage, LeadData, SendOptions } from "@/types/chat";
 
 interface LeadTrailer {
   lead?: unknown;
   conversationId?: unknown;
+  degraded?: unknown;
 }
 
 const ENDPOINT = "/api/chat";
@@ -56,6 +54,7 @@ function toLeadData(value: unknown): LeadData | null {
 function parseTrailer(raw: string): {
   lead: LeadData | null;
   conversationId: string | null;
+  degraded: boolean;
 } {
   try {
     const data = JSON.parse(raw) as LeadTrailer;
@@ -63,10 +62,13 @@ function parseTrailer(raw: string): {
       lead: toLeadData(data?.lead),
       conversationId:
         typeof data?.conversationId === "string" ? data.conversationId : null,
+      degraded: data?.degraded === true,
     };
   } catch {
-    // ignore malformed trailer — the chat reply is unaffected
-    return { lead: null, conversationId: null };
+    // A malformed trailer never affects the reply that already streamed —
+    // but it DOES mean we genuinely don't know if this turn was saved, so
+    // treat it as degraded rather than silently assuming success.
+    return { lead: null, conversationId: null, degraded: true };
   }
 }
 
@@ -74,9 +76,13 @@ function parseTrailer(raw: string): {
  * Assistant client backed by the `/api/chat` route.
  *
  * The response body is the streamed reply text, optionally followed by
- * `LEAD_DELIMITER` and a `{"lead": {...}, "conversationId": "..."}` JSON
- * trailer. Reply text is forwarded to `onToken` as it arrives; the trailer is
- * parsed and handed to `onLead` / `onConversation`.
+ * `LEAD_DELIMITER` and a `{"lead": {...}, "conversationId": "...", "degraded":
+ * false}` JSON trailer. Reply text is forwarded to `onToken` as it arrives;
+ * the trailer is parsed and handed to `onLead` / `onConversation` /
+ * `onPersistenceDegraded`. `degraded: true` (or a trailer that never arrives
+ * at all after a real reply) means the reply above was generated but this
+ * turn's data was NOT saved — the HTTP status is always 200 for a streamed
+ * reply, so this in-band signal is the only way the caller finds out.
  *
  * Only ever surfaces short, user-facing error strings — the route never sends
  * stack traces or secrets. A stalled request is aborted after
@@ -91,6 +97,7 @@ export const apiAssistant: AssistantClient = {
       onReplyEnd,
       onLead,
       onConversation,
+      onPersistenceDegraded,
       industry,
       widgetKey,
       pageOrigin,
@@ -197,10 +204,16 @@ export const apiAssistant: AssistantClient = {
       endReply();
 
       if (sawDelimiter) {
-        const { lead, conversationId: newConversationId } =
+        const { lead, conversationId: newConversationId, degraded } =
           parseTrailer(leadTrailer);
         if (lead) onLead?.(lead);
         onConversation?.(newConversationId);
+        if (degraded) onPersistenceDegraded?.();
+      } else if (reply) {
+        // The reply streamed fully but the connection closed before the
+        // trailer arrived (see the comment above) — we genuinely don't know
+        // whether this turn was saved, so say so rather than staying silent.
+        onPersistenceDegraded?.();
       }
 
       return reply;

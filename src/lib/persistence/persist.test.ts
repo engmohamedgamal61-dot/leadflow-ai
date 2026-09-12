@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { persistChatTurn, type PersistChatTurnInput } from "./persist.ts";
+import {
+  persistChatTurn,
+  PersistenceError,
+  classifyPersistenceFailure,
+  type PersistChatTurnInput,
+} from "./persist.ts";
 import type { LeadData } from "../../types/chat.ts";
 
 // ── minimal in-memory fake of the Supabase query builder ─────────────────
@@ -617,4 +622,39 @@ test("a re-typed identical turn with a NEW requestId does not duplicate the user
   const userMessages = db.store.messages.filter((m) => m.role === "user");
   assert.equal(userMessages.length, 1); // content dedup caught it
   assert.equal(retype.messagesInserted, 0);
+});
+
+// ── failure classification (Supabase-outage hardening) ──────────────────────
+
+test("classifyPersistenceFailure: a Postgrest-style error (real code) is permanent", () => {
+  assert.equal(
+    classifyPersistenceFailure({ code: "23505", message: "duplicate key" }),
+    "permanent",
+  );
+});
+
+test("classifyPersistenceFailure: a network-level failure (no code) is transient", () => {
+  assert.equal(classifyPersistenceFailure(new TypeError("fetch failed")), "transient");
+  assert.equal(classifyPersistenceFailure(new Error("ECONNREFUSED")), "transient");
+});
+
+test("classifyPersistenceFailure: an empty-string code is treated as transient, not permanent", () => {
+  assert.equal(classifyPersistenceFailure({ code: "", message: "?" }), "transient");
+});
+
+test("classifyPersistenceFailure: unwraps a PersistenceError to inspect its cause", () => {
+  const withCode = new PersistenceError("insert lead", { code: "23503", message: "fk violation" });
+  assert.equal(classifyPersistenceFailure(withCode), "permanent");
+
+  const withoutCode = new PersistenceError("insert lead", new Error("network unreachable"));
+  assert.equal(classifyPersistenceFailure(withoutCode), "transient");
+
+  const noCause = new PersistenceError("insert lead");
+  assert.equal(classifyPersistenceFailure(noCause), "transient");
+});
+
+test("classifyPersistenceFailure: garbage input never throws, defaults to transient", () => {
+  assert.equal(classifyPersistenceFailure(null), "transient");
+  assert.equal(classifyPersistenceFailure(undefined), "transient");
+  assert.equal(classifyPersistenceFailure("plain string error"), "transient");
 });

@@ -239,13 +239,12 @@ Confirmed mechanically (§9) but only ever observed on one local machine.
 staging deployment to see how autoscaling actually behaves — this cannot be
 answered locally.
 
-**Remaining P1 #3 — silent lead loss during a Supabase outage.**
-During a full DB outage, the widget looks fully functional to a visitor
+**P1 #3 — silent lead loss during a Supabase outage: FIXED, see §17.**
+During a full DB outage, the widget looked fully functional to a visitor
 (fast 200, coherent reply) while silently failing to capture their contact
 info, with nothing distinguishing this response from a normal one and no
-alert path specific to this condition (§11). **Action required**: a product
-decision on acceptable behavior here (a queued-retry buffer, or at minimum a
-visible degraded-mode signal), then implementation.
+alert path specific to this condition (§11). Fixed without a queue/outbox —
+see §17 for the failure contract, evidence, and why a queue wasn't needed.
 
 **P2**
 1. Dashboard session-cookie behavior under concurrent load needs a
@@ -266,9 +265,8 @@ a. **Validate horizontal scaling on real Vercel staging.** This harness
    autoscaling does under the same load. Needs a staging deployment plus an
    external load generator (not this same machine).
 b. **Define and implement lead-capture behavior during a Supabase outage.**
-   Currently: functional-looking response, silent data loss, no signal.
-   Needs a product decision, then a fix (even a minimal one — e.g. a local
-   queue/buffer, or surfacing a distinguishable degraded-mode response).
+   **DONE — see §17.** The response now carries an explicit `degraded: true`
+   signal instead of looking identical to a normal, saved turn.
 
 ## 14. Capacity matrix
 
@@ -332,9 +330,10 @@ laptop. See §13a.
 2. Validate real horizontal scaling behavior on actual Vercel infrastructure
    (§13a) — this harness cannot answer it; needs a staging deploy + external
    load generator.
-3. Decide and implement a lead-capture fallback for a Supabase outage
-   (§13b) — even a local in-memory/queue buffer, or at minimum a visible
-   degraded-mode signal.
+3. ~~Decide and implement a lead-capture fallback for a Supabase outage~~ —
+   **done, see §13b/§17.** A visible `degraded: true` signal now reaches the
+   client; no queue/outbox was needed (existing idempotent upserts already
+   made retry safe).
 4. Stand up a staging environment — blocks proper validation of #2 and
    ongoing regression testing.
 5. Add a health/status endpoint + cron dead-man's-switch + queue-depth
@@ -349,3 +348,65 @@ Everything else tested (booking concurrency, Integration Hub, follow-up
 worker, requestId idempotency, chat/dashboard error handling, all
 failure-injection paths that were exercised) **passed cleanly** and needs no
 immediate action.
+
+## 17. Supabase-outage hardening (fix for P1 #3 / §13b)
+
+Root cause: `/api/chat` could return HTTP 200 with a coherent AI reply while
+lead/message persistence failed underneath it, with nothing in the response
+distinguishing that from a normal, fully-saved turn — the business silently
+lost the lead. Two independent places swallowed a real DB/network error into
+the same shape as "nothing to persist": `resolveOrgByWidgetKey` collapsed a
+genuine query error into the same `null` as an unknown widget key, and
+`persistCompletedTurn`'s predecessor let a thrown persistence error escape
+uncaught after the reply had already streamed.
+
+**No queue/outbox was introduced.** `persistChatTurn` (`src/lib/persistence/
+persist.ts`) already makes every write step idempotent via unique-index-based
+upserts with read-back-on-conflict — a retry carrying the same `requestId`
+safely resumes or no-ops instead of duplicating. The only real gap was that
+the *client* always minted a fresh `requestId` on retry, which would have
+raced that guarantee; that's now fixed (`src/hooks/use-chat.ts`) instead of
+adding new durability infrastructure. See scenarios D/E below for the
+evidence this holds against a real database.
+
+**Failure contract**: `persistCompletedTurn` returns a discriminated
+`{status: "ok" | "not_configured" | "failed", ...}` instead of throwing or
+returning a bare value. A `"failed"` outcome is logged (structured,
+secret-redacted) and alerted through the existing `reportError` ops path
+(`severity: "high"`, deduped to one alert/minute per failure class so a
+sustained outage doesn't storm the channel) and threads a `degraded: true`
+flag through the response trailer's JSON — the only mechanism available
+after a streamed reply has already committed. The widget/dashboard chat UI
+shows a friendly, translated "answered but not saved, please retry" message
+(`chat.errors.persistenceFailed`, both `en`/`ar`) without ever naming
+Supabase or exposing internals.
+
+**Re-verified manually against this same harness's local Supabase**,
+mirroring §11's original failure injection exactly (DB container stopped,
+`curl` against a real `next dev` server, a real seeded org + widget key):
+
+| Step | Result |
+|---|---|
+| Baseline, DB healthy | HTTP 200, `"degraded":false`, real `conversationId` |
+| DB container stopped, same widget key | HTTP 200 in ~12s (client-visible AI reply unaffected), `"conversationId":null`, **`"degraded":true`** |
+| DB restarted, same `requestId` retried | HTTP 200, `"degraded":false`, persisted exactly once (no duplicate lead/conversation — confirmed via automated scenario D, `src/lib/persistence/outage-scenarios.integration.test.ts`) |
+
+Automated coverage (real local Postgres, `npm run test:integration`):
+`src/lib/persistence/outage-scenarios.integration.test.ts` runs the six
+named scenarios (DB down before persistence / DB fails during persistence /
+reply-succeeded-but-save-failed / DB recovers + same-requestId retry /
+duplicate retry / unchanged healthy path) plus `chat.integration.test.ts`
+and unit coverage in `persist.test.ts`, `report.test.ts`, `widget.test.ts`,
+`api-assistant.test.ts`. Full command sequence and file list in the
+Supabase-outage hardening report delivered alongside this update.
+
+**Known limitations** (accepted, not fixed here — out of this task's scope):
+alert dedup is in-memory/per-warm-process only (resets on cold start, doesn't
+dedupe across serverless instances); the authenticated-member and bare
+anonymous/demo org-resolution paths were not hardened the same way as the
+widget-key path (they already fail open to a config-only chat on error, which
+carries the same "nothing was ever going to persist" semantics as
+`not_configured` — but they don't emit a `degraded` signal); a retried
+turn's user message may appear twice in the visible chat transcript (the
+underlying data is never duplicated, only the client-side render before the
+retry resolves).

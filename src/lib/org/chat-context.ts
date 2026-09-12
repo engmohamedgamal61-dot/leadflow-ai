@@ -25,6 +25,16 @@ export interface ChatContext {
    * reject the request (403) — it never falls through to the demo org.
    */
   widgetOriginBlocked?: boolean;
+  /**
+   * Set when a widget key was supplied but resolving it hit a genuine
+   * database/network error (as opposed to a legitimate unknown/disabled
+   * key) — e.g. a Supabase outage. `organization` is `null` either way (there
+   * is nothing to persist against), but this distinguishes "an outage lost
+   * this visitor's data" from "a stranger tried a bogus key", so the caller
+   * can alert ops and tell the client this turn is degraded instead of
+   * silently treating it as an ordinary anonymous/no-org chat.
+   */
+  orgLookupDegraded?: boolean;
 }
 
 export interface DemoOrg {

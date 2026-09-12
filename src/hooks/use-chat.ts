@@ -115,12 +115,21 @@ export function useChat({
     statusRef.current = status;
   }, [messages, status]);
 
-  // The content of the turn that most recently failed, for the "Retry" button
-  // next to the error message. Cleared on a successful send.
-  const lastFailedContentRef = useRef<string | null>(null);
+  // The turn that most recently failed OR was generated but not saved (a
+  // degraded persistence outcome — see `onPersistenceDegraded` below), for
+  // the "Retry" button next to the error/warning message. Cleared on a
+  // cleanly-saved send. Retrying reuses the ORIGINAL requestId, not a fresh
+  // one: `persistChatTurn`'s idempotency guarantees (unique indexes keyed on
+  // requestId / contact info — see src/lib/persistence/persist.ts) only
+  // protect a request that's genuinely a replay of the same id. A degraded
+  // turn may have partially persisted (e.g. the lead/conversation were
+  // created but a later step failed) before throwing — resending with a
+  // FRESH id would not find that partial row and could create a second,
+  // duplicate lead/conversation instead of safely resuming it.
+  const lastRetryableRef = useRef<{ content: string; requestId: string } | null>(null);
 
-  const sendMessage = useCallback(
-    async (content: string) => {
+  const send = useCallback(
+    async (content: string, requestId: string) => {
       const trimmed = content.trim();
       if (
         !trimmed ||
@@ -131,9 +140,6 @@ export function useChat({
       }
 
       setError(null);
-      // One idempotency key per turn: a transport-level replay of this exact
-      // request reuses it so the server persists the turn only once.
-      const requestId = newId();
       const userMessage = createMessage("user", trimmed);
       const assistantMessage = createMessage("assistant", "");
       const thread = [...messagesRef.current, userMessage];
@@ -155,6 +161,8 @@ export function useChat({
         );
       };
 
+      let degraded = false;
+
       try {
         const reply = await client.send(thread, {
           onToken: appendChunk,
@@ -172,6 +180,9 @@ export function useChat({
             writeStoredConversationId(widgetKey, id);
             awaitingConversationRef.current = false;
           },
+          onPersistenceDegraded: () => {
+            degraded = true;
+          },
           industry,
           widgetKey,
           pageOrigin,
@@ -186,9 +197,17 @@ export function useChat({
               : message,
           ),
         );
-        lastFailedContentRef.current = null;
+        if (degraded) {
+          // The reply succeeded and stays on screen — only a warning (with a
+          // Retry affordance) is shown, unlike a full failure below, which
+          // removes the assistant bubble entirely.
+          lastRetryableRef.current = { content: trimmed, requestId };
+          setError(resolveError("chat.errors.persistenceFailed"));
+        } else {
+          lastRetryableRef.current = null;
+        }
       } catch (err) {
-        lastFailedContentRef.current = trimmed;
+        lastRetryableRef.current = { content: trimmed, requestId };
         setError(
           err instanceof Error && err.message
             ? resolveError(err.message)
@@ -208,12 +227,18 @@ export function useChat({
     [client, industry, widgetKey, pageOrigin, errorFallback, resolveError],
   );
 
+  const sendMessage = useCallback(
+    (content: string) => send(content, newId()),
+    [send],
+  );
+
   const setConversation = useCallback(
     (next: ChatMessage[]) => {
       messagesRef.current = next;
       statusRef.current = "idle";
       conversationIdRef.current = null;
       writeStoredConversationId(widgetKey, null);
+      lastRetryableRef.current = null;
       setError(null);
       setStatus("idle");
       setLead(EMPTY_LEAD);
@@ -227,9 +252,10 @@ export function useChat({
   }, [setConversation, greeting]);
 
   const retry = useCallback(() => {
-    const content = lastFailedContentRef.current;
-    if (content) void sendMessage(content);
-  }, [sendMessage]);
+    const retryable = lastRetryableRef.current;
+    // Reuse the SAME requestId — see the comment on lastRetryableRef.
+    if (retryable) void send(retryable.content, retryable.requestId);
+  }, [send]);
 
   return {
     messages,

@@ -165,6 +165,15 @@ export interface FinalizeTurnResult {
   conversationId: string | null;
   leadId: string | null;
   actions: unknown[];
+  /**
+   * `true` when the AI reply was generated but this turn's data could not be
+   * saved (a genuine persistence failure — never set for the ordinary
+   * "no organization, config-only chat" case, which has nothing to persist
+   * in the first place and is not a failure). The caller (the web route,
+   * the WhatsApp webhook) decides how to surface this — never silently
+   * dropped. See docs on the Supabase-outage hardening work.
+   */
+  degraded: boolean;
 }
 
 /**
@@ -199,11 +208,12 @@ export async function finalizeConversationTurn(
   let conversationId = input.conversationId;
   let leadId: string | null = null;
   let actions: unknown[] = [];
+  let degraded = false;
 
   if (input.organizationId) {
     const { score, temperature } = calculateLeadScore(lead, input.config.scoring);
     const persistStartedAt = Date.now();
-    const persisted = await persistCompletedTurn({
+    const outcome = await persistCompletedTurn({
       organizationId: input.organizationId,
       conversationId: input.conversationId,
       requestId: input.requestId,
@@ -223,20 +233,30 @@ export async function finalizeConversationTurn(
       requestId: input.requestId,
       organizationId: input.organizationId,
       channel: input.channel,
+      status: outcome.status,
       durationMs: Date.now() - persistStartedAt,
     });
-    if (persisted) {
-      conversationId = persisted.conversationId;
-      leadId = persisted.leadId;
+    if (outcome.status === "ok") {
+      conversationId = outcome.conversationId;
+      leadId = outcome.leadId;
       actions = await runChatAgentActions({
         organizationId: input.organizationId,
-        leadId: persisted.leadId,
-        conversationId: persisted.conversationId,
+        leadId: outcome.leadId,
+        conversationId: outcome.conversationId,
         requestId: input.requestId,
         markQualified: isQualificationComplete(lead, input.config),
         proposedActions,
       });
+    } else if (outcome.status === "failed") {
+      // The AI reply already streamed to the client — do not pretend this
+      // turn fully succeeded. No agent actions run without a persisted
+      // lead/conversation to attach them to (unchanged: this was already
+      // true before this refactor, since actions only ran inside the
+      // now-renamed success branch above).
+      degraded = true;
     }
+    // "not_configured" (Supabase not set up — local dev): unchanged,
+    // silent, not a failure — `degraded` stays false.
 
     // Cost metering — the single per-channel point where an org's Anthropic
     // usage is recorded. Both calls' `usage` objects are already in hand; this
@@ -267,5 +287,5 @@ export async function finalizeConversationTurn(
     }
   }
 
-  return { lead, conversationId, leadId, actions };
+  return { lead, conversationId, leadId, actions, degraded };
 }

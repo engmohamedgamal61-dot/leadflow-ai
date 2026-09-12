@@ -230,7 +230,7 @@ export async function POST(request: NextRequest) {
   // customer's own org server-side. Otherwise the dev/demo behavior stands: an
   // `industry` hint selects a pre-seeded demo org. `null` organization → the
   // chat runs config-only with no persistence.
-  const { organization, industryHintAllowed, widgetOriginBlocked } =
+  const { organization, industryHintAllowed, widgetOriginBlocked, orgLookupDegraded } =
     await resolveChatContext({
       industryHint: parsed.industry,
       widgetKey: parsed.widgetKey,
@@ -242,6 +242,7 @@ export async function POST(request: NextRequest) {
             appOrigin: appBaseUrlOrNull(),
           })
         : null,
+      requestId,
     });
 
   // A widget key that resolved to a real org, but from a site the org hasn't
@@ -436,7 +437,7 @@ export async function POST(request: NextRequest) {
       const lastUserMessage =
         [...parsed.turns].reverse().find((turn) => turn.role === "user")
           ?.content ?? "";
-      const { lead, conversationId, actions } = await finalizeConversationTurn({
+      const { lead, conversationId, actions, degraded } = await finalizeConversationTurn({
         client,
         config,
         organizationId: organization?.organizationId ?? null,
@@ -451,9 +452,23 @@ export async function POST(request: NextRequest) {
         signal: request.signal,
       });
 
+      // The reply above already streamed to the client — this trailer can
+      // never change the HTTP status, only tell the client (truthfully)
+      // whether this turn was actually saved. `orgLookupDegraded` (the org
+      // itself couldn't be resolved, e.g. an outage) and `degraded` (the org
+      // resolved fine but persistence itself failed) are the only two ways a
+      // turn ends up degraded — never for the ordinary "no organization,
+      // config-only demo chat" case, which has nothing to persist and isn't
+      // a failure.
       controller.enqueue(
         encoder.encode(
-          LEAD_DELIMITER + JSON.stringify({ lead, conversationId, actions }),
+          LEAD_DELIMITER +
+            JSON.stringify({
+              lead,
+              conversationId,
+              actions,
+              degraded: Boolean(orgLookupDegraded || degraded),
+            }),
         ),
       );
       controller.close();

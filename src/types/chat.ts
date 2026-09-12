@@ -107,6 +107,14 @@ export interface SendOptions {
    */
   onConversation?: (conversationId: string | null) => void;
   /**
+   * Called once, only when the reply above was generated but this turn's
+   * data could NOT be saved (e.g. a database outage) — distinct from
+   * `onConversation(null)`, which also fires for the ordinary "no
+   * organization, nothing to persist" case and is not a failure. Never fires
+   * together with a thrown error: the reply already succeeded.
+   */
+  onPersistenceDegraded?: () => void;
+  /**
    * Industry template slug for this conversation (e.g. "real-estate",
    * "clinic"). Omit to use the server default.
    */
