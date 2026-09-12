@@ -404,6 +404,64 @@ test("dedup: no contact info yet → each anonymous session gets its OWN lead (n
   }
 });
 
+test("dedup: real concurrent DIFFERENT sessions with the SAME phone collapse to ONE lead (real Postgres)", { skip }, async () => {
+  // The exact scenario the Enterprise Readiness load test found broken
+  // (2026-09-12): 30 concurrent anonymous visitors sending one phone number
+  // produced 224 leads instead of ~1. Each call here has its OWN requestId
+  // (a genuinely different anonymous session), fired truly concurrently via
+  // Promise.all against real Postgres — the `creation_request_id` unique
+  // index cannot catch this; only `leads_org_phone_match_key_key`
+  // (20260912090000_lead_contact_dedup.sql) can.
+  const org = await db
+    .from("organizations")
+    .insert({ name: "IT Dedup Concurrent Phone", slug: `${SLUG}-dedup-concurrent-phone`, industry_template_id: "real-estate" })
+    .select("id")
+    .single();
+  const dOrg = org.data.id;
+  try {
+    const sharedPhone = "+966501234567";
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        persistChatTurn(db, widgetTurn(dOrg, blankLead({ name: "Concurrent Caller", phone: sharedPhone }))),
+      ),
+    );
+
+    const leads = await db.from("leads").select("id").eq("organization_id", dOrg);
+    assert.equal(leads.data.length, 1, "10 concurrent sessions, same phone, must collapse to ONE lead");
+
+    const leadIds = new Set(results.map((r: { leadId: string }) => r.leadId));
+    assert.equal(leadIds.size, 1, "every concurrent caller agrees on the same lead id");
+
+    const convs = await db.from("conversations").select("id").eq("organization_id", dOrg);
+    assert.equal(convs.data.length, 10, "10 distinct anonymous sessions, still one lead");
+  } finally {
+    await db.from("organizations").delete().eq("id", dOrg);
+  }
+});
+
+test("dedup: real concurrent DIFFERENT sessions with the SAME email collapse to ONE lead (real Postgres)", { skip }, async () => {
+  const org = await db
+    .from("organizations")
+    .insert({ name: "IT Dedup Concurrent Email", slug: `${SLUG}-dedup-concurrent-email`, industry_template_id: "clinic" })
+    .select("id")
+    .single();
+  const dOrg = org.data.id;
+  try {
+    const sharedEmail = "concurrent-it@example.test";
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        persistChatTurn(db, widgetTurn(dOrg, blankLead({ name: "Concurrent Caller", email: sharedEmail }))),
+      ),
+    );
+
+    const leads = await db.from("leads").select("id").eq("organization_id", dOrg);
+    assert.equal(leads.data.length, 1);
+    assert.equal(new Set(results.map((r: { leadId: string }) => r.leadId)).size, 1);
+  } finally {
+    await db.from("organizations").delete().eq("id", dOrg);
+  }
+});
+
 test("dedup NEVER crosses organizations — the same email in org B creates its OWN lead", { skip }, async () => {
   const a = await db
     .from("organizations")

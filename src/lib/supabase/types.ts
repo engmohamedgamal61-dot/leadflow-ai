@@ -167,6 +167,10 @@ export interface Database {
           status: LeadStatus;
           source: string | null;
           creation_request_id: string | null;
+          /** Lowercased `email` — see src/lib/persistence/lead-dedup.ts normalizeEmail(). */
+          email_match_key: string | null;
+          /** Last 9 digits of `phone` — see src/lib/persistence/lead-dedup.ts phoneMatchKey(). */
+          phone_match_key: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -183,6 +187,8 @@ export interface Database {
           status?: LeadStatus;
           source?: string | null;
           creation_request_id?: string | null;
+          email_match_key?: string | null;
+          phone_match_key?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -199,6 +205,8 @@ export interface Database {
           status?: LeadStatus;
           source?: string | null;
           creation_request_id?: string | null;
+          email_match_key?: string | null;
+          phone_match_key?: string | null;
           created_at?: string;
           updated_at?: string;
         };

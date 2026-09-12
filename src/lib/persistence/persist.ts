@@ -4,6 +4,8 @@ import { leadWriteToInsert } from "../supabase/mappers.ts";
 import { computeLeadEvents, type LeadSnapshot } from "./events.ts";
 import {
   escapeLike,
+  normalizeEmail,
+  phoneMatchKey,
   pickDedupMatch,
   type DedupMatch,
 } from "./lead-dedup.ts";
@@ -89,6 +91,14 @@ function alreadyPersisted(
  * Find an existing lead for this org by a contact key. Tenant-scoped
  * (`organization_id`) + bounded. Returns the id only on an UNAMBIGUOUS match
  * (exactly one row) — 0 or 2+ → create a fresh lead rather than merge wrongly.
+ *
+ * **Advisory only.** This is a plain SELECT, not a lock — two concurrent
+ * callers can both see "no match" and both proceed to the insert step. It's
+ * used purely to fetch a `previous` snapshot for lead-change events before a
+ * likely match; the actual no-duplicate guarantee against a genuinely
+ * concurrent identical-contact insert is the database unique index on the
+ * match key itself (`20260912090000_lead_contact_dedup.sql`), enforced by
+ * the `ON CONFLICT ... DO UPDATE` in the insert branch below.
  */
 async function findLeadByContact(
   db: Db,
@@ -118,14 +128,22 @@ async function findLeadByContact(
  * lead events for any state changes.
  *
  * **Concurrency-safe.** Every write that could be duplicated by two
- * simultaneous identical requests is guarded by a database unique index keyed
- * on the turn's `requestId`:
- * - lead / conversation creation → `unique (organization_id, creation_request_id)`
+ * simultaneous requests is guarded by a database unique index:
+ * - lead / conversation creation (exact retry, same `requestId`) →
+ *   `unique (organization_id, creation_request_id)`
+ * - a new lead WITH contact info, from two DIFFERENT sessions (no shared
+ *   `requestId` — e.g. the same visitor opening two tabs, or a traffic spike
+ *   of many people texting one shared/example number) →
+ *   `unique (organization_id, email_match_key)` /
+ *   `unique (organization_id, phone_match_key)`
+ *   (`20260912090000_lead_contact_dedup.sql`)
  * - messages → `unique (conversation_id, role, request_id)`
  * - lead events → `unique (lead_id, request_id, event_type)`
  *
- * The loser of a race gets `ON CONFLICT DO NOTHING` and reads back the winner's
- * row, so the result is identical for both callers and nothing is duplicated.
+ * The loser of a race either gets `ON CONFLICT DO NOTHING` and reads back the
+ * winner's row (exact-retry paths), or `ON CONFLICT DO UPDATE` and merges
+ * into the winner's row directly (contact-match path) — either way the
+ * result is identical for both callers and nothing is duplicated.
  *
  * Throws {@link PersistenceError} on any database error — the caller decides
  * whether that should affect the response.
@@ -232,10 +250,17 @@ export async function persistChatTurn(
     temperature: input.temperature,
     source: input.source ?? undefined,
   });
-  const leadCreated = leadId === null;
+  // Raw (not `mapped`) — normalizeEmail/phoneMatchKey do their own parsing,
+  // same inputs `pickDedupMatch` above already used.
+  const emailMatchKey = normalizeEmail(input.lead.email);
+  const phoneKey = phoneMatchKey(input.lead.phone);
+  let leadCreated: boolean;
 
   if (leadId) {
-    // Existing lead — update the mutable columns only.
+    // Existing lead — update the mutable columns only. An UPDATE never
+    // creates a row, so this branch is not part of the dedup race at all;
+    // included here so a lead that gains contact info this turn becomes
+    // matchable by it next time.
     const leadUpdate: TablesUpdate<"leads"> = {
       name: mapped.name,
       phone: mapped.phone,
@@ -244,12 +269,61 @@ export async function persistChatTurn(
       custom_data: mapped.custom_data,
       score: mapped.score,
       temperature: mapped.temperature,
+      email_match_key: emailMatchKey,
+      phone_match_key: phoneKey,
       updated_at: nowIso,
     };
     const { error } = await db.from("leads").update(leadUpdate).eq("id", leadId);
     if (error) throw new PersistenceError("update lead", error);
+    leadCreated = false;
+  } else if (emailMatchKey || phoneKey) {
+    // New lead WITH a contact key — race-safe on the contact match key
+    // itself, not just on creation_request_id: a concurrent identical-
+    // contact request from a DIFFERENT anonymous session (different/absent
+    // requestId — the advisory `findLeadByContact` lookup above can't close
+    // that window, only a database constraint can) converges on ONE row via
+    // `ON CONFLICT ... DO UPDATE`, instead of the pre-fix SELECT-then-INSERT
+    // race that produced hundreds of duplicate leads under concurrent load
+    // (see the migration for the load-test evidence).
+    //
+    // `id` is deliberately NOT in this payload: on a genuine conflict,
+    // PostgREST's generated `DO UPDATE SET` covers every column present in
+    // the payload, and setting `id` there would overwrite the EXISTING row's
+    // primary key with this caller's row (which was never inserted) —
+    // orphaning every conversation / appointment / event that already
+    // references it, since `leads.id` has no `ON UPDATE CASCADE`. Leaving it
+    // out means a genuine insert still gets the column default
+    // (`gen_random_uuid()`), and a conflict simply never touches it.
+    const onConflict = emailMatchKey
+      ? "organization_id,email_match_key"
+      : "organization_id,phone_match_key";
+    const { data, error } = await db
+      .from("leads")
+      .upsert(
+        {
+          ...mapped,
+          creation_request_id: requestId,
+          email_match_key: emailMatchKey,
+          phone_match_key: phoneKey,
+        },
+        { onConflict },
+      )
+      .select("id");
+    if (error) throw new PersistenceError("insert lead", error);
+    if (!data || data.length === 0) {
+      throw new PersistenceError("insert lead", "no row returned");
+    }
+    leadId = data[0].id;
+    // Best-effort, like the pre-fix code's own `leadId === null` check —
+    // `leadCreated` has no consumer today that depends on it being exact
+    // across the race window this branch closes; the guarantee that matters
+    // (no duplicate row) is enforced by the database constraint above,
+    // regardless of what this flag reports.
+    leadCreated = !startedWithLead;
   } else {
-    // New lead — race-safe on (organization_id, creation_request_id).
+    // New lead with NO contact info yet — unchanged: race-safe only on
+    // (organization_id, creation_request_id), same as before this fix (a
+    // contact-less anonymous lead has no key to dedup by regardless).
     const { data, error } = await db
       .from("leads")
       .upsert(
@@ -260,6 +334,7 @@ export async function persistChatTurn(
     if (error) throw new PersistenceError("insert lead", error);
     if (data && data.length > 0) {
       leadId = data[0].id;
+      leadCreated = true;
     } else if (requestId) {
       // Lost the race — a concurrent identical request created it first.
       const existing = await db
@@ -272,6 +347,7 @@ export async function persistChatTurn(
         throw new PersistenceError("read back lead", existing.error);
       }
       leadId = existing.data.id;
+      leadCreated = false;
     } else {
       // No requestId → the insert cannot conflict, so an empty result is a bug.
       throw new PersistenceError("insert lead", "no row returned");

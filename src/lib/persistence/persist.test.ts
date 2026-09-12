@@ -107,13 +107,13 @@ class FakeQuery {
     );
   }
 
-  private conflicts(row: Row): boolean {
-    if (this.onConflict.length === 0) return false;
-    // NULLs are distinct in a unique index — never conflict.
+  /** The existing row `row` would conflict with, if any (Postgres: NULLs are distinct — never conflict). */
+  private findConflict(row: Row): Row | undefined {
+    if (this.onConflict.length === 0) return undefined;
     if (this.onConflict.some((c) => row[c] === null || row[c] === undefined)) {
-      return false;
+      return undefined;
     }
-    return (this.store[this.table] ?? []).some((existing) =>
+    return (this.store[this.table] ?? []).find((existing) =>
       this.onConflict.every((c) => existing[c] === row[c]),
     );
   }
@@ -139,11 +139,22 @@ class FakeQuery {
     }
     if (this.op === "upsert") {
       const arr = Array.isArray(this.values) ? this.values : [this.values];
-      const fresh = arr.filter((v) => !this.conflicts(v));
-      const inserted = fresh.length ? this.insertRows(fresh) : [];
-      // ignoreDuplicates → only newly-inserted rows are returned (like PG's
-      // INSERT ... ON CONFLICT DO NOTHING RETURNING).
-      return { data: this.singleMode ? (inserted[0] ?? null) : inserted, error: null };
+      const results: Row[] = [];
+      for (const v of arr) {
+        const conflict = this.findConflict(v);
+        if (conflict) {
+          if (this.ignoreDuplicates) {
+            // ON CONFLICT DO NOTHING — the existing row is untouched and not returned.
+            continue;
+          }
+          // ON CONFLICT DO UPDATE — merge the new values into the existing row.
+          Object.assign(conflict, v);
+          results.push(conflict);
+        } else {
+          results.push(...this.insertRows([v]));
+        }
+      }
+      return { data: this.singleMode ? (results[0] ?? null) : results, error: null };
     }
     if (this.op === "update") {
       const matched = this.rows();
@@ -451,6 +462,56 @@ test("dedup: an existing conversationId always wins — no dedup lookup, no merg
 });
 
 // ── concurrency / idempotency ───────────────────────────────────────────────
+
+test("concurrent DIFFERENT sessions with the SAME phone (no shared requestId) collapse to ONE lead", async () => {
+  // Reproduces the load-test finding (Enterprise Readiness phase,
+  // 2026-09-12): 30 concurrent anonymous visitors sending the same phone
+  // number produced 224 separate leads instead of ~1, because the pre-fix
+  // `findLeadByContact` was a plain SELECT with no database-level
+  // uniqueness. Each caller here has its OWN requestId (or none) — the
+  // `creation_request_id` unique index alone cannot catch this; only the
+  // `(organization_id, phone_match_key)` index added in
+  // 20260912090000_lead_contact_dedup.sql can.
+  const db = new FakeSupabase();
+  const sharedPhone = "+966501234567";
+
+  const calls = Array.from({ length: 5 }, () =>
+    persistChatTurn(
+      db as unknown as Db,
+      baseInput({
+        requestId: crypto.randomUUID(),
+        lead: { ...reLead, email: null, phone: sharedPhone },
+      }),
+    ),
+  );
+  const results = await Promise.all(calls);
+
+  assert.equal(db.store.leads.length, 1, "all 5 concurrent sessions collapsed onto one lead");
+  const leadIds = new Set(results.map((r) => r.leadId));
+  assert.equal(leadIds.size, 1, "every caller agrees on the same lead id");
+  // 5 distinct anonymous sessions → 5 distinct conversations, still one lead.
+  assert.equal(db.store.conversations.length, 5);
+});
+
+test("concurrent DIFFERENT sessions with the SAME email (no shared requestId) collapse to ONE lead", async () => {
+  const db = new FakeSupabase();
+  const sharedEmail = "concurrent@example.test";
+
+  const results = await Promise.all(
+    Array.from({ length: 5 }, () =>
+      persistChatTurn(
+        db as unknown as Db,
+        baseInput({
+          requestId: crypto.randomUUID(),
+          lead: { ...reLead, email: sharedEmail, phone: null },
+        }),
+      ),
+    ),
+  );
+
+  assert.equal(db.store.leads.length, 1);
+  assert.equal(new Set(results.map((r) => r.leadId)).size, 1);
+});
 
 test("two identical first-turn requests → one lead, one conversation, 2 messages, 2 events", async () => {
   const db = new FakeSupabase();

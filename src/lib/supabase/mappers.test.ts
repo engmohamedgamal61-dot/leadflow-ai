@@ -28,6 +28,8 @@ const row = (over: Partial<Tables<"leads">> = {}): Tables<"leads"> => ({
   status: "qualified",
   source: "chat",
   creation_request_id: null,
+  email_match_key: null,
+  phone_match_key: null,
   created_at: "2026-09-04T00:00:00Z",
   updated_at: "2026-09-04T00:00:00Z",
   ...over,
