@@ -1,6 +1,7 @@
-import { test } from "node:test";
+import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { assertPublicDestination } from "./safe-fetch.ts";
+import { createServer, type Server } from "node:http";
+import { assertPublicDestination, pinnedPost } from "./safe-fetch.ts";
 
 const pub = (address: string, family = 4) => async () => [{ address, family }];
 
@@ -94,4 +95,87 @@ test("the INTEGRATION_ALLOW_INSECURE_URLS escape hatch still applies to resolved
     allowInsecure: true,
   });
   assert.equal(r.ok, true);
+});
+
+// ── pinnedPost: the real Node `lookup` hook, not a mocked one ──────────────
+//
+// Every other test here (and every `delivery.test.ts` case) uses an IP
+// LITERAL as the destination URL — Node's http client skips the `lookup`
+// hook entirely for a literal, so none of them ever exercised this function
+// against a real hostname. That's exactly how a real bug (Node's Happy-
+// Eyeballs `{ all: true }` lookup contract not being handled — see
+// safe-fetch.ts's comment) went unnoticed: it broke every hostname-based
+// webhook delivery, not just `localhost`, while every literal-IP test and
+// the load-test harness's own `127.0.0.1`-only webhook mock (see
+// loadtest/README.md) accidentally sailed past it.
+
+let server: Server;
+let port: number;
+
+before(async () => {
+  server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      res.writeHead(200, { "Content-Type": "text/plain" });
+      res.end(`echo:${body}`);
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  port = (server.address() as { port: number }).port;
+});
+
+after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+
+test("pinnedPost: a real hostname (not a literal) that resolves to multiple addresses still delivers", async () => {
+  // `assertPublicDestination` against a real hostname resolving to BOTH
+  // families, exactly like a real `localhost` DNS answer.
+  const dest = await assertPublicDestination(`http://it-multi-addr.test:${port}/x`, {
+    lookupAll: async () => [
+      { address: "::1", family: 6 },
+      { address: "127.0.0.1", family: 4 },
+    ],
+    allowInsecure: true,
+  });
+  assert.equal(dest.ok, true);
+  if (!dest.ok) return;
+
+  const res = await pinnedPost(dest.url, dest.addresses, {
+    headers: { "content-type": "text/plain" },
+    body: "hello",
+    timeoutMs: 2000,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(await res.text(), "echo:hello");
+});
+
+test("pinnedPost: a real hostname resolving to exactly one address still delivers", async () => {
+  const dest = await assertPublicDestination(`http://it-single-addr.test:${port}/x`, {
+    lookupAll: async () => [{ address: "127.0.0.1", family: 4 }],
+    allowInsecure: true,
+  });
+  assert.equal(dest.ok, true);
+  if (!dest.ok) return;
+
+  const res = await pinnedPost(dest.url, dest.addresses, {
+    headers: {},
+    body: "ok",
+    timeoutMs: 2000,
+  });
+  assert.equal(res.status, 200);
+});
+
+test("pinnedPost: an empty pre-validated address set is rejected immediately, never falls back to real DNS", async () => {
+  const dest = await assertPublicDestination(`http://it-pinned.test:${port}/x`, {
+    lookupAll: async () => [{ address: "127.0.0.1", family: 4 }],
+    allowInsecure: true,
+  });
+  assert.equal(dest.ok, true);
+  if (!dest.ok) return;
+
+  // No addresses were pre-validated for this call — pinnedPost must refuse
+  // outright rather than resolving the hostname itself.
+  await assert.rejects(() =>
+    pinnedPost(dest.url, [], { headers: {}, body: "x", timeoutMs: 1000 }),
+  );
 });

@@ -23,6 +23,9 @@ export const APP_HOME_PATH = "/dashboard";
  * - `/api/chat`    the chat endpoint — works signed-in *and* anonymous
  * - `/api/internal/*`  server-to-server jobs (cron) — the routes enforce their
  *   own secret; the proxy must not redirect them to `/login`.
+ * - `/api/health`, `/api/health/*`  liveness/readiness — an external monitor
+ *   (uptime checker, load balancer) has no session and must never be bounced
+ *   to `/login`. The routes themselves return no secrets or tenant data.
  */
 export function isPublicPath(pathname: string): boolean {
   if (
@@ -40,6 +43,9 @@ export function isPublicPath(pathname: string): boolean {
     return true;
   }
   if (pathname === "/api/internal" || pathname.startsWith("/api/internal/")) {
+    return true;
+  }
+  if (pathname === "/api/health" || pathname.startsWith("/api/health/")) {
     return true;
   }
   // Provider webhooks (WhatsApp, …) — each route enforces its own

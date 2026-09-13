@@ -20,6 +20,8 @@ test("public paths are reachable without a session", () => {
     "/auth/confirm",
     "/auth/callback",
     "/api/chat",
+    "/api/health",
+    "/api/health/ready",
   ]) {
     assert.equal(isPublicPath(p), true, p);
     assert.deepEqual(decideProxyAction(p, false), { type: "next" }, p);

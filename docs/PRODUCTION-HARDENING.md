@@ -241,3 +241,73 @@ var): **24 hours**. Override with `RATE_LIMIT_CLEANUP_RETENTION_SECONDS`.
 
 The cleanup route/function is `service_role`-only, same as `hit_rate_limit` —
 never reachable by `anon` or `authenticated`.
+
+## 7. Health checks and backlog/staleness monitoring
+
+Added in the Enterprise Operations Readiness phase — local-only, no new
+vendor, no new infrastructure.
+
+### `GET /api/health` — liveness
+
+Public (no session, no secret — an external monitor has neither). Checks
+nothing beyond "this process can answer HTTP" — no database, and **never**
+Anthropic (a paid call must never sit on a health-check hot path). Point a
+platform's restart/liveness probe here.
+
+| Status | Meaning |
+|---|---|
+| `200` | always, when reachable. There is no failure mode this route can report — see `/ready` below for that. |
+
+### `GET /api/health/ready` — readiness
+
+Public, same reasoning. Checks the one dependency that would make the
+instance genuinely unable to serve traffic: the database — one bounded,
+indexed, row-less query (`src/lib/health/check.ts`), same cost regardless of
+table size. Point a load balancer / rolling-deploy gate here — **never** a
+restart probe, since restarting a process doesn't fix a database outage.
+
+| Status | Meaning |
+|---|---|
+| `200` | database reachable and answering. |
+| `503` | database not configured, unreachable, or erroring — safe classification only (`not_configured` \| `timeout` \| `query_failed`) in the response body, never a raw Postgres/network error string. |
+
+### `GET/POST /api/internal/ops/summary` — backlog/staleness visibility
+
+Not public: same `Authorization: Bearer <secret>` / `x-cron-secret` shape as
+the cron routes above, gated by `OPS_STATUS_SECRET`. Answers "is a cron
+falling behind, stuck, or failing repeatedly?" for the follow-up scheduler,
+the Integration Hub worker, and rate-limit cleanup — derived entirely from
+existing table columns via three `service_role`-only SQL functions
+(migration `20260913090000_ops_monitoring.sql`), **no new "cron run log"
+table**:
+
+- **Follow-up scheduler** (`follow_up_backlog_summary`): `pendingDue` (due,
+  unclaimed), `stuckProcessing` (claimed past `FOLLOW_UP_STUCK_PROCESSING_MS`
+  — a crashed worker's rows, reclaimed on the next run), `failed`
+  (exhausted retries), `oldestDueSeconds` (age of the oldest unclaimed due
+  row — **the** "cron hasn't run" signal: a healthy 5-minute cron never lets
+  this exceed a few minutes).
+- **Integration Hub** (`integration_hub_backlog_summary`): `pendingFanout`
+  (outbox not yet fanned out), `pendingDeliveries` (due, unclaimed),
+  `stuckDelivering` (claimed past `INTEGRATION_HUB_STUCK_DELIVERING_MS`),
+  `dead` (terminal failures), `oldestPendingSeconds`.
+- **Rate-limit cleanup** (`rate_limit_backlog_summary`): `staleCount` — rows
+  well past the cleanup cron's own retention window (default: stale after
+  48h, 2× the cleanup cron's 24h default) — cleanup has no "backlog" in the
+  due-work sense, so a growing stale count is the equivalent staleness
+  signal for that cron specifically.
+
+Every number is a pre-aggregated count/age — no lead name, note, payload,
+webhook URL, or org name ever leaves these functions (deliberately narrower
+than a raw table grant would allow). `200` with `{"status":"ok", ...}` when
+every section queried cleanly; `503` with `{"status":"not_configured"}` if
+Supabase isn't configured; `200` with `{"status":"error", "errors":[...]}`
+(safe classification strings only) if a section's query itself failed —
+the other sections' data, if they succeeded, is still returned alongside.
+
+**Suggested alerting** (external monitor, polling this route): page if
+`followUps.oldestDueSeconds` exceeds a few multiples of the 5-minute cron
+interval, if any `stuckProcessing`/`stuckDelivering` count stays nonzero
+across two consecutive polls (a single crashed-and-reclaimed worker is
+normal; persistently nonzero is not), or if `dead`/`failed` grows between
+polls faster than expected.

@@ -1222,6 +1222,46 @@ export interface Database {
         Args: { p_older_than_seconds: number };
         Returns: number;
       };
+      /**
+       * Follow-up scheduler backlog/staleness summary (service-role only).
+       * Safe aggregate counts only — no lead PII. See
+       * `20260913090000_ops_monitoring.sql`.
+       */
+      follow_up_backlog_summary: {
+        Args: { p_stuck_after: string };
+        Returns: {
+          pending_due: number;
+          stuck_processing: number;
+          failed: number;
+          oldest_due_seconds: number | null;
+        }[];
+      };
+      /**
+       * Integration Hub backlog/staleness summary (service-role only). Safe
+       * aggregate counts only — no payload/URL/org data. See
+       * `20260913090000_ops_monitoring.sql`.
+       */
+      integration_hub_backlog_summary: {
+        Args: { p_stuck_after: string };
+        Returns: {
+          pending_fanout: number;
+          pending_deliveries: number;
+          stuck_delivering: number;
+          dead: number;
+          oldest_pending_seconds: number | null;
+        }[];
+      };
+      /**
+       * Rate-limit cleanup staleness summary (service-role only). A count
+       * only — never the underlying `bucket:id` keys. See
+       * `20260913090000_ops_monitoring.sql`.
+       */
+      rate_limit_backlog_summary: {
+        Args: { p_stale_after_seconds: number };
+        Returns: {
+          stale_count: number;
+        }[];
+      };
     };
     Enums: {
       organization_status: OrganizationStatus;

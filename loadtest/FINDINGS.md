@@ -9,6 +9,12 @@ results except the one fix explicitly called out in §12.
 **Read §2 (test environment) before trusting any number below.** This ran on
 one developer machine, not staging or production infrastructure.
 
+**For current status** (what's done vs. still open, across every phase since
+this one) **see [`docs/ENTERPRISE-READINESS.md`](../docs/ENTERPRISE-READINESS.md)
+— the authoritative, continuously updated backlog.** This file remains the
+historical record of how each finding below was originally produced; it is
+no longer updated with status changes.
+
 ---
 
 ## 1. Proposed SLOs

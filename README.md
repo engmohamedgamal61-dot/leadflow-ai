@@ -41,7 +41,11 @@ WhatsApp and Google Calendar have their own credential groups — see `.env.exam
 **Cron cadence, Anthropic timeouts, observability, default usage caps, and
 rate-limit cleanup** are documented in
 [`docs/PRODUCTION-HARDENING.md`](docs/PRODUCTION-HARDENING.md), including the
-env vars not listed above.
+env vars not listed above, and now also health checks + backlog monitoring.
+**Something's on fire?** [`docs/INCIDENT-RUNBOOK.md`](docs/INCIDENT-RUNBOOK.md).
+**What's left before enterprise launch?** The authoritative, continuously
+updated backlog is [`docs/ENTERPRISE-READINESS.md`](docs/ENTERPRISE-READINESS.md).
+**Backup/restore expectations**: [`docs/BACKUP-RESTORE.md`](docs/BACKUP-RESTORE.md).
 
 ## Scripts
 

@@ -117,12 +117,39 @@ export function pinnedPost(
         headers: { ...init.headers, host: url.host },
         signal: init.signal,
         // Pin: only ever connect to a pre-validated address.
+        //
+        // Node's http(s) client requests `{ all: true }` by default (Happy
+        // Eyeballs / `autoSelectFamily`, RFC 8305 — on since Node 20) and
+        // then expects the callback's second argument to be an ARRAY of
+        // `{address, family}`, not a single `(address, family)` pair. Every
+        // existing caller/test here uses an IP-literal URL, for which Node
+        // skips `lookup` entirely — so this branch was never exercised and
+        // the single-pair reply silently broke on any real (non-literal)
+        // hostname: Node's own Happy-Eyeballs code misreads the reply and
+        // throws `Invalid IP address: undefined` deep in `node:net`, on
+        // EVERY hostname-based delivery, not just `localhost`. Fixed by
+        // answering both call shapes; the pinning invariant is unchanged —
+        // `all: true` still only ever returns addresses from the
+        // pre-validated `addresses` list, never anything freshly resolved.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         lookup: ((_hostname: string, opts: any, cb: any) => {
+          const clean = addresses.map((a) => a.replace(/^\[|\]$/g, ""));
+
+          if (opts?.all) {
+            const entries = clean
+              .filter((a) => allowed.has(a))
+              .map((a) => ({ address: a, family: a.includes(":") ? 6 : 4 }));
+            if (entries.length === 0) {
+              cb(new Error("destination address not allowed"));
+              return;
+            }
+            cb(null, entries);
+            return;
+          }
+
           const fam = opts?.family;
           const wantV6 = fam === 6 || fam === "IPv6";
           const wantV4 = fam === 4 || fam === "IPv4";
-          const clean = addresses.map((a) => a.replace(/^\[|\]$/g, ""));
           const pick =
             (wantV6 && clean.find((a) => a.includes(":"))) ||
             (wantV4 && clean.find((a) => !a.includes(":"))) ||
