@@ -28,6 +28,35 @@ const ENC_KEY = "d".repeat(64);
 process.env.CALENDAR_TOKEN_ENCRYPTION_KEY = ENC_KEY;
 process.env.CALENDAR_MOCK_TRANSPORT = "1"; // freeBusy always reports clear — the DB constraint is the real guard under test
 
+/**
+ * Every appointment time in this file MUST be anchored to `Date.now()` at
+ * test-run time, never a fixed calendar date.
+ *
+ * Root cause of this suite's flakiness (investigated and proven — see the
+ * accompanying report): `rescheduleAppointment` and `cancelAppointment` both
+ * call `getActiveAppointment`, which only treats an appointment as "active"
+ * when `starts_at > now()` (`src/lib/calendar/service.ts`) — correct,
+ * intentional production behavior (you can't reschedule/cancel something
+ * that's already in the past). This file used to hardcode absolute dates
+ * ("2026-09-12T06:00:00Z", etc.) that were in the future when the file was
+ * written but silently became past dates as real time caught up — at which
+ * point `bookAppointment` (which has no "must be future" check) still
+ * booked them, but `rescheduleAppointment`/`cancelAppointment` started
+ * failing with `noActiveAppointment`, one test at a time, in whatever order
+ * their specific hardcoded date happened to expire. Reproduced directly:
+ * booking "2026-09-12T06:00:00Z" today (2026-09-13) succeeds, but
+ * `getActiveAppointment` immediately returns `null` for it. Every date below
+ * is now `daysFromNow(N)` so this can never happen again, regardless of
+ * when this suite runs.
+ */
+const NOW = Date.now();
+function daysFromNow(days: number, hour = 6, minute = 0): string {
+  const d = new Date(NOW);
+  d.setUTCDate(d.getUTCDate() + days);
+  d.setUTCHours(hour, minute, 0, 0);
+  return d.toISOString();
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyClient = any;
 const stamp = Date.now();
@@ -133,7 +162,7 @@ after(async () => {
 });
 
 test("bookAppointment: creates the row, advances lead status, records an event", { skip }, async () => {
-  const outcome = await bookAppointment(ctx(), { startsAt: "2026-09-10T06:00:00Z" });
+  const outcome = await bookAppointment(ctx(), { startsAt: daysFromNow(1) });
   assert.equal(outcome.status, "executed");
   assert.ok(outcome.appointmentId);
 
@@ -153,7 +182,7 @@ test("bookAppointment: creates the row, advances lead status, records an event",
 });
 
 test("double-booking the same calendar connection is rejected by the DB exclusion constraint", { skip }, async () => {
-  const first = await bookAppointment(ctx(), { startsAt: "2026-09-11T06:00:00Z" });
+  const first = await bookAppointment(ctx(), { startsAt: daysFromNow(2) });
   assert.equal(first.status, "executed");
 
   // Same connection, overlapping window, a DIFFERENT lead — the soft
@@ -161,13 +190,13 @@ test("double-booking the same calendar connection is rejected by the DB exclusio
   // exclusion constraint on calendar_connection_id can catch it.
   const second = await bookAppointment(
     ctx({ leadId: leadRE }),
-    { startsAt: "2026-09-11T06:15:00Z", endsAt: "2026-09-11T06:45:00Z" },
+    { startsAt: daysFromNow(2, 6, 15), endsAt: daysFromNow(2, 6, 45) },
   );
   assert.equal(second.status, "failed");
   assert.equal(second.detailCode, "errors.calendar.slotTaken");
 
   // A non-overlapping time on the same connection still succeeds.
-  const third = await bookAppointment(ctx(), { startsAt: "2026-09-11T08:00:00Z" });
+  const third = await bookAppointment(ctx(), { startsAt: daysFromNow(2, 8) });
   assert.equal(third.status, "executed");
 
   await admin.from("appointments").delete().eq("lead_id", leadRE);
@@ -175,16 +204,16 @@ test("double-booking the same calendar connection is rejected by the DB exclusio
 });
 
 test("rescheduleAppointment moves the active appointment and logs from/to", { skip }, async () => {
-  const booked = await bookAppointment(ctx(), { startsAt: "2026-09-12T06:00:00Z" });
+  const booked = await bookAppointment(ctx(), { startsAt: daysFromNow(3) });
   assert.equal(booked.status, "executed");
 
-  const rescheduled = await rescheduleAppointment(ctx(), { newStartsAt: "2026-09-12T09:00:00Z" });
+  const rescheduled = await rescheduleAppointment(ctx(), { newStartsAt: daysFromNow(3, 9) });
   assert.equal(rescheduled.status, "executed");
   assert.equal(rescheduled.appointmentId, booked.appointmentId);
 
   const row = await admin.from("appointments").select("starts_at, status").eq("id", booked.appointmentId).single();
   assert.equal(row.data.status, "rescheduled");
-  assert.equal(Date.parse(row.data.starts_at), Date.parse("2026-09-12T09:00:00Z"));
+  assert.equal(Date.parse(row.data.starts_at), Date.parse(daysFromNow(3, 9)));
 
   const active = await getActiveAppointment(admin, orgRE, leadRE);
   assert.equal(active?.id, booked.appointmentId);
@@ -194,7 +223,7 @@ test("rescheduleAppointment moves the active appointment and logs from/to", { sk
 });
 
 test("cancelAppointment marks the row cancelled and records the reason", { skip }, async () => {
-  const booked = await bookAppointment(ctx(), { startsAt: "2026-09-13T06:00:00Z" });
+  const booked = await bookAppointment(ctx(), { startsAt: daysFromNow(4) });
   const cancelled = await cancelAppointment(ctx(), { reason: "prospect changed plans" });
   assert.equal(cancelled.status, "executed");
   assert.equal(cancelled.appointmentId, booked.appointmentId);
@@ -214,7 +243,7 @@ test("cancelAppointment / rescheduleAppointment with no active appointment fail 
   assert.equal(cancelled.status, "failed");
   assert.equal(cancelled.detailCode, "errors.calendar.noActiveAppointment");
 
-  const rescheduled = await rescheduleAppointment(ctx(), { newStartsAt: "2026-09-14T06:00:00Z" });
+  const rescheduled = await rescheduleAppointment(ctx(), { newStartsAt: daysFromNow(5) });
   assert.equal(rescheduled.status, "failed");
   assert.equal(rescheduled.detailCode, "errors.calendar.noActiveAppointment");
 });
@@ -222,14 +251,14 @@ test("cancelAppointment / rescheduleAppointment with no active appointment fail 
 test("bookAppointment with no connected calendar fails cleanly", { skip }, async () => {
   const outcome = await bookAppointment(
     ctx({ organizationId: orgB, leadId: leadB }),
-    { startsAt: "2026-09-10T06:00:00Z" },
+    { startsAt: daysFromNow(1) },
   );
   assert.equal(outcome.status, "failed");
   assert.equal(outcome.detailCode, "errors.calendar.notConnected");
 });
 
 test("tenant isolation: org B cannot see or affect org A's connection or appointments", { skip }, async () => {
-  const booked = await bookAppointment(ctx(), { startsAt: "2026-09-15T06:00:00Z" });
+  const booked = await bookAppointment(ctx(), { startsAt: daysFromNow(6) });
   assert.equal(booked.status, "executed");
 
   // org B's context, org A's lead id — must not find or touch org A's appointment.
@@ -244,10 +273,10 @@ test("tenant isolation: org B cannot see or affect org A's connection or appoint
 
 test("Real Estate and Clinic templates hit the identical booking code path", { skip }, async () => {
   const re = await bookAppointment(ctx({ organizationId: orgRE, leadId: leadRE }), {
-    startsAt: "2026-09-16T06:00:00Z",
+    startsAt: daysFromNow(7),
   });
   const clinic = await bookAppointment(ctx({ organizationId: orgClinic, leadId: leadClinic }), {
-    startsAt: "2026-09-16T06:00:00Z",
+    startsAt: daysFromNow(7),
   });
   assert.equal(re.status, "executed");
   assert.equal(clinic.status, "executed");
@@ -268,8 +297,8 @@ test("permission gating: a viewer's RLS-scoped client cannot insert an appointme
     organization_id: orgRE,
     lead_id: leadRE,
     calendar_connection_id: connRE,
-    starts_at: "2026-09-17T06:00:00Z",
-    ends_at: "2026-09-17T07:00:00Z",
+    starts_at: daysFromNow(8),
+    ends_at: daysFromNow(8, 7),
     source: "manual",
   });
   assert.ok(error, "expected RLS to reject the viewer's insert");
@@ -287,7 +316,7 @@ test("bookAppointment: Google createEvent failure leaves no DB appointment", { s
   __setGoogleProviderForTests(failing);
   try {
     const beforeRows = await admin.from("appointments").select("id").eq("lead_id", leadRE);
-    const outcome = await bookAppointment(ctx(), { startsAt: "2026-09-19T06:00:00Z" });
+    const outcome = await bookAppointment(ctx(), { startsAt: daysFromNow(9) });
     assert.equal(outcome.status, "failed");
     assert.equal(outcome.detailCode, "errors.calendar.providerFailed");
     const afterRows = await admin.from("appointments").select("id").eq("lead_id", leadRE);
@@ -315,7 +344,7 @@ test("bookAppointment: a non-conflict DB insert failure deletes the just-created
     // compensation.
     const bogusLeadId = "00000000-0000-0000-0000-000000000000";
     const outcome = await bookAppointment(ctx({ leadId: bogusLeadId }), {
-      startsAt: "2026-09-20T06:00:00Z",
+      startsAt: daysFromNow(10),
     });
     assert.equal(outcome.status, "failed");
     assert.equal(outcome.detailCode, "errors.calendar.bookingFailed");
@@ -335,7 +364,7 @@ test("bookAppointment fails cleanly when the calendar was disconnected since the
     .eq("id", conn);
 
   const outcome = await bookAppointment(ctx({ organizationId: org, leadId: lead }), {
-    startsAt: "2026-09-21T06:00:00Z",
+    startsAt: daysFromNow(11),
   });
   assert.equal(outcome.status, "failed");
   assert.equal(outcome.detailCode, "errors.calendar.notConnected");
@@ -366,7 +395,7 @@ test("upsertConnection stores the real (non-hardcoded) timezone, and booking hon
   assert.equal((row.data.settings as { timezone?: string }).timezone, "America/New_York");
 
   const outcome = await bookAppointment(ctx({ organizationId: org, leadId: lead }), {
-    startsAt: "2026-09-22T06:00:00Z",
+    startsAt: daysFromNow(12),
   });
   assert.equal(outcome.status, "executed");
   const appt = await admin
@@ -444,7 +473,7 @@ test("two simultaneous bookings of the exact same slot: exactly one succeeds", {
       .single()
   ).data.id;
 
-  const slot = { startsAt: "2026-09-23T06:00:00Z" };
+  const slot = { startsAt: daysFromNow(13) };
   const [a, b] = await Promise.all([
     bookAppointment(ctx({ organizationId: org, leadId: leadX }), slot),
     bookAppointment(ctx({ organizationId: org, leadId: leadY }), slot),
@@ -463,7 +492,7 @@ test("widget booking guarantee: an org-A-resolved context can never see, cancel,
 
   // Org B books a slot on its own connection.
   const bBooked = await bookAppointment(ctx({ organizationId: wOrgB, leadId: wLeadB }), {
-    startsAt: "2026-09-24T06:00:00Z",
+    startsAt: daysFromNow(14),
   });
   assert.equal(bBooked.status, "executed");
 
@@ -481,7 +510,7 @@ test("widget booking guarantee: an org-A-resolved context can never see, cancel,
   // succeed — the exclusion constraint is scoped per calendar connection, so
   // org B's booking never blocks org A's.
   const aBooked = await bookAppointment(ctx({ organizationId: wOrgA, leadId: wLeadA }), {
-    startsAt: "2026-09-24T06:00:00Z",
+    startsAt: daysFromNow(14),
   });
   assert.equal(aBooked.status, "executed");
 
@@ -529,7 +558,7 @@ test("a widget-booked appointment attaches to the correctly deduplicated lead ac
 
   const outcome = await bookAppointment(
     ctx({ organizationId: org, leadId: second.leadId, conversationId: second.conversationId }),
-    { startsAt: "2026-09-25T06:00:00Z" },
+    { startsAt: daysFromNow(15) },
   );
   assert.equal(outcome.status, "executed");
 

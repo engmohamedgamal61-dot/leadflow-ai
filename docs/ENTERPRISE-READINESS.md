@@ -10,7 +10,7 @@ here, update its status in place; when a phase finds something new, add it
 here. Don't delete a still-open item just because a later phase didn't
 touch it.
 
-Last updated: 2026-09-13 (Enterprise Operations Readiness — local-only phase).
+Last updated: 2026-09-13 (Calendar Integration Test Flakiness investigation).
 
 ---
 
@@ -22,31 +22,31 @@ Last updated: 2026-09-13 (Enterprise Operations Readiness — local-only phase).
 | 2 | Silent lead loss during a Supabase outage | **DONE** | Supabase Outage Hardening phase |
 | 3 | Horizontal scaling validated on real Vercel infra | **PAUSED** (no paid infra yet) | Enterprise Readiness load-test phase |
 | 4 | Staging environment (separate Vercel + Supabase project) | **PAUSED** (no paid infra yet) | Staging planning phase |
-| 5 | Health/liveness endpoint | **DONE** | Enterprise Operations Readiness (this phase) |
-| 6 | DB readiness endpoint | **DONE** | Enterprise Operations Readiness (this phase) |
-| 7 | Ops backlog summary endpoint | **DONE** | Enterprise Operations Readiness (this phase) |
-| 8 | Follow-up scheduler backlog visibility | **DONE** | Enterprise Operations Readiness (this phase) |
-| 9 | Integration Hub backlog visibility | **DONE** | Enterprise Operations Readiness (this phase) |
-| 10 | Rate-limit cleanup staleness visibility | **DONE** | Enterprise Operations Readiness (this phase) |
-| 11 | Incident-response runbook | **DONE** | Enterprise Operations Readiness (this phase) |
-| 12 | Backup/restore documentation | **DONE (documented)** — restore drill NOT performed | Enterprise Operations Readiness (this phase) |
-| 13 | `safe-fetch` hostname/DNS lookup bug (Happy-Eyeballs `lookup` contract) | **DONE (fixed)** | Enterprise Operations Readiness (this phase) |
-| 14 | Playwright browser-test lane (dashboard concurrency, AI Sales Manager latency) | **NOT BUILT** — assessed only | first flagged: load-test phase; assessed: this phase |
-| 15 | Restore drill | **NOT PERFORMED** | this phase (documentation only) |
+| 5 | Health/liveness endpoint | **DONE** | Enterprise Operations Readiness phase |
+| 6 | DB readiness endpoint | **DONE** | Enterprise Operations Readiness phase |
+| 7 | Ops backlog summary endpoint | **DONE** | Enterprise Operations Readiness phase |
+| 8 | Follow-up scheduler backlog visibility | **DONE** | Enterprise Operations Readiness phase |
+| 9 | Integration Hub backlog visibility | **DONE** | Enterprise Operations Readiness phase |
+| 10 | Rate-limit cleanup staleness visibility | **DONE** | Enterprise Operations Readiness phase |
+| 11 | Incident-response runbook | **DONE** | Enterprise Operations Readiness phase |
+| 12 | Backup/restore documentation | **DONE (documented)** — restore drill NOT performed | Enterprise Operations Readiness phase |
+| 13 | `safe-fetch` hostname/DNS lookup bug (Happy-Eyeballs `lookup` contract) | **DONE (fixed)** | Enterprise Operations Readiness phase |
+| 14 | Playwright browser-test lane (dashboard concurrency, AI Sales Manager latency) | **NOT BUILT** — assessed only | first flagged: load-test phase; assessed: Enterprise Operations Readiness phase |
+| 15 | Restore drill | **NOT PERFORMED** | Enterprise Operations Readiness phase (documentation only) |
 | 16 | Alert dedup is in-memory/per-warm-process only | **DEFERRED** | Supabase Outage Hardening phase |
 | 17 | Authenticated-member / anonymous-demo org paths lack a `degraded` signal | **DEFERRED** | Supabase Outage Hardening phase |
 | 18 | Retried chat turn can show a duplicate message in the visible transcript | **DEFERRED** | Supabase Outage Hardening phase |
 | 19 | No error-tracking vendor (Sentry/Datadog) wired | **DEFERRED (by design)** | Production Hardening phase |
 | 20 | Secret rotation procedure/cadence undocumented | **DEFERRED** | load-test phase (§15 checklist) |
-| 21 | Calendar availability errors use `console.error`, not `reportError`/`logEvent` | **DEFERRED** | noticed during this phase, not fixed |
+| 21 | Calendar availability errors use `console.error`, not `reportError`/`logEvent` | **DEFERRED** | noticed during Enterprise Operations Readiness phase, not fixed |
 | 22 | Google Calendar failure injection (429/timeout) not exercised | **NOT TESTED** — no injection point without modifying the app's built-in mock transport | load-test phase, still true |
-| 23 | `calendar/service.integration.test.ts` flaky/shared-state behavior | **UNRESOLVED** | first observed: Supabase Outage Hardening phase re-verification; reconfirmed: this phase |
+| 23 | `calendar/service.integration.test.ts` flaky/shared-state behavior | **DONE (fixed)** | first observed: Supabase Outage Hardening phase re-verification; root-caused and fixed: Calendar Integration Test Flakiness phase |
 | 24 | AI Sales Manager query latency under load | **NOT TESTED** — Server Action wire protocol not replicated by the k6 harness | load-test phase |
 | 25 | Dashboard concurrent-session behavior above 10 VU | **NOT VALIDATED** — harness artifact, not a confirmed app bug | load-test phase |
 
 ---
 
-## DONE — this phase (Enterprise Operations Readiness, local-only)
+## DONE — Enterprise Operations Readiness phase (local-only)
 
 - **Health/liveness endpoint** — `GET /api/health`. Always `200` when
   reachable; checks nothing (no DB, no Anthropic) by design. Public, no
@@ -93,9 +93,31 @@ Last updated: 2026-09-13 (Enterprise Operations Readiness — local-only phase).
   pre-validated addresses). New regression tests exercise the real Node
   `lookup` hook against a real server.
 
+## DONE — Calendar Integration Test Flakiness phase (local-only)
+
+- **`calendar/service.integration.test.ts` flakiness — root-caused and
+  fixed.** Not shared state, ordering, or a race: `rescheduleAppointment`
+  and `cancelAppointment` both require `getActiveAppointment` to find a
+  **future**-dated appointment (`starts_at > now()`, by design — you can't
+  reschedule/cancel something already in the past). The test file hardcoded
+  absolute calendar dates ("2026-09-12T06:00:00Z", etc.) that were in the
+  future when written but silently became past dates as real time caught
+  up — `bookAppointment` itself has no future-date check, so booking still
+  "succeeded," but the reschedule/cancel calls that depend on that booking
+  being "active" started failing once its specific hardcoded date expired,
+  one test at a time, explaining why a different sub-test failed on
+  different runs. Reproduced directly against real Postgres (booking a
+  now-past date succeeds; `getActiveAppointment` immediately returns
+  `null` for it) and confirmed the failures persist even running each test
+  completely alone — ruling out ordering/shared-state causes. Fixed by
+  anchoring every appointment time in the file to `Date.now()` at
+  test-run time (`daysFromNow(n)`) instead of a fixed calendar date — test
+  file only, no production code changed. Verified with 10 consecutive
+  standalone runs and 3 consecutive full-integration-suite runs, all clean.
+
 ## PARTIAL / DEFERRED / NOT TESTED
 
-**Not performed / not built this phase (or ever):**
+**Not performed / not built in the Enterprise Operations Readiness phase (or ever):**
 - **Restore drill** — not performed. `docs/BACKUP-RESTORE.md` is
   documentation of what *should* happen, not a verified procedure.
 - **Playwright browser-test lane** — not built. Assessed as the smallest
@@ -113,24 +135,17 @@ Last updated: 2026-09-13 (Enterprise Operations Readiness — local-only phase).
   exercised. The app's built-in `CALENDAR_MOCK_TRANSPORT` has no
   failure-injection hook, and adding one means modifying application code,
   which every load-test phase to date has deliberately avoided. Still an
-  open gap, not newly introduced or newly closed by this phase.
+  open gap, not newly introduced or newly closed by the Enterprise Operations Readiness phase.
 
-**Noticed but intentionally not fixed this phase (would be scope creep):**
+**Noticed but intentionally not fixed in the Enterprise Operations Readiness phase (would be scope creep):**
 - **Calendar availability errors still use `console.error`** instead of
   the unified `reportError`/`logEvent` path everything else on the hot path
   uses (`src/lib/chat/conversation-service.ts`'s
   `getAvailabilityForPrompt` catch block). Noticed while writing the
   incident runbook. Small, isolated, and safe to fix in a future pass —
-  deliberately left alone here rather than expanding this phase's scope.
-- **`calendar/service.integration.test.ts` has unresolved flaky/
-  shared-state behavior.** First observed during the Supabase Outage
-  Hardening phase's verification pass (`rescheduleAppointment` failing);
-  reconfirmed this phase with a *different* failing sub-test
-  (`cancelAppointment`) on a clean, unmodified checkout via `git stash` —
-  confirming it's pre-existing test-ordering/shared-state flakiness in that
-  file, not a regression from any recent change, and not yet root-caused.
+  deliberately left alone here rather than expanding that phase's scope.
 
-**Carried forward from earlier phases, untouched by this one:**
+**Carried forward from earlier phases, not touched by this investigation:**
 - **Alert dedup is in-memory/per-warm-process only** — resets on cold
   start, doesn't dedupe across serverless instances (Supabase Outage
   Hardening phase; accepted limitation, not a defect).
@@ -174,7 +189,10 @@ Last updated: 2026-09-13 (Enterprise Operations Readiness — local-only phase).
    the separate-Vercel/separate-Supabase staging plan; discovery confirmed
    no Vercel/Supabase CLI session is authenticated in this environment and
    no production project is identifiable from repo state.
-4. **Enterprise Operations Readiness phase** (this phase) — closed the
-   health-endpoint, backlog-visibility, runbook, and backup-doc gaps;
-   escalated the `safe-fetch` P2 note into a real, fixed bug; explicitly
-   proved the new ops-summary endpoint's auth contract.
+4. **Enterprise Operations Readiness phase** — closed the health-endpoint,
+   backlog-visibility, runbook, and backup-doc gaps; escalated the
+   `safe-fetch` P2 note into a real, fixed bug; explicitly proved the new
+   ops-summary endpoint's auth contract.
+5. **Calendar Integration Test Flakiness phase** (this phase) — root-caused
+   and fixed item 23 (test-fixture time dependency, not shared state or
+   ordering); no production code changed.
